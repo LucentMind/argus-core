@@ -20,7 +20,7 @@ describe('setCaseStatus onClosed hook', () => {
     const rec = setCaseStatus(db, home, 'c1', 'closed', 'solved', hook)
     expect(hook).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ slug: 'c1', status: 'closed' }),
-      { distill: true, attribution: true }
+      { distill: true }
     )
     expect(rec.resolution).toBe('solved')
   })
@@ -41,7 +41,7 @@ describe('setCaseStatus onClosed hook', () => {
     expect(rec.status).toBe('closed')
   })
 
-  it('passes the close options through to the hook; defaults are distill+attribution on', () => {
+  it('passes the close options through to the hook; default is distill on, attribution UNRESOLVED', () => {
     const hook = vi.fn()
     setCaseStatus(db, home, 'c1', 'closed', 'solved', hook, { distill: false, attribution: true })
     expect(hook).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ slug: 'c1' }), {
@@ -51,9 +51,16 @@ describe('setCaseStatus onClosed hook', () => {
     createCase(db, home, { slug: 'c2', title: 'T' })
     const hook2 = vi.fn()
     setCaseStatus(db, home, 'c2', 'closed', 'solved', hook2)
-    expect(hook2).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
-      distill: true,
-      attribution: true
-    })
+    expect(hook2).toHaveBeenCalledExactlyOnceWith(expect.anything(), { distill: true })
+    // Undefined, not true: the hook resolves distill.attribution.default (A2) — a hard-coded
+    // `true` here is how the agent's update_case_status close bypassed the setting.
+    expect(hook2.mock.calls[0][1].attribution).toBeUndefined()
+  })
+
+  it('an omitted attribution reaches the hook as undefined (A2)', () => {
+    const hook = vi.fn()
+    setCaseStatus(db, home, 'c1', 'closed', 'solved', hook, { distill: true })
+    expect(hook.mock.calls[0][1]).toEqual({ distill: true })
+    expect(hook.mock.calls[0][1].attribution).toBeUndefined()
   })
 })

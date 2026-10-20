@@ -868,12 +868,15 @@ export function setReviewBaseline(
 }
 
 /** What the close dialog asked for: run the case distillation, and/or the knowledge-asset
- *  attribution stage. The close hook receives these and routes accordingly. */
+ *  attribution stage. The close hook receives these and routes accordingly. `attribution`
+ *  undefined means "the caller did not choose" — the hook resolves it from the
+ *  `distill.attribution.default` setting (a close that never shows the checkbox, e.g. the
+ *  agent's update_case_status, must still honour that default). */
 export interface CloseOptions {
   distill: boolean
-  attribution: boolean
+  attribution?: boolean
 }
-export const DEFAULT_CLOSE_OPTIONS: CloseOptions = { distill: true, attribution: true }
+export const DEFAULT_CLOSE_OPTIONS: CloseOptions = { distill: true }
 
 /**
  * The single writer for a case's lifecycle status + resolution. Only `open` and

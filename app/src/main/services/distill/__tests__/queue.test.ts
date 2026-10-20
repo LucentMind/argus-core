@@ -2343,6 +2343,43 @@ describe('attribution', () => {
       })
       expect(attrCount()).toBe(2)
     })
+    it('an attribution stage that errored (no output) fails the job, keeps stages+cost, and is retryable (A3)', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      let calls = 0
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        attributeOnly: async () => {
+          calls++
+          return {
+            stages: {
+              attribution: {
+                promptHash: 'p',
+                promptChars: 9,
+                rawOutput: 'no fence',
+                error: 'expected exactly 1 json fence, got 0'
+              }
+            },
+            usage: { costUsd: 0.2, durationMs: 5 },
+            promptChars: 9,
+            turnCount: 1,
+            toolCallCount: 0,
+            trajectory: []
+          }
+        }
+      })
+      const job = q.enqueueAttribution('case-a')
+      await q.idle()
+      const row = db
+        .prepare(`SELECT state, error, cost_usd, stages_json FROM distill_jobs WHERE id=?`)
+        .get(job.id) as { state: string; error: string; cost_usd: number; stages_json: string }
+      expect(row.state).toBe('failed')
+      expect(row.error).toBe('attribution: expected exactly 1 json fence, got 0')
+      expect(row.cost_usd).toBe(0.2)
+      expect(JSON.parse(row.stages_json).attribution.error).toMatch(/json fence/)
+      expect(() => q.retry(job.id)).not.toThrow()
+      await q.idle()
+      expect(calls).toBe(2)
+    })
     it('snapshots with attribution forced on', () => {
       const assembleInput = vi.fn(() => ATTR_INPUT)
       const { q } = makeQueue({ assembleInput, attributeOnly: EMPTY_ONLY })

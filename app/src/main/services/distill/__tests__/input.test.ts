@@ -46,6 +46,31 @@ describe('assembleDistillInput', () => {
     expect(input.caseDomain).toBe('AB') // jiraKey 'AB-1' on the default jira provider
     expect(input.options).toEqual({ attribution: true })
   })
+  it('resolves a reference tier by its relPath, including a nested one (A1)', () => {
+    const caseId = (db.prepare(`SELECT id FROM cases WHERE slug='case-a'`).get() as { id: number })
+      .id
+    db.prepare(
+      `INSERT INTO sessions (id, case_id, created_at, updated_at) VALUES (77, ?, 'x', 'x')`
+    ).run(caseId)
+    const refs = sharedReferencesDir(home)
+    fs.mkdirSync(path.join(refs, 'nav'), { recursive: true })
+    fs.writeFileSync(
+      path.join(refs, 'nav', 'limits.md'),
+      '---\ntitle: Limits\ntrust_tier: team-knowledge\n---\n\nSpeed limits.\n'
+    )
+    fs.writeFileSync(
+      path.join(refs, 'top.md'),
+      '---\ntitle: Top\ntrust_tier: confluence\n---\n\nTop level.\n'
+    )
+    const ins = db.prepare(
+      `INSERT INTO tool_calls (case_id, session_id, tool, args_hash, detail, risk, decision, created_at) VALUES (?, 77, 'Read', 'h', ?, 'LOW', 'auto', 'x')`
+    )
+    ins.run(caseId, 'ref:nav/limits.md')
+    ins.run(caseId, 'ref:top.md')
+    const input = assembleDistillInput(db, home, 'case-a', [], { attribution: true })
+    const tiers = Object.fromEntries((input.assets ?? []).map((a) => [a.name, a.tier]))
+    expect(tiers).toEqual({ 'nav/limits.md': 'team-knowledge', 'top.md': 'confluence' })
+  })
   it('omits the attribution block when opts.attribution is false, and never fails on a case with no calls', () => {
     const input = assembleDistillInput(db, home, 'case-a', [], { attribution: false })
     expect(input.assets).toEqual([])

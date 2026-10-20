@@ -31,17 +31,19 @@ RULES:
 9. OUTPUT: your FINAL assistant message contains exactly one fenced \`\`\`json block with one object having exactly these keys, with exactly these item keys: scope {status, resolution, settled, note}, root_cause {text, cites}, confirmed_fix {text, applied, cites}, rejected_hypotheses[] {text, how_ruled_out, cites}, diagnostic_path[] {step, observation, discriminated, cites}, durable_facts[] {fact, quote, scope, cites}, user_corrections[] {text, cites}. An item key you rename or invent is silently discarded, so use these names verbatim. No other keys, no commentary inside the block. Intermediate turns are working turns and are not parsed.`
 
 /** Escape-hatch contract (spec §4.5): the dossier the attribution stage needs — diagnostic path,
- *  root cause, confirmed fix, user corrections — without the knowledge-candidate groundwork.
- *  Output shape is IDENTICAL to DOSSIER_CONTRACT (parseDossier is shared); rejected_hypotheses
- *  and durable_facts are required keys that must be returned as []. Derived by replacement so a
- *  later edit to the full contract's shared rules reaches this one too; the dossier.test.ts
- *  assertions fail if either anchor below stops matching. */
+ *  root cause, confirmed fix, rejected hypotheses, user corrections — without the
+ *  knowledge-candidate groundwork. Output shape is IDENTICAL to DOSSIER_CONTRACT (parseDossier is
+ *  shared); durable_facts is a required key that must be returned as []. rejected_hypotheses is
+ *  KEPT: the attribution contract's "misled" verdict is defined against them, so blanking them
+ *  would make misled unreachable on every escape-hatch job. Derived by replacement so a later
+ *  edit to the full contract's shared rules reaches this one too; the dossier.test.ts assertions
+ *  fail if either anchor below stops matching. */
 export const DOSSIER_LITE_CONTRACT = DOSSIER_CONTRACT.replace(
   /5\. DURABLE FACTS:[^\n]*\n/,
-  '5. DURABLE FACTS: not needed for this pass — return "durable_facts": [] and "rejected_hypotheses": [].\n'
+  '5. DURABLE FACTS: not needed for this pass — return "durable_facts": [].\n'
 ).replace(
   'Later, separate passes will decide what (if anything) in this dossier is durable knowledge',
-  'A later pass will judge which skills, references and memories helped — record the diagnostic path, root cause, confirmed fix and user corrections only'
+  'A later pass will judge which skills, references and memories helped or misled the investigation, from the diagnostic path, root cause, confirmed fix, rejected hypotheses and user corrections you record here'
 )
 
 export const DOSSIER_SECTIONS: PromptTextSpecs = {

@@ -1201,8 +1201,14 @@ function registerIpc(): void {
       // must be cancelled before the close-time snapshot is enqueued, or both jobs run and the
       // newest one shadows the older, still-running one from every renderer read — see
       // reconcileAndEnqueue's doc comment in queue.ts.
+      // An unchosen attribution (the agent's update_case_status close, or any caller that
+      // never showed the checkbox) resolves to the setting's default HERE, at the one hook
+      // every close path reaches — never a hard-coded `true` upstream.
       routeCaseClose(
-        opts,
+        {
+          distill: opts.distill,
+          attribution: opts.attribution ?? settingsService.get().distill.attribution.default
+        },
         {
           enqueueCase: (slug, o) => reconcileAndEnqueue(distillQueue, slug, o),
           enqueueAttribution: (slug) => distillQueue.enqueueAttribution(slug)
@@ -1365,7 +1371,9 @@ function registerIpc(): void {
     ) =>
       setCaseStatus(db, argusHome, slug, status, resolution, onCaseClosed, {
         distill,
-        attribution: attribution ?? settingsService.get().distill.attribution.default
+        // Not runtime-validated by the IPC layer: anything but a boolean means "not chosen",
+        // and onCaseClosed resolves it from distill.attribution.default.
+        attribution: typeof attribution === 'boolean' ? attribution : undefined
       })
   )
   ipcMain.handle(IPC.evidenceIngest, async (_e, caseSlug: string, absPaths: string[]) => {
@@ -3073,7 +3081,9 @@ function registerIpc(): void {
   // inside DistillQueue.enqueue() itself, so this call would be safe either way, but the named
   // wrapper documents the intent at this call site the same way it does at onCaseClosed.)
   ipcMain.handle(IPC.distillRedistill, (_e, slug: string) =>
-    reconcileAndEnqueue(distillQueue, slug)
+    reconcileAndEnqueue(distillQueue, slug, {
+      attribution: settingsService.get().distill.attribution.default
+    })
   )
   ipcMain.handle(IPC.distillCancel, (_e, jobId: number) => distillQueue.cancel(jobId))
   // Read channels are dev-only: their only consumers are the dev runs browser and the dev

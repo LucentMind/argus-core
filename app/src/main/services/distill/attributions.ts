@@ -172,9 +172,19 @@ export function writeAttributions(
 }
 
 /**
- * Rows of the LATEST job per case that produced attribution rows (spec §4.6). Rows against a
- * dry-run job are excluded from the MAX so they can never shadow the real job.
+ * `(case_id, job_id)` of the LATEST attribution job per case: the job owning the case's highest
+ * `asset_attributions.id` — i.e. the job that most recently WROTE rows (spec §4.6). Not
+ * MAX(job_id): queue.retry() re-runs a failed job under its ORIGINAL id, so a retried case job
+ * (#10) that writes after an escape-hatch job (#11) must win even though 10 < 11 — and
+ * writeAttributions' delete+insert gives the re-run fresh, higher row ids. Rows against a
+ * dry-run job are excluded so they can never shadow the real job. The ONE definition: both the
+ * aggregation read and the override writer use it, so they can never disagree on "latest".
  */
+const LATEST_JOB_PER_CASE = `SELECT x.case_id, x.job_id FROM asset_attributions x
+  WHERE x.id = (SELECT MAX(y.id) FROM asset_attributions y JOIN distill_jobs dj ON dj.id = y.job_id
+                 WHERE y.case_id = x.case_id AND dj.dry_run = 0)`
+
+/** Rows of the latest attribution job per case — see LATEST_JOB_PER_CASE. */
 export function latestAttributionRows(
   db: DatabaseSync,
   opts: { caseSlug?: string } = {}
@@ -182,10 +192,7 @@ export function latestAttributionRows(
   const rows = db
     .prepare(
       `${SELECT}
-       JOIN (SELECT x.case_id, MAX(x.job_id) AS job_id
-               FROM asset_attributions x JOIN distill_jobs dj ON dj.id = x.job_id
-              WHERE dj.dry_run = 0 GROUP BY x.case_id) l
-         ON l.case_id = a.case_id AND l.job_id = a.job_id
+       JOIN (${LATEST_JOB_PER_CASE}) l ON l.case_id = a.case_id AND l.job_id = a.job_id
        WHERE (? IS NULL OR c.slug = ?) ORDER BY a.id`
     )
     .all(opts.caseSlug ?? null, opts.caseSlug ?? null) as unknown as Raw[]
@@ -206,12 +213,10 @@ export function applyAttributionOverride(
   const c = getCase(db, p.caseSlug)
   if (!c) return null
   const at = (p.now?.() ?? new Date()).toISOString()
-  const latestJob = db
-    .prepare(
-      `SELECT MAX(x.job_id) AS j FROM asset_attributions x JOIN distill_jobs dj ON dj.id = x.job_id
-        WHERE x.case_id = ? AND dj.dry_run = 0`
-    )
-    .get(c.id) as { j: number | null }
+  const latest = db
+    .prepare(`SELECT l.job_id AS j FROM (${LATEST_JOB_PER_CASE}) l WHERE l.case_id = ?`)
+    .get(c.id) as { j: number } | undefined
+  const latestJob = { j: latest?.j ?? null }
   let row =
     latestJob.j === null
       ? undefined

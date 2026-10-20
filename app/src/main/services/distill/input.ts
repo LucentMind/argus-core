@@ -10,6 +10,7 @@ import { listSessions } from '../agent/sessionStore'
 import { listProposals, listArchivedProposals } from '../proposals'
 import { refTitle, refBody, refTier } from '../refSync/refFrontmatter'
 import { sharedReferencesDir } from '../skillsDir'
+import { listReferenceFiles } from '../refSync/referenceFiles'
 import { structureFile } from '../rca/artifacts'
 import { buildWorld, clampText } from './world'
 import { buildAssetInventory } from './inventory'
@@ -61,6 +62,22 @@ export function buildReferencesIndex(
         tier: refTier(raw)
       }
     })
+}
+
+/** relPath (`nav/limits.md`, WITH extension, nested included) -> trust_tier. Keyed exactly like
+ *  the inventory names a reference (the tool_calls `ref:<relPath>` detail), NOT like the flat
+ *  buildReferencesIndex (`limits`, no extension) — the two identities differ on purpose. */
+function referenceTiersByRelPath(argusHome: string): Map<string, string | null> {
+  const dir = sharedReferencesDir(argusHome)
+  const out = new Map<string, string | null>()
+  for (const relPath of listReferenceFiles(dir)) {
+    try {
+      out.set(relPath, refTier(fs.readFileSync(path.join(dir, relPath), 'utf8')))
+    } catch {
+      out.set(relPath, null) // unreadable: tier unknown, never fail the input build
+    }
+  }
+  return out
 }
 
 /**
@@ -195,7 +212,7 @@ export function assembleDistillInput(
   const findings = listFindings(db, argusHome, slug)
   const assets = buildAssetInventory(db, c.id, {
     skill: opts.skillTiers ?? new Map(),
-    reference: new Map(referencesIndex.map((r) => [r.name, r.tier]))
+    reference: referenceTiersByRelPath(argusHome)
   })
 
   return {

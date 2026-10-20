@@ -95,7 +95,8 @@ export function proposalCounts(argusHome: string): ProposalCounts {
 const RESERVED_FM = new Set(['type', 'target', 'case', 'date', 'title', 'status'])
 const EXTRA_FM_KEY_RE = /^[a-z_]+$/
 
-function refFileName(target: string): string {
+/** A reference proposal target names a top-level file with or without `.md`; this is the file. */
+export function refFileName(target: string): string {
   return target.endsWith('.md') ? target : `${target}.md`
 }
 

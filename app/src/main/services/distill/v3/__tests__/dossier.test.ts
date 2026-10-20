@@ -273,10 +273,23 @@ describe('DOSSIER_LITE_CONTRACT', () => {
       expect(DOSSIER_LITE_CONTRACT).toContain(k)
     expect(DOSSIER_LITE_CONTRACT).toContain('"durable_facts": []')
   })
+  it('keeps rejected_hypotheses — the misled rule judges against them (A5)', () => {
+    // The attribution contract calls an asset "misled" when it sent the investigation toward a
+    // rejected hypothesis; a lite dossier with rejected_hypotheses forced empty makes that
+    // verdict unreachable on every escape-hatch job.
+    expect(DOSSIER_LITE_CONTRACT).not.toContain('"rejected_hypotheses": []')
+    expect(DOSSIER_LITE_CONTRACT).toMatch(
+      /5\. DURABLE FACTS: not needed[^\n]*"durable_facts": \[\]\.\n/
+    )
+    expect(DOSSIER_LITE_CONTRACT).toContain('record it under rejected_hypotheses')
+    expect(DOSSIER_LITE_CONTRACT).toMatch(/A later pass will judge[^\n]*rejected hypotheses/)
+  })
   it('drops the knowledge-candidate groundwork and keeps the diagnostic path', () => {
     expect(DOSSIER_LITE_CONTRACT).not.toBe(DOSSIER_CONTRACT)
     expect(DOSSIER_LITE_CONTRACT).not.toContain('candidate facts a future agent might consult')
     expect(DOSSIER_LITE_CONTRACT).not.toContain('separate passes will decide what')
     expect(DOSSIER_LITE_CONTRACT).toContain('4. DIAGNOSTIC PATH')
+    // anchor-2 guard: the intro replacement must actually have landed
+    expect(DOSSIER_LITE_CONTRACT).toContain('A later pass will judge')
   })
 })

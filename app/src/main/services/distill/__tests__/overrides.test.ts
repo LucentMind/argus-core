@@ -102,4 +102,61 @@ describe('overrideFromProposalReject', () => {
       )
     ).toBeNull()
   })
+  it('a reference-edit target "limits" matches the inventoried "limits.md"; a nested same-basename file does not (A1)', () => {
+    const jobId = Number(
+      db
+        .prepare(
+          `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES ('c1','done','{}','y')`
+        )
+        .run().lastInsertRowid
+    )
+    writeAttributions(db, {
+      caseSlug: 'c1',
+      jobId,
+      verdicts: [
+        {
+          kind: 'reference',
+          name: 'limits.md',
+          applied: true,
+          verdict: 'helped',
+          reason: 'r',
+          cites: []
+        },
+        {
+          kind: 'reference',
+          name: 'nav/brakes.md',
+          applied: true,
+          verdict: 'helped',
+          reason: 'r',
+          cites: []
+        }
+      ],
+      tiers: new Map(),
+      caseOutcome: 'solved',
+      caseDomain: 'NAV',
+      judgeModel: 'm',
+      promptHash: 'h'
+    })
+    expect(
+      overrideFromProposalReject(
+        db,
+        { caseSlug: 'c1', type: 'reference-edit', target: 'limits' },
+        { tag: 'wrong' }
+      )
+    ).toMatchObject({
+      assetKind: 'reference',
+      assetName: 'limits.md',
+      overrideVerdict: 'misled',
+      overrideSource: 'proposal-reject'
+    })
+    // A reference-edit targets a top-level file only (ASSET_NAME_RE has no separator), so
+    // "brakes" edits references/brakes.md — never the nested nav/brakes.md the case read.
+    expect(
+      overrideFromProposalReject(
+        db,
+        { caseSlug: 'c1', type: 'reference-edit', target: 'brakes' },
+        { tag: 'wrong' }
+      )
+    ).toBeNull()
+  })
 })
