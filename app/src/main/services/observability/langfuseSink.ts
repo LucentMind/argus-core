@@ -37,7 +37,13 @@ export interface TracingApi {
     attributes: Record<string, unknown>,
     opts: StartOpts
   ): ObservationHandle
-  createScore(o: { traceId: string; name: string; value: number; comment?: string }): Promise<void>
+  createScore(o: {
+    traceId: string
+    name: string
+    value: number
+    comment?: string
+    metadata?: Record<string, unknown>
+  }): Promise<void>
   forceFlush(): Promise<void>
   shutdown(): Promise<void>
 }
@@ -159,7 +165,8 @@ export class LangfuseSink implements ObservationSink {
         traceId,
         name: intent.name,
         value: intent.value,
-        comment: intent.comment
+        comment: intent.comment,
+        ...(intent.metadata != null ? { metadata: intent.metadata } : {})
       })
       return
     }

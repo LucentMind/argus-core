@@ -119,6 +119,8 @@ export interface AgentServiceDeps {
   panelCommandDecls?: () => PanelCommandDecl[]
   /** Fired by setCaseStatus after a non-closed→closed transition; enqueues distillation. */
   onCaseClosed?: NativeToolDeps['onCaseClosed']
+  /** Re-emits attribution rows a `retract_finding` call implicitly overrode. */
+  emitAttributions?: NativeToolDeps['emitAttributions']
   /** Fired after workspace_checkout materializes/switches a case worktree. */
   onWorktreeChanged?: (caseSlug: string) => void
   /** Dispatch a panel command to a case's open panel (3b-2); AgentService binds caseSlug per session. */
@@ -390,6 +392,7 @@ export class AgentService {
         ? (packId, windowId) => this.deps.capturePanel!(caseSlug, packId, windowId, mode)
         : undefined,
       onCaseClosed: this.deps.onCaseClosed,
+      emitAttributions: this.deps.emitAttributions,
       onWorktreeChanged: this.deps.onWorktreeChanged,
       defectCorpus: this.deps.defectCorpus,
       processLabels: this.deps.processLabels,

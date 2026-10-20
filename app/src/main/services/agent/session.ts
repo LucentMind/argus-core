@@ -172,6 +172,8 @@ export interface SessionDeps {
   capturePanel?: NativeToolDeps['capturePanel']
   /** Fired by setCaseStatus after a non-closed→closed transition; enqueues distillation. */
   onCaseClosed?: NativeToolDeps['onCaseClosed']
+  /** Re-emits attribution rows a `retract_finding` call implicitly overrode. */
+  emitAttributions?: NativeToolDeps['emitAttributions']
   /** Fired after workspace_checkout materializes/switches a case worktree. */
   onWorktreeChanged?: NativeToolDeps['onWorktreeChanged']
   /** Pack-declared panel commands (3b-2), registered as mcp__<pack>__<window>_<cmd> tools. */
@@ -551,6 +553,7 @@ export class CaseSession {
         openPanel: deps.openPanel,
         capturePanel: deps.capturePanel,
         onCaseClosed: deps.onCaseClosed,
+        emitAttributions: deps.emitAttributions,
         onWorktreeChanged: deps.onWorktreeChanged,
         defectCorpus: deps.defectCorpus,
         currentRunItemId: deps.currentRunItemId,

@@ -59,6 +59,7 @@ import type { CorpusSearchInput, SourceSearchResult } from '../../../shared/defe
 import { saveItemSuggestion } from '../routines/runItems'
 import type { TriageSuggestion } from '../../../shared/routines'
 import type { WatermarkTarget } from '../../../shared/watermark'
+import type { AttributionRow } from '../../../shared/attribution'
 import {
   runToolScript,
   PTC_FOREGROUND_MAX_CALLS,
@@ -100,6 +101,9 @@ export interface NativeToolDeps {
   capturePanel?: (packId: string, windowId: string) => Promise<CapturePanelEvidence>
   /** Fired by setCaseStatus after a non-closed→closed transition; enqueues distillation. */
   onCaseClosed?: (rec: CaseRecord, opts: CloseOptions) => void
+  /** Fired with the attribution rows a `retract_finding` call implicitly overrode (spec §4.7),
+   *  so the vendor-neutral `asset.contribution` score can be re-emitted. Absent in tests. */
+  emitAttributions?: (rows: AttributionRow[]) => void
   /** Fired after workspace_checkout materializes/switches a case worktree, so the
    *  renderer can refresh repo chips + repo snippet caches without a case switch. */
   onWorktreeChanged?: (caseSlug: string) => void
@@ -765,7 +769,9 @@ export function argusToolHandlers(
       if ((findingMode ?? DEFAULT_MODE) !== sessionMode(db, deps.sessionId)) {
         throw new Error(wf(wdeps, 'review_write.unknown-finding'))
       }
-      const res = retractFinding(db, findingId, reason)
+      const res = retractFinding(db, findingId, reason, {
+        onOverride: (row) => deps.emitAttributions?.([row])
+      })
       if (!res.ok) {
         throw new Error(
           res.reason === 'accepted'

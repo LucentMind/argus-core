@@ -50,6 +50,8 @@ export interface ScoreIntent {
   name: string
   value: number
   comment?: string
+  /** Free-form score metadata (Langfuse `ScoreBody.metadata`). */
+  metadata?: Record<string, unknown>
 }
 
 export type ObservationIntent =

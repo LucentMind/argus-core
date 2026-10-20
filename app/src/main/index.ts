@@ -52,6 +52,9 @@ import { fillPrompt } from './services/prompts/fill'
 import { buildCaptureDetail } from './services/prompts/captureDetail'
 import { exportEvalBundle } from './services/distill/evalExport'
 import { overrideFromProposalReject } from './services/distill/overrides'
+import { lastSessionIdForCase } from './services/distill/attributions'
+import { readOrCreateInstanceId } from './services/instanceId'
+import { toAttributionEvent, type AttributionRow } from '../shared/attribution'
 import { DefectCorpusService } from './services/defectCorpus/service'
 import type { CorpusAdminConfig, CorpusSearchInput } from './services/defectCorpus/client'
 import { corpusTokenSecret } from '../shared/defectCorpus'
@@ -1102,6 +1105,32 @@ function registerIpc(): void {
         tier: s.tier
       }))
   })
+  // Vendor-neutral attribution emission (spec §4.9): verdict rows → `asset.contribution` scores
+  // on the case's latest session trace. Resolved lazily so an unconfigured Langfuse costs no disk
+  // write at boot; never throws — it is called from the queue, the reject IPC and a tool handler.
+  let installId: string | null = null
+  function emitAttributions(rows: AttributionRow[]): void {
+    if (!langfuseExporter || rows.length === 0) return
+    try {
+      installId ??= readOrCreateInstanceId(argusHome)
+      const appVersion = app.getVersion()
+      const bySlug = new Map<string, AttributionRow[]>()
+      for (const r of rows) bySlug.set(r.caseSlug, [...(bySlug.get(r.caseSlug) ?? []), r])
+      for (const [slug, group] of bySlug) {
+        const sessionId = lastSessionIdForCase(db, slug)
+        if (sessionId === null) {
+          console.debug(`[attribution] no session for case ${slug}; not emitting`)
+          continue
+        }
+        langfuseExporter.scoreAttributions(
+          sessionId,
+          group.map((r) => toAttributionEvent(r, { installId: installId!, appVersion }))
+        )
+      }
+    } catch (err) {
+      console.error('[attribution] emission failed', err)
+    }
+  }
   const distillQueue = new DistillQueue({
     db,
     assembleInput: (slug, opts) => {
@@ -1156,8 +1185,8 @@ function registerIpc(): void {
     judgeModel: () => {
       const r = resolveDistillProvider(settingsService.get())
       return r.ok ? (r.model ?? 'default') : 'unconfigured'
-    }
-    // onAttributions: wired by Task 11 (emitAttributions).
+    },
+    onAttributions: emitAttributions
   })
   distillQueue.recoverOnBoot()
   const onCaseClosed = (rec: CaseRecord, opts: CloseOptions): void => {
@@ -2003,6 +2032,7 @@ function registerIpc(): void {
     capturePanel: capturePanelFor,
     panelCommandDecls: () => flattenPanelCommands(packRegistry.windowDecls()),
     onCaseClosed,
+    emitAttributions,
     onWorktreeChanged: (slug) => broadcast(IPC.workspacesChanged, slug),
     defectCorpus,
     processLabels: defaultProcessLabels,
@@ -3632,12 +3662,12 @@ function registerIpc(): void {
     rejectProposal(argusHome, file, reason)
     if (p) {
       try {
-        // Emission (Task 11) is not wired yet; the override row itself is persisted here.
-        overrideFromProposalReject(
+        const row = overrideFromProposalReject(
           db,
           { caseSlug: p.caseSlug, type: p.type, target: p.target },
           reason
         )
+        if (row) emitAttributions([row])
       } catch (err) {
         console.error('[attribution] proposal-reject override failed', err)
       }
