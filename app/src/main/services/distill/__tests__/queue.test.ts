@@ -10,7 +10,8 @@ import {
   reconcileAndEnqueue,
   needsDistillRun,
   TRAJECTORY_JSON_CAP,
-  pipelineOf
+  pipelineOf,
+  routeCaseClose
 } from '../queue'
 import { DistillParseError } from '../contract'
 import { DistillAgentRunError } from '../caseDistiller'
@@ -1842,5 +1843,460 @@ describe('pipelineOf', () => {
   })
   it('ignores an unknown column value rather than trusting it', () => {
     expect(pipelineOf({ pipeline: 'v9', has_stages: false, state: 'done' })).toBe('v2')
+  })
+})
+
+describe('attribution', () => {
+  const ATTR_RUN = {
+    raw: '```json\n{}\n```',
+    output: { proposals: [] },
+    stages: {
+      dossier: { promptHash: 'h', promptChars: 1, rawOutput: '' },
+      attribution: { promptHash: 'a', promptChars: 1, rawOutput: '' }
+    },
+    attribution: {
+      verdicts: [
+        {
+          kind: 'skill' as const,
+          name: 'diag',
+          applied: true,
+          verdict: 'helped' as const,
+          reason: 'r',
+          cites: []
+        }
+      ],
+      malformedDropped: {},
+      unknownAssetDropped: {},
+      uncitedDropped: 0,
+      duplicateDropped: 0
+    }
+  }
+  const ATTR_INPUT = {
+    ...INPUT,
+    caseOutcome: 'solved',
+    caseDomain: 'NAV',
+    assets: [
+      {
+        kind: 'skill',
+        name: 'diag',
+        tier: 'user',
+        callCount: 1,
+        firstSeen: { sessionId: 1, turnId: null }
+      }
+    ],
+    options: { attribution: true }
+  } as unknown as CaseDistillInput
+  const EMPTY_ONLY = async (): Promise<{
+    stages: Record<string, never>
+    promptChars: number
+    turnCount: number
+    toolCallCount: number
+    trajectory: never[]
+  }> => ({ stages: {}, promptChars: 0, turnCount: 0, toolCallCount: 0, trajectory: [] })
+  const attrCount = (): number =>
+    (
+      db.prepare(`SELECT COUNT(*) AS n FROM distill_jobs WHERE kind='attribution'`).get() as {
+        n: number
+      }
+    ).n
+
+  it('writes asset_attributions rows after a done case job and calls onAttributions', async () => {
+    createCase(db, home, { slug: 'case-a', title: 'T' })
+    const emitted: unknown[] = []
+    const { q } = makeQueue({
+      assembleInput: () => ATTR_INPUT,
+      distill: async () => ATTR_RUN,
+      judgeModel: () => 'm1',
+      onAttributions: (rows) => emitted.push(...rows)
+    })
+    q.enqueue('case-a', { attribution: true })
+    await q.idle()
+    const rows = db
+      .prepare(`SELECT asset_name, verdict, judge_model, case_domain FROM asset_attributions`)
+      .all()
+    expect(rows).toEqual([
+      { asset_name: 'diag', verdict: 'helped', judge_model: 'm1', case_domain: 'NAV' }
+    ])
+    expect(emitted).toHaveLength(1)
+    expect(attrCount()).toBe(0)
+  })
+  it('the rows are written before the done broadcast lands', async () => {
+    createCase(db, home, { slug: 'case-a', title: 'T' })
+    const seenAtDone: number[] = []
+    const { q } = makeQueue({
+      assembleInput: () => ATTR_INPUT,
+      distill: async () => ATTR_RUN,
+      broadcast: (p: DistillStatusPayload) => {
+        if (p.job?.state === 'done')
+          seenAtDone.push(
+            (db.prepare(`SELECT COUNT(*) AS n FROM asset_attributions`).get() as { n: number }).n
+          )
+      }
+    })
+    q.enqueue('case-a', { attribution: true })
+    await q.idle()
+    expect(seenAtDone).toEqual([1])
+  })
+  it('a dry run writes no rows and never triggers the escape hatch', async () => {
+    createCase(db, home, { slug: 'case-a', title: 'T' })
+    const { q } = makeQueue({ assembleInput: () => ATTR_INPUT, distill: async () => ATTR_RUN })
+    q.enqueueDryRun('case-a')
+    await q.idle()
+    expect(
+      (db.prepare(`SELECT COUNT(*) AS n FROM asset_attributions`).get() as { n: number }).n
+    ).toBe(0)
+    const { q: q2 } = makeQueue({
+      assembleInput: () => ATTR_INPUT,
+      distill: async () => ({ raw: '```json\n{}\n```', output: { proposals: [] } }),
+      attributeOnly: EMPTY_ONLY
+    })
+    q2.enqueueDryRun('case-a')
+    await q2.idle()
+    expect(attrCount()).toBe(0)
+  })
+  it('enqueue(slug, {attribution}) forwards the choice to assembleInput', () => {
+    const assembleInput = vi.fn(() => INPUT)
+    const { q } = makeQueue({ assembleInput })
+    q.enqueue('case-a', { attribution: false })
+    expect(assembleInput).toHaveBeenCalledWith('case-a', { attribution: false })
+  })
+  it('reconcileAndEnqueue forwards opts to enqueue', () => {
+    const assembleInput = vi.fn(() => INPUT)
+    const { q } = makeQueue({ assembleInput })
+    reconcileAndEnqueue(q, 'case-a', { attribution: false })
+    expect(assembleInput).toHaveBeenCalledWith('case-a', { attribution: false })
+  })
+  it('a row-write failure never fails the case job (emission failures never block the pipeline)', async () => {
+    // No case row → writeAttributions throws "Unknown case".
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const onAttributions = vi.fn()
+    const { q } = makeQueue({
+      assembleInput: () => ATTR_INPUT,
+      distill: async () => ATTR_RUN,
+      onAttributions
+    })
+    q.enqueue('case-a', { attribution: true })
+    await q.idle()
+    errSpy.mockRestore()
+    expect(q.statusFor('case-a')!.state).toBe('done')
+    expect(onAttributions).not.toHaveBeenCalled()
+  })
+  it('an onAttributions throw is swallowed — it fails neither a case job nor an attribution job', async () => {
+    createCase(db, home, { slug: 'case-a', title: 'T' })
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { q } = makeQueue({
+      assembleInput: () => ATTR_INPUT,
+      distill: async () => ATTR_RUN,
+      attributeOnly: async () => ({
+        stages: ATTR_RUN.stages,
+        attribution: ATTR_RUN.attribution,
+        promptChars: 1,
+        turnCount: 1,
+        toolCallCount: 0,
+        trajectory: []
+      }),
+      onAttributions: () => {
+        throw new Error('renderer gone')
+      }
+    })
+    q.enqueue('case-a', { attribution: true })
+    await q.idle()
+    const a = q.enqueueAttribution('case-a')
+    await q.idle()
+    errSpy.mockRestore()
+    expect(q.statusFor('case-a')!.state).toBe('done')
+    expect(db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(a.id)).toEqual({
+      state: 'done'
+    })
+  })
+
+  describe('escape hatch', () => {
+    const failing = async (): Promise<never> => {
+      throw new DistillAgentRunError('dossier: boom', '', {
+        stages: { dossier: { promptHash: 'h', promptChars: 1, rawOutput: '', error: 'boom' } }
+      })
+    }
+    it.each([
+      ['dossier failure', failing],
+      [
+        // candidates fails AFTER the attribution stage succeeded: the verdicts never reach the
+        // queue (agentMeta carries stages, not the parsed output), so the job still hatches.
+        'late failure after a good attribution stage',
+        async (): Promise<never> => {
+          throw new DistillAgentRunError('candidates: bad', '', { stages: ATTR_RUN.stages })
+        }
+      ],
+      [
+        'attribution stage error',
+        async () => ({
+          ...ATTR_RUN,
+          attribution: undefined,
+          stages: {
+            ...ATTR_RUN.stages,
+            attribution: { promptHash: 'a', promptChars: 1, rawOutput: 'x', error: 'bad' }
+          }
+        })
+      ],
+      ['v2 run (no stages)', async () => ({ raw: '```json\n{}\n```', output: { proposals: [] } })]
+    ])('%s enqueues exactly one attribution job', async (_n, distill) => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      const assembleInput = vi.fn(() => ATTR_INPUT)
+      const { q } = makeQueue({
+        assembleInput,
+        distill: distill as never,
+        attributeOnly: EMPTY_ONLY
+      })
+      q.enqueue('case-a', { attribution: true })
+      await q.idle()
+      const kinds = db
+        .prepare(`SELECT kind, state FROM distill_jobs WHERE case_slug='case-a' ORDER BY id`)
+        .all() as { kind: string; state: string }[]
+      expect(kinds.filter((k) => k.kind === 'attribution')).toEqual([
+        { kind: 'attribution', state: 'done' }
+      ])
+      expect(assembleInput).toHaveBeenLastCalledWith('case-a', { attribution: true })
+    })
+    it('does not enqueue one when the job declined attribution, or when the case job succeeded with the stage', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      const { q } = makeQueue({
+        assembleInput: () => ({ ...ATTR_INPUT, options: { attribution: false } }),
+        distill: failing
+      })
+      q.enqueue('case-a', { attribution: false })
+      await q.idle()
+      const { q: q2 } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        distill: async () => ATTR_RUN
+      })
+      q2.enqueue('case-a', { attribution: true })
+      await q2.idle()
+      expect(
+        db.prepare(`SELECT COUNT(*) AS n FROM distill_jobs WHERE kind='attribution'`).get()
+      ).toEqual({ n: 0 })
+    })
+    it('does not enqueue one for an empty inventory (no-assets marker, or a failed/v2 run with no assets)', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      const noAssets = { ...ATTR_INPUT, assets: [] } as unknown as CaseDistillInput
+      const { q } = makeQueue({
+        assembleInput: () => noAssets,
+        distill: async () => ({
+          ...ATTR_RUN,
+          attribution: undefined,
+          stages: { dossier: ATTR_RUN.stages.dossier, attributionSkipped: 'no-assets' as const }
+        })
+      })
+      q.enqueue('case-a', { attribution: true })
+      await q.idle()
+      const { q: q2 } = makeQueue({ assembleInput: () => noAssets, distill: failing })
+      q2.enqueue('case-a', { attribution: true })
+      await q2.idle()
+      const { q: q3 } = makeQueue({
+        assembleInput: () => noAssets,
+        distill: async () => ({ raw: '```json\n{}\n```', output: { proposals: [] } })
+      })
+      q3.enqueue('case-a', { attribution: true })
+      await q3.idle()
+      expect(attrCount()).toBe(0)
+    })
+    it('a cancelled case job does not trigger it', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      let release!: () => void
+      const gate = new Promise<void>((r) => (release = r))
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        distill: async () => {
+          await gate
+          throw new DistillAgentRunError('dossier: boom', '', {})
+        },
+        attributeOnly: EMPTY_ONLY
+      })
+      const job = q.enqueue('case-a', { attribution: true })
+      await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'))
+      q.cancel(job.id)
+      release()
+      await q.idle()
+      expect(attrCount()).toBe(0)
+    })
+    it('a failing attribution job never enqueues another one (no hatch loop)', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        distill: failing,
+        attributeOnly: async () => {
+          throw new DistillAgentRunError('dossier: boom again', '', {
+            stages: { dossier: { promptHash: 'h', promptChars: 1, rawOutput: '', error: 'x' } }
+          })
+        }
+      })
+      q.enqueue('case-a', { attribution: true })
+      await q.idle()
+      const rows = db
+        .prepare(
+          `SELECT kind, state, stages_json FROM distill_jobs WHERE case_slug='case-a' ORDER BY id`
+        )
+        .all() as { kind: string; state: string; stages_json: string | null }[]
+      expect(rows.map((r) => [r.kind, r.state])).toEqual([
+        ['case', 'failed'],
+        ['attribution', 'failed']
+      ])
+      // The DistillAgentRunError catch persists the failing stage on the attribution row too.
+      expect(JSON.parse(rows[1].stages_json!).dossier.error).toBe('x')
+    })
+  })
+
+  describe('attribution job', () => {
+    it('runs attributeOnly, persists stages+usage on its own row, writes rows, and is not retried automatically on failure', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      const { q, broadcasts } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        attributeOnly: async () => ({
+          stages: ATTR_RUN.stages,
+          attribution: ATTR_RUN.attribution,
+          usage: { costUsd: 0.3, durationMs: 5 },
+          promptChars: 12,
+          turnCount: 2,
+          toolCallCount: 1,
+          trajectory: []
+        })
+      })
+      const job = q.enqueueAttribution('case-a')
+      await q.idle()
+      const row = db
+        .prepare(`SELECT kind, state, cost_usd, stages_json FROM distill_jobs WHERE id=?`)
+        .get(job.id) as { kind: string; state: string; cost_usd: number; stages_json: string }
+      expect(row).toMatchObject({ kind: 'attribution', state: 'done', cost_usd: 0.3 })
+      expect(JSON.parse(row.stages_json).attribution).toBeDefined()
+      expect(
+        (
+          db.prepare(`SELECT COUNT(*) AS n FROM asset_attributions WHERE job_id=?`).get(job.id) as {
+            n: number
+          }
+        ).n
+      ).toBe(1)
+      // attribution rows never drive the case chip: no distill:changed broadcast for this kind
+      expect(broadcasts).toHaveLength(0)
+      const { q: q2 } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        attributeOnly: async () => {
+          throw new Error('boom')
+        }
+      })
+      const failed = q2.enqueueAttribution('case-a')
+      await q2.idle()
+      expect(db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(failed.id)).toEqual({
+        state: 'failed'
+      })
+      expect(attrCount()).toBe(2)
+    })
+    it('snapshots with attribution forced on', () => {
+      const assembleInput = vi.fn(() => ATTR_INPUT)
+      const { q } = makeQueue({ assembleInput, attributeOnly: EMPTY_ONLY })
+      q.enqueueAttribution('case-a')
+      expect(assembleInput).toHaveBeenCalledWith('case-a', { attribution: true })
+    })
+    it('a row-write failure fails the attribution job but keeps its stages and cost', async () => {
+      // No case row → writeAttributions throws; this job exists only to write rows.
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        attributeOnly: async () => ({
+          stages: ATTR_RUN.stages,
+          attribution: ATTR_RUN.attribution,
+          usage: { costUsd: 0.3, durationMs: 5 },
+          promptChars: 12,
+          turnCount: 2,
+          toolCallCount: 1,
+          trajectory: []
+        })
+      })
+      const job = q.enqueueAttribution('case-a')
+      await q.idle()
+      const row = db
+        .prepare(`SELECT state, error, cost_usd, stages_json FROM distill_jobs WHERE id=?`)
+        .get(job.id) as { state: string; error: string; cost_usd: number; stages_json: string }
+      expect(row.state).toBe('failed')
+      expect(row.error).toMatch(/Unknown case/)
+      expect(row.cost_usd).toBe(0.3)
+      expect(JSON.parse(row.stages_json).attribution).toBeDefined()
+    })
+    it('dedups per slug while one is queued/running, and a redistill cancels a queued one', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      let release!: () => void
+      const gate = new Promise<void>((r) => (release = r))
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        attributeOnly: async () => {
+          await gate
+          return { stages: {}, promptChars: 0, turnCount: 0, toolCallCount: 0, trajectory: [] }
+        },
+        distill: async () => ATTR_RUN
+      })
+      const first = q.enqueueAttribution('case-a')
+      expect(() => q.enqueueAttribution('case-a')).toThrow(/already/)
+      reconcileAndEnqueue(q, 'case-a', { attribution: true })
+      release()
+      await q.idle()
+      expect(db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(first.id)).toEqual({
+        state: 'cancelled'
+      })
+      expect(q.statusFor('case-a')!.state).toBe('done')
+    })
+    it('a redistill cancels a still-QUEUED attribution job too', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      let release!: () => void
+      const gate = new Promise<void>((r) => (release = r))
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        // A case job for another slug holds the runner so the attribution job stays queued.
+        distill: async () => {
+          await gate
+          return ATTR_RUN
+        },
+        attributeOnly: EMPTY_ONLY
+      })
+      q.enqueue('other', { attribution: false })
+      const queued = q.enqueueAttribution('case-a')
+      expect(q.listAllRuns().find((r) => r.id === queued.id)?.state).toBe('queued')
+      reconcileAndEnqueue(q, 'case-a', { attribution: true })
+      expect(db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(queued.id)).toEqual({
+        state: 'cancelled'
+      })
+      release()
+      await q.idle()
+    })
+    it('retry() accepts an attribution job; listAllRuns lists it with kind', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        attributeOnly: async () => {
+          throw new Error('boom')
+        }
+      })
+      const j = q.enqueueAttribution('case-a')
+      await q.idle()
+      expect(() => q.retry(j.id)).not.toThrow()
+      await q.idle()
+      const rows = q.listAllRuns()
+      expect(rows.find((r) => r.id === j.id)?.kind).toBe('attribution')
+    })
+  })
+})
+
+describe('routeCaseClose', () => {
+  it.each([
+    [{ distill: true, attribution: true }, [['case', 'a', { attribution: true }]]],
+    [{ distill: true, attribution: false }, [['case', 'a', { attribution: false }]]],
+    [{ distill: false, attribution: true }, [['attribution', 'a']]],
+    [{ distill: false, attribution: false }, []]
+  ])('%o routes to %j', (opts, expected) => {
+    const calls: unknown[][] = []
+    routeCaseClose(
+      opts,
+      {
+        enqueueCase: (slug, o) => calls.push(['case', slug, o]),
+        enqueueAttribution: (slug) => calls.push(['attribution', slug])
+      },
+      'a'
+    )
+    expect(calls).toEqual(expected)
   })
 })

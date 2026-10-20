@@ -4,7 +4,9 @@ import {
   parseDossier,
   pruneUnknownCites,
   resolveDossierPath,
-  DOSSIER_SECTIONS
+  DOSSIER_SECTIONS,
+  DOSSIER_CONTRACT,
+  DOSSIER_LITE_CONTRACT
 } from '../dossier'
 import { DistillParseError } from '../../contract'
 import type { CaseDistillInput } from '../../../../../shared/distill'
@@ -254,5 +256,27 @@ describe('resolveDossierPath', () => {
     expect(resolveDossierPath(dossier, 'durable_facts[9]')).toBeNull()
     expect(resolveDossierPath(dossier, 'scope')).toBeNull()
     expect(resolveDossierPath(dossier, 'nope[0]')).toBeNull()
+  })
+})
+
+describe('DOSSIER_LITE_CONTRACT', () => {
+  it('names every top-level key the shared parser requires and asks for durable_facts as []', () => {
+    for (const k of [
+      'scope',
+      'root_cause',
+      'confirmed_fix',
+      'rejected_hypotheses',
+      'diagnostic_path',
+      'durable_facts',
+      'user_corrections'
+    ])
+      expect(DOSSIER_LITE_CONTRACT).toContain(k)
+    expect(DOSSIER_LITE_CONTRACT).toContain('"durable_facts": []')
+  })
+  it('drops the knowledge-candidate groundwork and keeps the diagnostic path', () => {
+    expect(DOSSIER_LITE_CONTRACT).not.toBe(DOSSIER_CONTRACT)
+    expect(DOSSIER_LITE_CONTRACT).not.toContain('candidate facts a future agent might consult')
+    expect(DOSSIER_LITE_CONTRACT).not.toContain('separate passes will decide what')
+    expect(DOSSIER_LITE_CONTRACT).toContain('4. DIAGNOSTIC PATH')
   })
 })

@@ -251,6 +251,7 @@ import {
   activeInstanceConfig,
   defaultModelRef,
   driverConfig,
+  resolveDistillProvider,
   type AgentDriverConfig
 } from '../shared/drivers'
 import { defaultCreateQuery as createClaudeQuery } from './services/agent/drivers/claude'
@@ -332,7 +333,13 @@ import { probeLangfuseCredentials } from './services/observability/langfuseProbe
 import { usageStats, ensureTrackingStarted } from './services/observability/usage'
 import { listFindings, reviewFinding, clearFindings, deleteFinding } from './services/findings'
 import type { MetricsQuery, ReviewState } from '../shared/observability'
-import { DistillQueue, reconcileAndEnqueue, needsDistillRun } from './services/distill/queue'
+import {
+  DistillQueue,
+  reconcileAndEnqueue,
+  needsDistillRun,
+  routeCaseClose
+} from './services/distill/queue'
+import { runAttributionOnly } from './services/distill/v3/attributionOnly'
 import { assembleDistillInput, buildReferencesIndex } from './services/distill/input'
 import { runCaseDistillAgent } from './services/distill/caseDistiller'
 import { DISTILL_AGENT_TIMEOUT_MS } from './services/distill/worldTools'
@@ -1067,8 +1074,13 @@ function registerIpc(): void {
   // shape the distiller's prompt expects. `content` is the tier-winning SKILL.md verbatim —
   // the same file currentContent() diffs a skill-edit against — so the distiller can return
   // the whole file with its change merged in (a skill-edit's content is the complete file).
-  const skillsIndexForDistill = (): { name: string; description: string; content: string }[] =>
+  // One resolution feeds both the skills index and the inventory's tier map at enqueue time.
+  const resolvedSkillsForDistill = (): ReturnType<typeof resolveSkills> =>
     resolveSkills(argusHome, agentAccessStore.get())
+  const skillsIndexForDistill = (
+    resolved: ReturnType<typeof resolveSkills> = resolvedSkillsForDistill()
+  ): { name: string; description: string; content: string }[] =>
+    resolved
       .filter((s) => s.enabled)
       .map((s) => {
         let content = ''
@@ -1091,11 +1103,15 @@ function registerIpc(): void {
   })
   const distillQueue = new DistillQueue({
     db,
-    assembleInput: (slug, opts) =>
-      assembleDistillInput(db, argusHome, slug, skillsIndexForDistill(), {
+    assembleInput: (slug, opts) => {
+      const resolved = resolvedSkillsForDistill()
+      return assembleDistillInput(db, argusHome, slug, skillsIndexForDistill(resolved), {
         operatorGuidance: settingsService.get().distill.guidance,
-        ...(opts?.ignorePriorProposals ? { ignorePriorProposals: true } : {})
-      }),
+        ...(opts?.ignorePriorProposals ? { ignorePriorProposals: true } : {}),
+        ...(opts?.attribution !== undefined ? { attribution: opts.attribution } : {}),
+        skillTiers: new Map(resolved.map((s) => [s.name, s.tier]))
+      })
+    },
     // Read `settings.distill.pipeline` per CALL, not once at construction: the queue is built at
     // boot and lives for the process lifetime, so capturing the flag here would make the setting
     // require a restart. The pipeline needs BOTH runners — `distillAgentRun` for the tool-using
@@ -1124,20 +1140,40 @@ function registerIpc(): void {
     listArchivedProposalsFn: () => listArchivedProposals(argusHome),
     // The digest LLM step is one batch prompt, not a tool-using agent run — Task 10's one-shot
     // runner (same one refSync uses), deliberately NOT `distillAgentRun` above.
-    runOneShot: headlessRun
+    runOneShot: headlessRun,
+    // The escape-hatch job (spec §4.5): lite dossier on the agentic runner, attribution stage on
+    // the one-shot runner — the same two runners the v3 pipeline uses.
+    attributeOnly: (input, signal, onProgress) =>
+      runAttributionOnly(
+        input,
+        { agent: distillAgentRun, oneShot: headlessRun },
+        resolvePrompt,
+        signal,
+        { onProgress }
+      ),
+    // Read per write: the distill provider/model can change between jobs.
+    judgeModel: () => {
+      const r = resolveDistillProvider(settingsService.get())
+      return r.ok ? (r.model ?? 'default') : 'unconfigured'
+    }
+    // onAttributions: wired by Task 11 (emitAttributions).
   })
   distillQueue.recoverOnBoot()
   const onCaseClosed = (rec: CaseRecord, opts: CloseOptions): void => {
     try {
-      if (opts.distill) {
-        // Reconcile first: an in-flight job for this case (started while it was open) must be
-        // cancelled before the close-time snapshot is enqueued, or both jobs run and the newest
-        // one shadows the older, still-running one from every renderer read — see
-        // reconcileAndEnqueue's doc comment in queue.ts.
-        reconcileAndEnqueue(distillQueue, rec.slug)
-      } else if (opts.attribution) {
-        // Task 9: distillQueue.enqueueAttribution(rec.slug) — attribution-only close.
-      }
+      // The four-row checkbox table lives in routeCaseClose (queue.ts). The case branch goes
+      // through reconcileAndEnqueue: an in-flight job for this case (started while it was open)
+      // must be cancelled before the close-time snapshot is enqueued, or both jobs run and the
+      // newest one shadows the older, still-running one from every renderer read — see
+      // reconcileAndEnqueue's doc comment in queue.ts.
+      routeCaseClose(
+        opts,
+        {
+          enqueueCase: (slug, o) => reconcileAndEnqueue(distillQueue, slug, o),
+          enqueueAttribution: (slug) => distillQueue.enqueueAttribution(slug)
+        },
+        rec.slug
+      )
     } catch (err) {
       console.error('[distill] enqueue failed', err)
     }

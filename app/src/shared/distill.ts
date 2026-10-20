@@ -83,6 +83,8 @@ export interface DistillRunListRow extends DistillJobRow {
   /** From the `pipeline` column; a pre-column row falls back to stages_json presence
    *  (`pipelineOf`); null for an unstamped in-flight row. */
   pipeline: 'v2' | 'v3' | null
+  /** 'attribution' = the escape-hatch job (lite dossier + attribution stage, no proposals). */
+  kind: 'case' | 'attribution'
   /** The queue's latest in-memory progress — present only while queued/running. */
   progress?: DistillProgress
 }

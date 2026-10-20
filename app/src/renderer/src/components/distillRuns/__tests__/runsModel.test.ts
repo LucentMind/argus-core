@@ -31,6 +31,7 @@ const row = (over: Partial<DistillRunListRow>): DistillRunListRow => ({
   caseTitle: 'Alpha',
   jiraKey: 'NAV-1',
   pipeline: 'v3',
+  kind: 'case',
   state: 'done',
   error: null,
   itemCount: 2,
