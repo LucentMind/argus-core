@@ -51,6 +51,7 @@ import { buildPromptPreview } from './services/prompts/preview'
 import { fillPrompt } from './services/prompts/fill'
 import { buildCaptureDetail } from './services/prompts/captureDetail'
 import { exportEvalBundle } from './services/distill/evalExport'
+import { overrideFromProposalReject } from './services/distill/overrides'
 import { DefectCorpusService } from './services/defectCorpus/service'
 import type { CorpusAdminConfig, CorpusSearchInput } from './services/defectCorpus/client'
 import { corpusTokenSecret } from '../shared/defectCorpus'
@@ -3626,7 +3627,21 @@ function registerIpc(): void {
     }
   )
   ipcMain.handle(IPC.proposalsReject, (_e, file: string, reason?: RejectReason) => {
+    // Read the record BEFORE rejectProposal archives it (spec §4.7 implicit override).
+    const p = listProposals(argusHome).find((x) => x.file === file)
     rejectProposal(argusHome, file, reason)
+    if (p) {
+      try {
+        // Emission (Task 11) is not wired yet; the override row itself is persisted here.
+        overrideFromProposalReject(
+          db,
+          { caseSlug: p.caseSlug, type: p.type, target: p.target },
+          reason
+        )
+      } catch (err) {
+        console.error('[attribution] proposal-reject override failed', err)
+      }
+    }
     return { proposals: listProposals(argusHome) }
   })
   // Spec 2026-09-07: pending-only hard delete. No archive row, so — unlike reject — nothing
