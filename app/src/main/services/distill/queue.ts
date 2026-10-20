@@ -318,8 +318,12 @@ export class DistillQueue {
    */
   enqueueDryRun(slug: string, opts: { ignorePriorProposals?: boolean } = {}): DistillJobRow {
     const snapshot = JSON.stringify(this.deps.assembleInput(slug, opts))
+    // A background attribution job does not hold the slot: it drives no chip, and a dry run
+    // writes nothing it could race. It is NOT cancelled either — the dry run replaces nothing.
     const inFlight = this.deps.db
-      .prepare(`SELECT id FROM distill_jobs WHERE case_slug=? AND state IN ('queued','running')`)
+      .prepare(
+        `SELECT id FROM distill_jobs WHERE case_slug=? AND kind != 'attribution' AND state IN ('queued','running')`
+      )
       .get(slug) as { id: number } | undefined
     if (inFlight)
       throw new Error(
@@ -419,6 +423,12 @@ export class DistillQueue {
    * `.catch` — DistillChip's failed-state retry button — resyncs from `status(slug)` on any
    * rejection, so the UI recovers on its own) and the fresher job survives untouched. See the N1
    * regression test.
+   *
+   * One exception, for a CASE job only: a queued/running `kind='attribution'` row does not count
+   * as in flight, and is cancelled once the case row is re-queued. A failed case job routinely
+   * hatches one (`maybeEscapeHatch`), and the retried case run re-runs the attribution stage
+   * itself, so the hatch job is redundant — refusing would leave the chip's Retry dead until a
+   * background job the user never asked for finished.
    */
   retry(jobId: number): DistillJobRow {
     const raw = this.getRaw(jobId)
@@ -433,8 +443,11 @@ export class DistillQueue {
     if (raw.kind !== 'case' && raw.kind !== 'attribution')
       throw new Error(`distill job ${jobId} has kind='${raw.kind}', not retryable`)
     const job = this.get(jobId)!
+    const isCase = raw.kind === 'case'
     const inFlight = this.deps.db
-      .prepare(`SELECT id FROM distill_jobs WHERE case_slug=? AND state IN ('queued','running')`)
+      .prepare(
+        `SELECT id FROM distill_jobs WHERE case_slug=? AND state IN ('queued','running')${isCase ? ` AND kind != 'attribution'` : ''}`
+      )
       .get(job.caseSlug) as { id: number } | undefined
     if (inFlight)
       throw new Error(
@@ -457,7 +470,10 @@ export class DistillQueue {
          dropped_json=NULL, stages_json=NULL, pipeline=NULL, prompt_hash=? WHERE id=?`
       )
       // An attribution row keeps a NULL hash — see enqueueAttribution.
-      .run(raw.kind === 'case' ? (this.deps.promptHash?.() ?? null) : null, jobId)
+      .run(isCase ? (this.deps.promptHash?.() ?? null) : null, jobId)
+    // After the flip, as in `enqueue`: the guard above already proved nothing else but
+    // attribution rows can be in flight for this slug, so this cancels exactly those.
+    if (isCase) this.cancelOtherInFlight(job.caseSlug, jobId)
     const fresh = this.get(jobId)!
     this.emit(this.getRaw(jobId)!)
     this.kick()
@@ -976,10 +992,18 @@ export class DistillQueue {
           trajectoryJson(m?.trajectory),
           m?.stages ? JSON.stringify(m.stages) : null
         )
-        // Trigger (b): the case job failed, so it wrote no verdicts — even when its attribution
-        // stage itself succeeded (a candidates failure throws after the stage ran, and the
-        // parsed verdicts do not ride on agentMeta). `caseInput` is unset for every other kind.
-        if (caseInput) this.maybeEscapeHatch(r, caseInput, m?.stages, true)
+        // A late failure (candidates, or anything past the parallel stage) can carry verdicts the
+        // attribution stage already produced: write them, same rule as the done path — logged,
+        // never fatal, and no hatch on a write failure (a re-run would hit the same write).
+        // Otherwise trigger (b): the case job failed without verdicts. `caseInput` is unset for
+        // every other kind; both helpers skip dry runs themselves.
+        if (caseInput && m?.attribution) {
+          try {
+            this.persistAttribution(r, caseInput, m.attribution, m.stages)
+          } catch (e) {
+            console.error('[attribution] verdict rows not written', e)
+          }
+        } else if (caseInput) this.maybeEscapeHatch(r, caseInput, m?.stages, true)
       } else if (err instanceof DistillParseError) {
         finish(`state='failed', error=?, raw_output=?`, err.message, err.raw)
       } else {

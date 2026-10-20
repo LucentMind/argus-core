@@ -637,4 +637,53 @@ describe('attribution stage', () => {
     expect((err as DistillAgentRunError).agentMeta?.stages?.attribution?.error).toBeUndefined()
     expect((err as DistillAgentRunError).agentMeta?.stages?.attribution?.rawOutput).toBe(ATTR)
   })
+
+  it('a failed candidates stage carries the parsed verdicts on agentMeta.attribution', async () => {
+    // The verdicts are already paid for when candidates fails; carrying them lets the queue write
+    // the rows instead of hatching a second (lite dossier + attribution) run.
+    const inner = routed()
+    const oneShot: PipelineRunners['oneShot'] = async (p, o) =>
+      stageOf(p) === 'candidates' ? { text: 'garbage' } : inner(p, o)
+    const err = (await runCaseDistillPipeline(withAssets(), {
+      agent: agentOk(DOSSIER),
+      oneShot
+    }).catch((e) => e)) as DistillAgentRunError
+    expect(err).toBeInstanceOf(DistillAgentRunError)
+    expect(err.agentMeta?.attribution?.verdicts).toEqual([
+      {
+        kind: 'skill',
+        name: 'diagnose-x',
+        applied: true,
+        verdict: 'helped',
+        reason: 'r',
+        cites: [{ finding: 7 }]
+      }
+    ])
+  })
+
+  it('a non-parse throw after the attribution stage (the outer wrap) carries the verdicts too', async () => {
+    const err = (await runCaseDistillPipeline(
+      withAssets(),
+      { agent: agentOk(DOSSIER), oneShot: routed() },
+      undefined,
+      undefined,
+      {
+        onProgress: (u) => {
+          if (u.phase === 'veto') throw new Error('late boom')
+        }
+      }
+    ).catch((e) => e)) as DistillAgentRunError
+    expect(err).toBeInstanceOf(DistillAgentRunError)
+    expect(err.message).toBe('late boom')
+    expect(err.agentMeta?.attribution?.verdicts.map((v) => v.name)).toEqual(['diagnose-x'])
+  })
+
+  it('a dossier failure carries no attribution on agentMeta (the stage never ran)', async () => {
+    const err = (await runCaseDistillPipeline(withAssets(), {
+      agent: agentOk('not json'),
+      oneShot: routed()
+    }).catch((e) => e)) as DistillAgentRunError
+    expect(err).toBeInstanceOf(DistillAgentRunError)
+    expect(err.agentMeta?.attribution).toBeUndefined()
+  })
 })
