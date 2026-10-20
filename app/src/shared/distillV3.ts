@@ -128,9 +128,10 @@ export interface PipelineStages {
   /** Candidates the parser dropped for a malformed shape (e.g. a non-string outline). */
   candidatesMalformedDropped?: number
   /** Attribution stage (spec §4.4). `attributionSkipped` is set INSTEAD of a record when the stage
-   *  never ran: no inventoried assets, or the job declined attribution at close. */
+   *  never ran: no inventoried assets, the job declined attribution at close, or the case is still
+   *  open (an outcome only means something once the case is closed — spec §4.2). */
   attribution?: StageRecord
-  attributionSkipped?: 'no-assets' | 'declined'
+  attributionSkipped?: 'no-assets' | 'declined' | 'open'
   attributionMalformedDropped?: Record<string, number>
   attributionUnknownAssetDropped?: Record<string, number>
   attributionUncitedDropped?: number

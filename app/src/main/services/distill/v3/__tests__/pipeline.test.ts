@@ -536,6 +536,24 @@ describe('attribution stage', () => {
     expect(calls.some((p) => p.includes('# Assets'))).toBe(false)
   })
 
+  it('is skipped as "open" on an open case — no model call, even with assets (A7)', async () => {
+    const calls: string[] = []
+    const inner = routed()
+    const oneShot: PipelineRunners['oneShot'] = async (p, o) => {
+      calls.push(p)
+      return inner(p, o)
+    }
+    const run = await runCaseDistillPipeline(
+      { ...withAssets(), caseOutcome: 'open' },
+      { agent: agentOk(DOSSIER), oneShot }
+    )
+    expect(run.stages?.attributionSkipped).toBe('open')
+    expect(run.stages?.attribution).toBeUndefined()
+    expect(run.attribution).toBeUndefined()
+    expect(calls.some((p) => p.includes('# Assets'))).toBe(false)
+    expect(run.output.proposals?.length).toBeGreaterThan(0)
+  })
+
   it('a parse failure is recorded on the stage and the run still completes with proposals', async () => {
     const run = await runCaseDistillPipeline(withAssets(), {
       agent: agentOk(DOSSIER),

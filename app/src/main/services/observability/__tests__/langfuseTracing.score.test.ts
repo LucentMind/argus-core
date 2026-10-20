@@ -38,6 +38,13 @@ describe('createLangfuseTracing createScore', () => {
     await api.shutdown()
   })
 
+  it('forwards a deterministic score id so a re-emit upserts (A6)', async () => {
+    const api = createLangfuseTracing(cfg)
+    await api.createScore({ id: 'abc', traceId: 't', name: 'n', value: 1 })
+    expect(create).toHaveBeenCalledWith({ id: 'abc', traceId: 't', name: 'n', value: 1 })
+    await api.shutdown()
+  })
+
   it('omits metadata and comment keys when absent', async () => {
     const api = createLangfuseTracing(cfg)
     await api.createScore({ traceId: 't', name: 'n', value: 0 })

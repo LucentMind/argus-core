@@ -234,10 +234,12 @@ export async function runCaseDistillPipeline(
     const summaryPrompt = buildSummaryPrompt(input, dossier, resolve)
     const candidatesPrompt = buildCandidatesPrompt(input, dossier, resolve)
     promptChars += summaryPrompt.length + candidatesPrompt.length
-    // Attribution is optional and non-fatal: a declined job or an empty inventory makes NO model
-    // call and leaves a marker on `stages` so the run panel can say why there is no stage record.
+    // Attribution is optional and non-fatal: a declined job, an open case (a Distill from the case
+    // menu — its outcome is not decided yet, spec §4.2) or an empty inventory makes NO model call
+    // and leaves a marker on `stages` so the run panel can say why there is no stage record.
     const assets = input.assets ?? []
     if (input.options?.attribution === false) stages.attributionSkipped = 'declined'
+    else if (input.caseOutcome === 'open') stages.attributionSkipped = 'open'
     else if (assets.length === 0) stages.attributionSkipped = 'no-assets'
     let attributionPrompt: string | null = null
     if (!stages.attributionSkipped) {

@@ -121,6 +121,25 @@ describe('runAttributionOnly', () => {
     expect(r.stages.attributionSkipped).toBe('no-assets')
     expect(r.attribution).toBeUndefined()
   })
+  it('an open case is skipped as "open" before any model call (A7)', async () => {
+    let calls = 0
+    const r = await runAttributionOnly(
+      { ...INPUT, caseOutcome: 'open' },
+      {
+        agent: async () => {
+          calls++
+          return { text: DOSSIER, turnCount: 1, toolCallCount: 0, trajectory: [] }
+        },
+        oneShot: async () => {
+          calls++
+          return { text: ATTR }
+        }
+      }
+    )
+    expect(calls).toBe(0)
+    expect(r.stages.attributionSkipped).toBe('open')
+    expect(r.attribution).toBeUndefined()
+  })
   it('an attribution stage failure is recorded on the stage, not thrown', async () => {
     const r = await runAttributionOnly(INPUT, {
       agent: async () => ({ text: DOSSIER, turnCount: 1, toolCallCount: 0, trajectory: [] }),

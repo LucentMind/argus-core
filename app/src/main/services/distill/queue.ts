@@ -734,6 +734,9 @@ export class DistillQueue {
     try {
       if (r.kind !== 'case' || r.dry_run === 1) return
       if (input.options?.attribution === false) return
+      // An open case is never judged (spec §4.2) — a failed Distill on an open case must not
+      // queue the judge the pipeline itself just declined to run.
+      if (input.caseOutcome === 'open' || stages?.attributionSkipped === 'open') return
       if ((input.assets ?? []).length === 0 || stages?.attributionSkipped === 'no-assets') return
       if (!failed && stages?.attribution !== undefined && stages.attribution.error === undefined)
         return

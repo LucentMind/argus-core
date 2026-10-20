@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { FindingRow } from '../../../shared/observability'
 import type { AssetAttributionEvent } from '../../../shared/attribution'
@@ -5,6 +6,16 @@ import { seedFor } from './intent'
 import type { ObservationIntent } from './intent'
 import { initialState, reduce, type ExporterState } from './reducer'
 import type { ObservationSink } from './sink'
+
+/** Deterministic 32-hex Langfuse score id for one asset's contribution to one case. */
+export function attributionScoreId(e: AssetAttributionEvent): string {
+  return createHash('sha256')
+    .update(
+      `${e['argus.install.id']}|${e['argus.case.slug']}|${e['argus.asset.kind']}|${e['argus.asset.name']}`
+    )
+    .digest('hex')
+    .slice(0, 32)
+}
 
 /**
  * Holds reducer state and forwards the resulting intents to a sink.
@@ -78,6 +89,9 @@ export class LangfuseExporter {
       intents.push({
         kind: 'score',
         seed: seedFor(sessionId),
+        // One score per (install, case, asset): an override or a redistill re-emits the SAME id,
+        // which Langfuse upserts — without it every re-emit added a second, contradicting score.
+        id: attributionScoreId(e),
         name: 'asset.contribution',
         value,
         comment: e['gen_ai.evaluation.explanation'],
