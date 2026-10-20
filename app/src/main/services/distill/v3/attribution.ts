@@ -134,9 +134,11 @@ export function parseAttribution(
       malformed('applied')
       continue
     }
+    // Unapplied needs an explicit `"verdict": null` — a missing key (renamed, dropped) is counted
+    // as malformed, never read as null (the parser's no-silent-default rule).
     const verdictOk = item.applied
       ? ASSET_VERDICTS.includes(item.verdict as AssetVerdictValue)
-      : item.verdict === null || item.verdict === undefined
+      : item.verdict === null
     if (!verdictOk) {
       malformed('verdict')
       continue

@@ -293,6 +293,7 @@ export function assetNamesForCase(
       )
       .all(c.id) as unknown as { detail: string }[]) {
       const name = kind === 'reference' ? r.detail.slice(4) : r.detail
+      if (!name) continue // a bare `ref:` / empty detail names no asset (same rule as the inventory)
       if (!out.has(`${kind}/${name}`)) out.set(`${kind}/${name}`, { kind, name })
     }
   }

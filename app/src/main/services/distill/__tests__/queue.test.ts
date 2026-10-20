@@ -2124,6 +2124,38 @@ describe('attribution', () => {
       await q3.idle()
       expect(attrCount()).toBe(0)
     })
+    it('retry() of a failed DRY case row never cancels a running attribution job (C6)', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      let release!: () => void
+      const gate = new Promise<void>((r) => (release = r))
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        distill: failing,
+        attributeOnly: async () => {
+          await gate
+          return { stages: {}, promptChars: 0, turnCount: 0, toolCallCount: 0, trajectory: [] }
+        }
+      })
+      const dry = q.enqueueDryRun('case-a')
+      await q.idle()
+      expect(db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(dry.id)).toEqual({
+        state: 'failed'
+      })
+      const attr = q.enqueueAttribution('case-a')
+      await vi.waitFor(() =>
+        expect(db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(attr.id)).toEqual({
+          state: 'running'
+        })
+      )
+      // A dry row is not "the case job": the attribution job is in flight for this slug, so the
+      // dry retry is refused rather than cancelling it.
+      expect(() => q.retry(dry.id)).toThrow(/in-flight/)
+      expect(db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(attr.id)).toEqual({
+        state: 'running'
+      })
+      release()
+      await q.idle()
+    })
     it('a cancelled case job does not trigger it', async () => {
       createCase(db, home, { slug: 'case-a', title: 'T' })
       let release!: () => void

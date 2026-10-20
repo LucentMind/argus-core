@@ -623,6 +623,31 @@ describe('attribution stage', () => {
     expect(run.output.proposals?.length).toBeGreaterThan(0)
   })
 
+  it('a PERMANENTLY throwing attribution resolver still never fails the run: the hash falls back to "" (C3)', async () => {
+    const resolve = (id: string): string => {
+      if (id === 'headless.case-distill.attribution.section.assets') throw new Error('assets boom')
+      return id
+    }
+    const run = await runCaseDistillPipeline(
+      withAssets(),
+      {
+        agent: agentOk(DOSSIER),
+        oneShot: oneShotBy((p) =>
+          p.includes('headless.case-distill.materialize.')
+            ? MAT
+            : p.includes('headless.case-distill.candidates.')
+              ? CANDS
+              : SUMMARY
+        )
+      },
+      resolve
+    )
+    expect(run.stages?.attribution?.error).toBe('assets boom')
+    expect(run.stages?.attribution?.promptHash).toBe('')
+    expect(run.attribution).toBeUndefined()
+    expect(run.output.proposals?.length).toBeGreaterThan(0)
+  })
+
   it('an abort during the attribution call rejects the run rather than recording a stage error', async () => {
     const ac = new AbortController()
     const inner = routed()

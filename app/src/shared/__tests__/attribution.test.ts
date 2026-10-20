@@ -146,6 +146,17 @@ describe('toAttributionEvent', () => {
 })
 
 describe('matchAssetMention', () => {
+  it('skips an empty-named entry — it would match any text (C4)', () => {
+    expect(
+      matchAssetMention('duplicate, see finding 3', [{ kind: 'reference', name: '' }])
+    ).toBeNull()
+    expect(
+      matchAssetMention('wrong, the diag skill', [
+        { kind: 'skill', name: '' },
+        { kind: 'skill', name: 'diag' }
+      ])
+    ).toEqual({ kind: 'skill', name: 'diag' })
+  })
   const names = [
     { kind: 'skill' as const, name: 'diagnose-x' },
     { kind: 'reference' as const, name: 'nav/limits.md' }

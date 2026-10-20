@@ -169,6 +169,18 @@ describe('parseAttribution', () => {
     expect(bad.verdicts).toEqual([])
     expect(bad.malformedDropped).toEqual({ verdict: 1 })
   })
+  it('an unapplied item with the verdict key MISSING is malformed, not read as null (C2)', () => {
+    const out = parseAttribution(
+      fence({
+        verdicts: [
+          { kind: 'reference', name: 'nav/limits.md', applied: false, reason: 'x', cites: [] }
+        ]
+      }),
+      INV
+    )
+    expect(out.verdicts).toEqual([])
+    expect(out.malformedDropped).toEqual({ verdict: 1 })
+  })
   it('a renamed or missing key inside an item is counted, never read as empty', () => {
     const out = parseAttribution(
       fence({

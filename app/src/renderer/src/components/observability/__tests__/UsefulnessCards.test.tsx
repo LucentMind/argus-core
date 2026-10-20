@@ -62,6 +62,16 @@ describe('UsefulnessCards', () => {
     expect(screen.getByTitle('too few cases')).toHaveTextContent('—')
     expect(screen.getByText('NAV', { selector: 'span' })).toBeInTheDocument()
   })
+  it('the domains cell stays a table cell: chips wrap in an inner div, never a flex <td> (C1)', async () => {
+    render(<UsefulnessCards hiddenCards={[]} />)
+    const chip = await screen.findByText('NAV', { selector: 'span' })
+    const td = chip.closest('td')!
+    expect(td.className).not.toMatch(/\bflex\b/)
+    const wrap = td.firstElementChild as HTMLElement
+    expect(wrap.tagName).toBe('DIV')
+    expect(wrap.className).toMatch(/\bflex\b/)
+    expect(wrap.contains(chip)).toBe(true)
+  })
   it('the domain filter narrows counts to that domain', async () => {
     render(<UsefulnessCards hiddenCards={[]} />)
     await screen.findByText('Knowledge usefulness')

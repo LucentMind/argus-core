@@ -294,4 +294,14 @@ describe('assetNamesForCase + lastSessionIdForCase', () => {
     expect(lastSessionIdForCase(db, 'c1')).toBe(6)
     expect(lastSessionIdForCase(db, 'nope')).toBeNull()
   })
+  it('skips a bare `ref:` / empty detail — an empty name would match any retraction reason (C4)', () => {
+    const caseId = (db.prepare(`SELECT id FROM cases WHERE slug='c1'`).get() as { id: number }).id
+    db.prepare(
+      `INSERT INTO sessions (id, case_id, created_at, updated_at) VALUES (5, ?, 'x', 'x')`
+    ).run(caseId)
+    db.prepare(
+      `INSERT INTO tool_calls (case_id, session_id, tool, args_hash, detail, risk, decision, created_at) VALUES (?, 5, 'Read', 'h', 'ref:', 'LOW', 'auto', 'x'), (?, 5, 'Skill', 'h2', '', 'LOW', 'auto', 'x'), (?, 5, 'mcp__argus__read_memory', 'h3', '', 'LOW', 'auto', 'x')`
+    ).run(caseId, caseId, caseId)
+    expect(assetNamesForCase(db, 'c1')).toEqual([])
+  })
 })
