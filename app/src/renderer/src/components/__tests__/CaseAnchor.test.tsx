@@ -6,6 +6,8 @@ import { CaseAnchor } from '../CaseAnchor'
 import { ConfirmHost } from '../ConfirmHost'
 import { uiStore } from '../../lib/uiStore'
 import { noticeStore } from '../../lib/noticeStore'
+import { settingsStore } from '../../lib/settingsStore'
+import { defaultSettings } from '../../../../shared/settings'
 import type { DistillJobRow, DistillStatusPayload } from '../../../../shared/distill'
 
 let statusMock: ReturnType<typeof vi.fn>
@@ -21,6 +23,7 @@ let archiveSizeMock: ReturnType<typeof vi.fn>
 let distillOnChangedCb: ((p: DistillStatusPayload) => void) | undefined
 
 beforeEach(() => {
+  settingsStore.reset()
   noticeStore.reset()
   for (const t of [...uiStore.get().recentTabs]) uiStore.closeTab(t)
   const setStatusMock = vi.fn()
@@ -195,7 +198,13 @@ describe('CaseAnchor', () => {
     await screen.findByText('Close case as solved?')
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     await vi.waitFor(() =>
-      expect(window.argus.cases.setStatus).toHaveBeenCalledWith('NN-5187', 'closed', 'solved', true)
+      expect(window.argus.cases.setStatus).toHaveBeenCalledWith(
+        'NN-5187',
+        'closed',
+        'solved',
+        true,
+        true
+      )
     )
     await vi.waitFor(() => expect(onStatusChanged).toHaveBeenCalled())
   })
@@ -216,7 +225,8 @@ describe('CaseAnchor', () => {
         'NN-5187',
         'closed',
         'solved',
-        false
+        false,
+        true
       )
     )
   })
@@ -238,6 +248,111 @@ describe('CaseAnchor', () => {
         'NN-5187',
         'closed',
         'solved',
+        false,
+        true
+      )
+    )
+  })
+
+  it('offers "Attribute skills and references" defaulting to checked when settings are not loaded, and sends it as the 5th arg', async () => {
+    expect(settingsStore.get()).toBeNull()
+    const user = userEvent.setup()
+    renderAnchor()
+    await openMenu(user)
+    await user.click(screen.getByText('Close as…'))
+    await vi.waitFor(() => expect(screen.getByText('solved')).toBeTruthy())
+    fireEvent.click(screen.getByText('solved'))
+    const attr = (await screen.findByLabelText(
+      'Attribute skills and references'
+    )) as HTMLInputElement
+    expect(attr.checked).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await vi.waitFor(() =>
+      expect(window.argus.cases.setStatus).toHaveBeenCalledWith(
+        'NN-5187',
+        'closed',
+        'solved',
+        true,
+        true
+      )
+    )
+  })
+
+  it('defaults the attribution checkbox from settings.distill.attribution.default and honors a toggle', async () => {
+    const base = defaultSettings()
+    const payload = {
+      settings: { ...base, distill: { ...base.distill, attribution: { default: false } } },
+      resolvedTools: [],
+      dataRoot: { path: 'x', fromEnv: false },
+      loadError: null
+    }
+    ;(window.argus as unknown as Record<string, unknown>).settings = {
+      get: vi.fn(async () => payload),
+      onChanged: vi.fn(() => () => {})
+    }
+    settingsStore.start()
+    await vi.waitFor(() => expect(settingsStore.get()).not.toBeNull())
+    const user = userEvent.setup()
+    renderAnchor()
+    await openMenu(user)
+    await user.click(screen.getByText('Close as…'))
+    await vi.waitFor(() => expect(screen.getByText('solved')).toBeTruthy())
+    fireEvent.click(screen.getByText('solved'))
+    const attr = (await screen.findByLabelText(
+      'Attribute skills and references'
+    )) as HTMLInputElement
+    expect(attr.checked).toBe(false)
+    fireEvent.click(attr)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await vi.waitFor(() =>
+      expect(window.argus.cases.setStatus).toHaveBeenCalledWith(
+        'NN-5187',
+        'closed',
+        'solved',
+        true,
+        true
+      )
+    )
+  })
+
+  it('distillation off + attribution on sends (false, true); the two boxes are independent', async () => {
+    const user = userEvent.setup()
+    renderAnchor()
+    await openMenu(user)
+    await user.click(screen.getByText('Close as…'))
+    await vi.waitFor(() => expect(screen.getByText('solved')).toBeTruthy())
+    fireEvent.click(screen.getByText('solved'))
+    fireEvent.click(await screen.findByLabelText('Start distillation'))
+    expect(
+      (screen.getByLabelText('Attribute skills and references') as HTMLInputElement).checked
+    ).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await vi.waitFor(() =>
+      expect(window.argus.cases.setStatus).toHaveBeenCalledWith(
+        'NN-5187',
+        'closed',
+        'solved',
+        false,
+        true
+      )
+    )
+  })
+
+  it('attribution off + distillation on sends (true, false)', async () => {
+    const user = userEvent.setup()
+    renderAnchor()
+    await openMenu(user)
+    await user.click(screen.getByText('Close as…'))
+    await vi.waitFor(() => expect(screen.getByText('solved')).toBeTruthy())
+    fireEvent.click(screen.getByText('solved'))
+    fireEvent.click(await screen.findByLabelText('Attribute skills and references'))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await vi.waitFor(() =>
+      expect(window.argus.cases.setStatus).toHaveBeenCalledWith(
+        'NN-5187',
+        'closed',
+        'solved',
+        true,
         false
       )
     )

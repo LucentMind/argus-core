@@ -1,4 +1,5 @@
 import { settingsStore } from '../../lib/settingsStore'
+import { Toggle } from '../ui'
 import { SettingsSection, SettingRow, SelectField, DraftTextarea } from './settingsLayout'
 import {
   getDriver,
@@ -186,6 +187,19 @@ export function DistillationSection({ payload }: { payload: SettingsPayload }): 
             if (next && next !== s.distill.pipeline)
               void settingsStore.patch({ distill: { pipeline: next } })
           }}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Attribute skills and references by default"
+        description="Pre-ticks the close dialog's attribution checkbox. Attribution judges, per skill, reference and memory that appeared in the case, whether it helped — the per-case checkbox always wins."
+        isDefault={s.distill.attribution.default === true}
+        onReset={() => void settingsStore.patch({ distill: { attribution: { default: null } } })}
+      >
+        <Toggle
+          checked={s.distill.attribution.default}
+          aria-label="Attribute skills and references by default"
+          label=""
+          onChange={(v) => void settingsStore.patch({ distill: { attribution: { default: v } } })}
         />
       </SettingRow>
       <SettingRow
