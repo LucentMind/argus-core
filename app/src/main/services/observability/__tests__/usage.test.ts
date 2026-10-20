@@ -82,6 +82,13 @@ function seedDistillJob(
 }
 
 describe('usageStats', () => {
+  it('skill/memory/reference counts come from the shared USAGE_PREDICATES (a renamed predicate breaks the inventory too)', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'usage.ts'), 'utf8')
+    expect(src).toMatch(/USAGE_PREDICATES\.skill/)
+    expect(src).toMatch(/USAGE_PREDICATES\.memory/)
+    expect(src).toMatch(/USAGE_PREDICATES\.reference/)
+    expect(src).not.toMatch(/tool = 'Skill'/)
+  })
   it('aggregates skills by name with zero-count rows for never-activated resolved skills', () => {
     const db = openDb(':memory:')
     seedCase(db)
