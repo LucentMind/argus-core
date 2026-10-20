@@ -82,7 +82,8 @@ const usage: UsageStatsPayload = {
     failedCount: 0,
     dryRunCount: 0,
     dryRunCostUsd: null
-  }
+  },
+  usefulness: []
 }
 
 function mockArgus(): {

@@ -1,5 +1,6 @@
 import type { ReviewLayerId, ReviewSeverity } from './reviewLayers'
 import type { ModeId } from './modes'
+import type { AssetUsefulness } from './attribution'
 
 export interface ModelUsage {
   model: string
@@ -157,4 +158,6 @@ export interface UsageStatsPayload {
   references: ReferenceUsageRow[]
   archived: ArchivedTopicRow[]
   distillation: DistillationUsageStats
+  /** All-time per-asset usefulness (the `since` window does not apply). */
+  usefulness: AssetUsefulness[]
 }
