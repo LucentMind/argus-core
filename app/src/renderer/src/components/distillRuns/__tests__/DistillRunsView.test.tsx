@@ -149,6 +149,11 @@ describe('DistillRunsView', () => {
     ]
     render(<DistillRunsView onClose={() => {}} onOpenCase={() => {}} />)
     await screen.findAllByTestId('run-row')
+    // `run-row` only proves the (first) rows fetch landed. The strip comes from a SECOND,
+    // selectedId-triggered fetch (window.argus.distill.run) that runs one render later — wait
+    // for it to actually mount (pending, pre-progress) before firing progress and asserting the
+    // flip, so a slow/contended CI runner can't win the race between that fetch and this act().
+    await screen.findByTestId('strip-dossier')
     act(() =>
       onProgress({
         jobId: 9,
