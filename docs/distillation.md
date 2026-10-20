@@ -435,6 +435,7 @@ let the active chat session's "auto" model reach the distiller.
 | `v3/pipeline.ts` | The orchestrator: stage records, aggregate usage, parallelism, abort threading, the three exits. |
 | `v3/promptHash.ts` | Per-stage hashes and the composed `caseDistillPipelineHash`. |
 | `shared/distill.ts`, `shared/distillV3.ts`, `shared/distillEval.ts` | The types main, the renderer and the harness all share. |
+| `fakeRunner.ts` | Dev-only fake for both headless runners: recognises the stage from the real contract constants and the case from the prompt's `slug:` line, answers from `<dir>/<slug>.json`, logs `calls.ndjson`. Wired in `main/index.ts` (`resolveFakeRunners`); see §2.13. |
 | `main/index.ts` (~940–1060) | The only meeting point: runners, provider resolution, queue deps, `onCaseClosed`, IPC. |
 | `renderer/.../settings/DistillationSection.tsx` | Provider / model / pipeline / guidance rows. |
 | `renderer/.../DistillChip.tsx`, `lib/distillJob.ts` | The in-flight chip (cancel), the failed-state retry, and the case-menu label. |
@@ -980,6 +981,45 @@ a replay needs.
   $1.46), 5 turns / 4 tool calls, per-stage hashes matching, `evidence:` present.
 - **The harness is not covered by CI** — the workflow only runs from `app/`. Run
   `tools/distill-eval`'s tests by hand when you touch it.
+
+### Testing the distillation + attribution path
+
+Four layers, each proving something the one below it cannot:
+
+1. **Unit** — the pure rules above (`veto.ts`, `patch.ts`, `validators.ts`, the parsers, the prompt
+   hashes). `fakeRunner.test.ts` covers stage and case recognition.
+2. **Fixture integration** — `distill.fixtures.integration.test.ts` runs every fixture through the
+   real `DistillQueue`, pipeline, staging, close routing and override write paths, with the fake
+   standing in for the SDK. `npm test -- distill.fixtures` (from `app/`).
+3. **Fake gate** — `scripts/cdp-attribution-fake.mjs` boots the real app against a scratch home and
+   asserts each fixture against the DB and the DOM (Library chip, Observability card, runs rail
+   label, run detail). No login, no cost. `npm run gate:attribution-fake` (from `app/`); to drive an
+   app you booted yourself, set `CDP_PORT` and `ARGUS_HOME` (a fresh home). CI runs it after `Test`.
+4. **Paid gates** — `cdp-distill-v3.mjs` and `cdp-attribution.mjs` against the real SDK.
+
+**The fake's env contract.** `ARGUS_HEADLESS_FAKE=<dir>` must name an existing directory *and* dev
+tools must be on (`npm run dev`, `ARGUS_DEV_TOOLS=1`, or the in-app unlock); otherwise the flag is
+ignored with a logged warning. It replaces both headless runners, so every headless prompt —
+distillation, the attribution hatch, the reject digest, reference sync, RCA, asset drafting — goes
+to it. A prompt it cannot place throws a named error rather than guessing. The gate also uses
+`window.argus.devFindings.retract(id, reason)`, a dev-gated door to the agent-only retraction path.
+
+**Fixtures** live in `app/scripts/fixtures/distill/`, loaded by `scripts/lib/fixtures.mjs`; the
+README there is the schema. Ten scenarios: `fx-helped`, `fx-loaded`, `fx-misled`, `fx-retract`,
+`fx-reject`, `fx-open`, `fx-v2`, `fx-dossier-fail`, `fx-declined`, `fx-negative`.
+
+**Adding a scenario:**
+
+- Copy the nearest fixture.
+- Give it a unique slug, unique asset names and a unique Jira key (the gate's Library and
+  Observability checks aggregate across cases).
+- Write the stage text placeholders and `expected`.
+- Run `npm test -- scripts/lib`, then `npm test -- distill.fixtures`, then the gate.
+
+**What this does not prove.** The fake proves routing, persistence, overrides, IPC and DOM. It never
+exercises the SDK path, real cost or token behaviour, or whether the prompts and the judge are any
+good — canned answers cannot be wrong in the ways a model is. Those stay the paid gates' job
+(`cdp-distill-v3.mjs`, `cdp-attribution.mjs`).
 
 ## 2.14 Attribution data model
 
