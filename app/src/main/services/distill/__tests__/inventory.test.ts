@@ -69,6 +69,15 @@ describe('buildAssetInventory', () => {
       }
     ])
   })
+  it('skips an empty-named asset: a bare `ref:` detail or an empty skill/memory detail (C4)', () => {
+    call('Read', 'ref:', 1, '2026-10-01T00:00:00Z')
+    call('Skill', '', 1, '2026-10-01T00:00:01Z')
+    call('mcp__argus__read_memory', '', 1, '2026-10-01T00:00:02Z')
+    call('Skill', 'diag', 1, '2026-10-01T00:00:03Z')
+    expect(buildAssetInventory(db, caseId, tiers).map((a) => `${a.kind}/${a.name}`)).toEqual([
+      'skill/diag'
+    ])
+  })
   it('excludes denied/cancelled calls and other cases; unknown skill tier is null', () => {
     call('Skill', 'diag', 1, '2026-10-01T00:00:00Z', 'denied')
     call('Skill', 'other', 1, '2026-10-01T00:00:00Z')

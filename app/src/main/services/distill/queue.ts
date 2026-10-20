@@ -443,7 +443,10 @@ export class DistillQueue {
     if (raw.kind !== 'case' && raw.kind !== 'attribution')
       throw new Error(`distill job ${jobId} has kind='${raw.kind}', not retryable`)
     const job = this.get(jobId)!
-    const isCase = raw.kind === 'case'
+    // "The case job" is a REAL case row: only its retry supersedes a hatched attribution job (it
+    // re-runs the stage itself). A dry case row is a comparison run — retrying one must never
+    // cancel the real attribution job, so it is refused while one is in flight instead.
+    const isCase = raw.kind === 'case' && raw.dry_run === 0
     const inFlight = this.deps.db
       .prepare(
         `SELECT id FROM distill_jobs WHERE case_slug=? AND state IN ('queued','running')${isCase ? ` AND kind != 'attribution'` : ''}`
@@ -469,8 +472,9 @@ export class DistillQueue {
          prompt_chars=NULL, turn_count=NULL, tool_call_count=NULL, trajectory_json=NULL,
          dropped_json=NULL, stages_json=NULL, pipeline=NULL, prompt_hash=? WHERE id=?`
       )
-      // An attribution row keeps a NULL hash — see enqueueAttribution.
-      .run(isCase ? (this.deps.promptHash?.() ?? null) : null, jobId)
+      // An attribution row keeps a NULL hash — see enqueueAttribution. A dry case row is re-stamped
+      // like a real one (enqueueDryRun stamps it too).
+      .run(raw.kind === 'case' ? (this.deps.promptHash?.() ?? null) : null, jobId)
     // After the flip, as in `enqueue`: the guard above already proved nothing else but
     // attribution rows can be in flight for this slug, so this cancels exactly those.
     if (isCase) this.cancelOtherInFlight(job.caseSlug, jobId)

@@ -43,6 +43,9 @@ export function buildAssetInventory(
       const f = first.get(c.detail)
       if (!f) continue
       const name = kind === 'reference' ? c.detail.slice('ref:'.length) : c.detail
+      // A bare `ref:` (or an empty skill/memory detail) names no asset; graded, it would become an
+      // empty-named row that matchAssetMention-style lookups can never tell apart from anything.
+      if (!name) continue
       const tier = kind === 'memory' ? null : (tiers[kind].get(name) ?? null)
       out.push({
         kind,
