@@ -2019,9 +2019,9 @@ describe('attribution', () => {
     it.each([
       ['dossier failure', failing],
       [
-        // candidates fails AFTER the attribution stage succeeded: the verdicts never reach the
-        // queue (agentMeta carries stages, not the parsed output), so the job still hatches.
-        'late failure after a good attribution stage',
+        // A late failure whose agentMeta carries NO parsed verdicts (stages only) still hatches:
+        // there is nothing to write, so the verdicts have to come from a fresh run.
+        'late failure without carried verdicts',
         async (): Promise<never> => {
           throw new DistillAgentRunError('candidates: bad', '', { stages: ATTR_RUN.stages })
         }
@@ -2141,6 +2141,161 @@ describe('attribution', () => {
       ])
       // The DistillAgentRunError catch persists the failing stage on the attribution row too.
       expect(JSON.parse(rows[1].stages_json!).dossier.error).toBe('x')
+    })
+    it('a late failure that carries its verdicts writes the rows and does not hatch', async () => {
+      // candidates fails AFTER the attribution stage succeeded; the pipeline carries the parsed
+      // verdicts on agentMeta, so the queue writes them instead of paying for a second run.
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      const emitted: unknown[] = []
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        distill: async () => {
+          throw new DistillAgentRunError('candidates: bad', '', {
+            stages: ATTR_RUN.stages,
+            attribution: ATTR_RUN.attribution
+          })
+        },
+        attributeOnly: EMPTY_ONLY,
+        judgeModel: () => 'm1',
+        onAttributions: (rows) => emitted.push(...rows)
+      })
+      const job = q.enqueue('case-a', { attribution: true })
+      await q.idle()
+      expect(q.statusFor('case-a')!.state).toBe('failed')
+      expect(
+        db.prepare(`SELECT job_id, asset_name, verdict, judge_model FROM asset_attributions`).all()
+      ).toEqual([{ job_id: job.id, asset_name: 'diag', verdict: 'helped', judge_model: 'm1' }])
+      expect(emitted).toHaveLength(1)
+      expect(attrCount()).toBe(0)
+    })
+    it('a dry run that fails with DistillAgentRunError writes no rows and never hatches', async () => {
+      // The only path where maybeEscapeHatch's dry_run guard is load-bearing: the catch branch
+      // runs for dry and real rows alike. Carried verdicts make persistAttribution's guard
+      // load-bearing too.
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        distill: async () => {
+          throw new DistillAgentRunError('candidates: bad', '', {
+            stages: ATTR_RUN.stages,
+            attribution: ATTR_RUN.attribution
+          })
+        },
+        attributeOnly: EMPTY_ONLY
+      })
+      const dry = q.enqueueDryRun('case-a')
+      await q.idle()
+      expect(db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(dry.id)).toEqual({
+        state: 'failed'
+      })
+      expect(
+        (db.prepare(`SELECT COUNT(*) AS n FROM asset_attributions`).get() as { n: number }).n
+      ).toBe(0)
+      expect(attrCount()).toBe(0)
+    })
+    it('a dry run that fails with no carried verdicts still never hatches', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        distill: failing,
+        attributeOnly: EMPTY_ONLY
+      })
+      q.enqueueDryRun('case-a')
+      await q.idle()
+      expect(attrCount()).toBe(0)
+    })
+    it('retry() of the failed case job cancels its hatched attribution job and re-runs the case', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      let release!: () => void
+      const gate = new Promise<void>((r) => (release = r))
+      let distillCalls = 0
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        distill: async () => {
+          distillCalls++
+          if (distillCalls === 1) return failing()
+          return ATTR_RUN
+        },
+        attributeOnly: async () => {
+          await gate
+          return { stages: {}, promptChars: 0, turnCount: 0, toolCallCount: 0, trajectory: [] }
+        }
+      })
+      const job = q.enqueue('case-a', { attribution: true })
+      const hatch = (): { id: number; state: string } | undefined =>
+        db.prepare(`SELECT id, state FROM distill_jobs WHERE kind='attribution'`).get() as
+          { id: number; state: string } | undefined
+      await vi.waitFor(() => expect(hatch()?.state).toBe('running'))
+      expect(q.statusFor('case-a')!.state).toBe('failed')
+      expect(() => q.retry(job.id)).not.toThrow()
+      // A retried case run re-runs the attribution stage itself: the hatch job is redundant.
+      expect(hatch()?.state).toBe('cancelled')
+      release()
+      await q.idle()
+      expect(distillCalls).toBe(2)
+      expect(q.statusFor('case-a')).toMatchObject({ id: job.id, state: 'done' })
+      expect(hatch()?.state).toBe('cancelled')
+      expect(attrCount()).toBe(1)
+      expect(
+        db.prepare(`SELECT job_id FROM asset_attributions`).all() as { job_id: number }[]
+      ).toEqual([{ job_id: job.id }])
+    })
+    it('retry() of a failed case job also cancels a still-QUEUED hatched attribution job', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      let release!: () => void
+      const gate = new Promise<void>((r) => (release = r))
+      let distillCalls = 0
+      const { q } = makeQueue({
+        assembleInput: (slug) => (slug === 'other' ? INPUT : ATTR_INPUT),
+        distill: async (input) => {
+          // "other" (no assets) holds the runner so the hatch row, inserted after it, stays queued.
+          if ((input.assets ?? []).length === 0) {
+            await gate
+            return ATTR_RUN
+          }
+          distillCalls++
+          if (distillCalls === 1) return failing()
+          return ATTR_RUN
+        },
+        attributeOnly: EMPTY_ONLY
+      })
+      const job = q.enqueue('case-a', { attribution: true })
+      q.enqueue('other', { attribution: false })
+      const hatch = (): { id: number; state: string } | undefined =>
+        db.prepare(`SELECT id, state FROM distill_jobs WHERE kind='attribution'`).get() as
+          { id: number; state: string } | undefined
+      await vi.waitFor(() => expect(hatch()?.state).toBe('queued'))
+      expect(q.statusFor('case-a')!.state).toBe('failed')
+      expect(() => q.retry(job.id)).not.toThrow()
+      expect(hatch()?.state).toBe('cancelled')
+      release()
+      await q.idle()
+      expect(q.statusFor('case-a')).toMatchObject({ id: job.id, state: 'done' })
+      expect(attrCount()).toBe(1)
+    })
+    it('a dry run is neither refused by nor cancels a background attribution job', async () => {
+      createCase(db, home, { slug: 'case-a', title: 'T' })
+      let release!: () => void
+      const gate = new Promise<void>((r) => (release = r))
+      const { q } = makeQueue({
+        assembleInput: () => ATTR_INPUT,
+        distill: async () => ATTR_RUN,
+        attributeOnly: async () => {
+          await gate
+          return { stages: {}, promptChars: 0, turnCount: 0, toolCallCount: 0, trajectory: [] }
+        }
+      })
+      const a = q.enqueueAttribution('case-a')
+      const state = (id: number): unknown =>
+        (db.prepare(`SELECT state FROM distill_jobs WHERE id=?`).get(id) as { state: string }).state
+      await vi.waitFor(() => expect(state(a.id)).toBe('running'))
+      let dryId = -1
+      expect(() => (dryId = q.enqueueDryRun('case-a').id)).not.toThrow()
+      expect(state(a.id)).toBe('running')
+      release()
+      await q.idle()
+      expect(state(a.id)).toBe('done')
+      expect(state(dryId)).toBe('done')
     })
   })
 
@@ -2265,16 +2420,44 @@ describe('attribution', () => {
     })
     it('retry() accepts an attribution job; listAllRuns lists it with kind', async () => {
       createCase(db, home, { slug: 'case-a', title: 'T' })
+      let calls = 0
       const { q } = makeQueue({
         assembleInput: () => ATTR_INPUT,
+        // A case-pipeline hash IS configured: the attribution row must still never carry it.
+        promptHash: () => 'case-hash',
         attributeOnly: async () => {
-          throw new Error('boom')
+          calls++
+          if (calls === 1) throw new Error('boom')
+          return {
+            stages: ATTR_RUN.stages,
+            attribution: ATTR_RUN.attribution,
+            promptChars: 1,
+            turnCount: 1,
+            toolCallCount: 0,
+            trajectory: []
+          }
         }
       })
       const j = q.enqueueAttribution('case-a')
       await q.idle()
+      const read = (): { state: string; finished_at: string | null; prompt_hash: string | null } =>
+        db
+          .prepare(`SELECT state, finished_at, prompt_hash FROM distill_jobs WHERE id=?`)
+          .get(j.id) as { state: string; finished_at: string | null; prompt_hash: string | null }
+      const first = read()
+      expect(first.state).toBe('failed')
+      expect(first.finished_at).not.toBeNull()
       expect(() => q.retry(j.id)).not.toThrow()
+      // Reset to a clean row (retry kicks synchronously, so it already reads 'running'): no stale
+      // finished_at, and no case-pipeline hash stamped.
+      expect(read()).toEqual({ state: 'running', finished_at: null, prompt_hash: null })
       await q.idle()
+      expect(calls).toBe(2)
+      const second = read()
+      expect(second.state).toBe('done')
+      expect(second.prompt_hash).toBeNull()
+      expect(second.finished_at).not.toBeNull()
+      expect(second.finished_at! >= first.finished_at!).toBe(true)
       const rows = q.listAllRuns()
       expect(rows.find((r) => r.id === j.id)?.kind).toBe('attribution')
     })
