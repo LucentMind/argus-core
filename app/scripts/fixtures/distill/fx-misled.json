@@ -1,0 +1,125 @@
+{
+  "slug": "fx-misled",
+  "title": "Login loop after token refresh (fixture: misled)",
+  "jiraKey": "FXM-1",
+  "scenario": "misled: the skill sent the assistant to a wrong hypothesis the user then corrected; the judge says applied=true, verdict=misled, citing the turn where the assistant followed it",
+  "settings": {
+    "pipeline": "v3"
+  },
+  "assets": {
+    "skills": [
+      {
+        "name": "fx-misled-skill",
+        "description": "Use when users are bounced back to the login page; checks the session cookie domain attribute first.",
+        "body": "# Diagnose login loops\n\n## Steps\n1. Check the session cookie Domain attribute against the host the app is served from.\n2. A cookie scoped to the wrong host is dropped and every request arrives without a session.\n"
+      }
+    ],
+    "references": [],
+    "memories": []
+  },
+  "sessions": [
+    {
+      "title": "Login loop triage",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Users get bounced to the login page right after a token refresh. Find out why."
+        },
+        {
+          "role": "assistant",
+          "content": "I loaded the fx-misled-skill skill and followed its first step, the session cookie domain. Hypothesis: the cookie is scoped to the apex domain and dropped on the app subdomain, so the refreshed request arrives without a session."
+        },
+        {
+          "role": "user",
+          "content": "No, the cookie domain is fine: devtools show the cookie on every request. Look at how the refresh endpoint handles the clock instead."
+        },
+        {
+          "role": "assistant",
+          "content": "You are right. The refresh endpoint compares the token expiry with the server clock and allows no leeway; the auth node runs 90 seconds fast, so a freshly refreshed token is already treated as expired and the client is sent back to login. Root cause: missing clock-skew leeway in auth/refresh.ts token validation."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "summary": "Token refresh validation allows no clock-skew leeway; the auth node runs 90s fast, so a fresh token reads as expired.",
+      "reviewState": "accepted",
+      "role": "root-cause",
+      "session": 0
+    }
+  ],
+  "toolCalls": [
+    {
+      "session": 0,
+      "turn": 2,
+      "tool": "Skill",
+      "detail": "fx-misled-skill"
+    }
+  ],
+  "close": {
+    "resolution": "solved",
+    "distill": true,
+    "attribution": true
+  },
+  "stages": {
+    "dossier": {
+      "text": "```json\n{\"scope\":{\"status\":\"closed\",\"resolution\":\"solved\",\"settled\":true,\"note\":\"The user corrected the first hypothesis; the clock-skew cause is accepted.\"},\"root_cause\":{\"text\":\"Token refresh validation allows no clock-skew leeway; the auth node runs 90 seconds fast, so a freshly refreshed token reads as expired.\",\"cites\":[{\"finding\":\"{{finding:0}}\"}]},\"confirmed_fix\":null,\"rejected_hypotheses\":[{\"text\":\"The session cookie is scoped to the apex domain and dropped on the app subdomain\",\"how_ruled_out\":\"The user showed the cookie is sent on every request\",\"cites\":[{\"session\":\"{{session:0}}\",\"turn\":1}]}],\"diagnostic_path\":[{\"step\":\"Checked the refresh endpoint expiry comparison\",\"observation\":\"The auth node clock runs 90 seconds fast and no leeway is allowed\",\"discriminated\":\"A clock-skew rejection, not a missing cookie\",\"cites\":[{\"session\":\"{{session:0}}\",\"turn\":3}]}],\"durable_facts\":[],\"user_corrections\":[{\"text\":\"The cookie domain is fine; look at how the refresh endpoint handles the clock\",\"cites\":[{\"session\":\"{{session:0}}\",\"turn\":2}]}]}\n```"
+    },
+    "summary": {
+      "text": "```json\n{\"summary\":{\"signature\":\"Login loop right after token refresh caused by clock skew\",\"symptoms\":\"Users are sent back to the login page immediately after a token refresh.\",\"rootCause\":\"Refresh validation allows no clock-skew leeway and the auth node runs 90s fast.\",\"fix\":\"Allow clock-skew leeway in refresh validation and resync the auth node clock.\",\"keywords\":[\"login loop\",\"token refresh\",\"clock skew\"]}}\n```"
+    },
+    "candidates": {
+      "text": "```json\n{\"candidates\":[]}\n```"
+    },
+    "attribution": {
+      "text": "```json\n{\"verdicts\":[{\"kind\":\"skill\",\"name\":\"fx-misled-skill\",\"applied\":true,\"verdict\":\"misled\",\"reason\":\"Its cookie-domain step produced the hypothesis the user corrected.\",\"cites\":[{\"session\":\"{{session:0}}\",\"turn\":1}]}]}\n```"
+    }
+  },
+  "actions": [],
+  "expected": {
+    "jobs": [
+      {
+        "kind": "case",
+        "state": "done",
+        "pipeline": "v3",
+        "stages": [
+          "dossier",
+          "summary",
+          "candidates",
+          "attribution"
+        ],
+        "attributionSkipped": null,
+        "attributionError": false,
+        "costUsd": 0.53
+      }
+    ],
+    "attributions": [
+      {
+        "kind": "skill",
+        "name": "fx-misled-skill",
+        "applied": 1,
+        "verdict": "misled",
+        "override": null,
+        "domain": "FXM",
+        "outcome": "solved"
+      }
+    ],
+    "fakeCalls": {
+      "dossier": 1,
+      "attribution": 1,
+      "materialize": 0
+    },
+    "ui": {
+      "libraryChip": {
+        "asset": "fx-misled-skill",
+        "text": "helped 0 · misled 1"
+      },
+      "observabilityLists": [
+        "fx-misled-skill"
+      ],
+      "observabilityOmits": [],
+      "runsRailLabel": null,
+      "runDetailSkipped": null
+    }
+  }
+}

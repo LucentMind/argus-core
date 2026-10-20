@@ -56,6 +56,19 @@ describe.each(listFixtures().map((fx) => [fx.slug, fx] as const))('fixture %s', 
   })
 
   it(fx.scenario, async () => {
+    // The sharpened branches below key on the scenario's leading word (before the first colon).
+    // Linkage: a fixture whose shape needs a branch must carry that branch's key, checked before
+    // anything runs, so a mistyped scenario fails loudly instead of silently skipping its branch.
+    const scenario = fx.scenario.split(':')[0].trim()
+    if (fx.actions.some((a) => a.type === 'retract-finding'))
+      expect(scenario, 'a retract-finding action needs scenario key "retract"').toBe('retract')
+    if (fx.actions.some((a) => a.type === 'reject-proposal'))
+      expect(scenario, 'a reject-proposal action needs scenario key "reject"').toBe('reject')
+    if (fx.expected.attributions.some((r) => r.verdict === 'misled' && r.override === null))
+      expect(scenario, 'an un-overridden misled row needs scenario key "misled"').toBe('misled')
+    if (fx.expected.jobs[0].state === 'failed')
+      expect(scenario, 'a failed first job needs scenario key "dossier-fail"').toBe('dossier-fail')
+
     createCase(db, home, {
       slug: fx.slug,
       title: fx.title,
@@ -166,8 +179,7 @@ describe.each(listFixtures().map((fx) => [fx.slug, fx] as const))('fixture %s', 
     const actual = readActual(db, fx.slug, calls)
     expect(checkExpected(actual, fx.expected)).toEqual([])
 
-    // ── scenario-specific sharpening (the free-text scenario's leading word) ──
-    const scenario = fx.scenario.split(':')[0].trim()
+    // ── scenario-specific sharpening (keyed on `scenario`, checked against the shape above) ──
     const overrideAts = (): OverrideAtRow[] =>
       db
         .prepare(`SELECT id, override_at FROM asset_attributions WHERE case_id = ? ORDER BY id`)
