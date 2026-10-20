@@ -87,6 +87,13 @@ jobs:
       - name: Test
         run: npm test
 
+      # The real app over CDP with the headless runners swapped for the fixture-driven fake
+      # (scripts/fixtures/distill/): every fixture's close, queue, attribution writes and UI,
+      # deterministic and free. It boots its own `electron-vite dev` against a scratch home.
+      - name: Fake-runner attribution gate
+        run: npm run gate:attribution-fake
+        timeout-minutes: 15
+
       # The bundler, not the source, creates the failure this catches: assets under
       # `build.assetsInlineLimit` become `data:` URIs our CSP blocks, and dev never
       # inlines, so typecheck/lint/test are all green while the packaged app drops the
