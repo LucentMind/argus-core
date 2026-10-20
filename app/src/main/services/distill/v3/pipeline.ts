@@ -249,8 +249,16 @@ export async function runCaseDistillPipeline(
       } catch (e) {
         // Non-fatal: a prompt-build throw must not fail a run before summary/candidates are paid
         // for. Record it as the stage's own error and carry on without the stage.
+        // The hash re-resolves the same ids; a resolver that throws PERMANENTLY would rethrow
+        // here and fail the run this catch exists to protect — so it falls back to ''.
+        let promptHash = ''
+        try {
+          promptHash = stagePromptHash('attribution', resolve)
+        } catch {
+          // keep ''
+        }
         stages.attribution = {
-          promptHash: stagePromptHash('attribution', resolve),
+          promptHash,
           promptChars: 0,
           rawOutput: '',
           error: e instanceof Error ? e.message : String(e)

@@ -97,12 +97,16 @@ export function UsefulnessCards({
               <td className="text-center">{c.helped}</td>
               <td className="text-center">{c.misled}</td>
               <td className="text-center">{pct ?? <span title="too few cases">—</span>}</td>
-              <td className="flex flex-wrap gap-1 py-1">
-                {r.emergentDomains.map((d) => (
-                  <Chip key={d} tone="neutral">
-                    {d}
-                  </Chip>
-                ))}
+              {/* A flex <td> stops being a table cell (columns misalign); the flex wrapper is
+                  an inner div. */}
+              <td className="py-1">
+                <div className="flex flex-wrap gap-1">
+                  {r.emergentDomains.map((d) => (
+                    <Chip key={d} tone="neutral">
+                      {d}
+                    </Chip>
+                  ))}
+                </div>
               </td>
             </tr>
           ))}
