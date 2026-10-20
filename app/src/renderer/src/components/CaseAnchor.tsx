@@ -4,6 +4,7 @@ import { DeleteCaseDialog } from './DeleteCaseDialog'
 import { uiStore } from '../lib/uiStore'
 import { notice } from '../lib/noticeStore'
 import { confirm } from '../lib/confirmStore'
+import { settingsStore } from '../lib/settingsStore'
 import { useDistillJob, distillMenuLabel, isDistillInFlight } from '../lib/distillJob'
 import { CASE_RESOLUTIONS } from '../../../shared/types'
 import type { CaseResolution, CaseStatus } from '../../../shared/types'
@@ -33,27 +34,41 @@ const BUSY_TITLE: Record<'archive' | 'restore', string> = {
   restore: 'A restore is already running for this case'
 }
 
-/** The confirm dialog's checkbox content. Its own `useState` gives it independent re-renders
- *  inside `ConfirmHost`'s static `message` tree; `onChange` reports the current value back to
- *  the caller via closure, since `confirm()` itself only ever resolves accept/cancel. */
-function DistillOptIn({
-  initial,
+/** The close confirm's two opt-ins. Each box owns its `useState` (ConfirmHost's `message` tree is
+ *  static, so this keeps them re-rendering independently); `onChange` reports the current pair
+ *  back to the caller via closure, since `confirm()` itself only ever resolves accept/cancel. */
+function CloseOptIns({
+  distillInitial,
+  attributionInitial,
   onChange
 }: {
-  initial: boolean
-  onChange: (next: boolean) => void
+  distillInitial: boolean
+  attributionInitial: boolean
+  onChange: (next: { distill: boolean; attribution: boolean }) => void
 }): React.JSX.Element {
-  const [checked, setChecked] = useState(initial)
+  const [distill, setDistill] = useState(distillInitial)
+  const [attribution, setAttribution] = useState(attributionInitial)
   return (
-    <Checkbox
-      checked={checked}
-      onChange={(next) => {
-        setChecked(next)
-        onChange(next)
-      }}
-      label="Start distillation"
-      aria-label="Start distillation"
-    />
+    <div className="flex flex-col gap-1.5">
+      <Checkbox
+        checked={distill}
+        onChange={(next) => {
+          setDistill(next)
+          onChange({ distill: next, attribution })
+        }}
+        label="Start distillation"
+        aria-label="Start distillation"
+      />
+      <Checkbox
+        checked={attribution}
+        onChange={(next) => {
+          setAttribution(next)
+          onChange({ distill, attribution: next })
+        }}
+        label="Attribute skills and references"
+        aria-label="Attribute skills and references"
+      />
+    </div>
   )
 }
 
@@ -144,9 +159,11 @@ export function CaseAnchor({
   async function applyStatus(
     next: CaseStatus,
     res: CaseResolution | null,
-    distill = true
+    distill = true,
+    attribution?: boolean
   ): Promise<void> {
-    await window.argus.cases.setStatus(slug, next, res, distill)
+    if (attribution === undefined) await window.argus.cases.setStatus(slug, next, res, distill)
+    else await window.argus.cases.setStatus(slug, next, res, distill, attribution)
     onStatusChanged()
   }
 
@@ -158,13 +175,20 @@ export function CaseAnchor({
       console.error('[distill] needsRun failed', err)
       defaultDistill = true
     }
-    let distill = defaultDistill
+    const defaultAttribution = settingsStore.get()?.settings.distill.attribution.default ?? true
+    let choice = { distill: defaultDistill, attribution: defaultAttribution }
     const ok = await confirm({
       title: `Close case as ${res}?`,
-      message: <DistillOptIn initial={defaultDistill} onChange={(next) => (distill = next)} />
+      message: (
+        <CloseOptIns
+          distillInitial={defaultDistill}
+          attributionInitial={defaultAttribution}
+          onChange={(next) => (choice = next)}
+        />
+      )
     })
     if (!ok) return
-    await applyStatus('closed', res, distill)
+    await applyStatus('closed', res, choice.distill, choice.attribution)
   }
 
   async function exportBundle(includeTranscripts: boolean): Promise<void> {
