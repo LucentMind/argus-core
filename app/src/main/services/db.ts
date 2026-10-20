@@ -182,6 +182,35 @@ CREATE TABLE IF NOT EXISTS distill_jobs (
   -- stages_json presence for those. retry() clears it so the re-run re-stamps.
   pipeline TEXT
 );
+-- Knowledge-asset attribution: one row per (distill job, asset) the judge was shown. Append-only
+-- per job; readers aggregate the LATEST job per case (latestAttributionRows). applied / verdict
+-- are NULL when the judge was silent; override_* record a later human signal (finding retraction,
+-- proposal reject) and never replace the judge's verdict (effectiveVerdict = override ?? verdict).
+-- case_outcome / case_domain are derived at write time, never judged. Both FKs cascade, each
+-- with its own index (house rule: FK columns are indexed).
+CREATE TABLE IF NOT EXISTS asset_attributions (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id          INTEGER NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  job_id           INTEGER NOT NULL REFERENCES distill_jobs(id) ON DELETE CASCADE,
+  asset_kind       TEXT NOT NULL,
+  asset_name       TEXT NOT NULL,
+  asset_tier       TEXT,
+  applied          INTEGER,
+  verdict          TEXT,
+  reason           TEXT NOT NULL DEFAULT '',
+  cites_json       TEXT NOT NULL DEFAULT '[]',
+  case_outcome     TEXT NOT NULL,
+  case_domain      TEXT NOT NULL,
+  judge_model      TEXT NOT NULL DEFAULT 'unknown',
+  prompt_hash      TEXT NOT NULL DEFAULT '',
+  override_verdict TEXT,
+  override_source  TEXT,
+  override_at      TEXT,
+  created_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_asset_attr_asset ON asset_attributions(asset_kind, asset_name);
+CREATE INDEX IF NOT EXISTS idx_asset_attr_case  ON asset_attributions(case_id, job_id);
+CREATE INDEX IF NOT EXISTS idx_asset_attr_job   ON asset_attributions(job_id);
 CREATE TABLE IF NOT EXISTS rca_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   case_slug TEXT NOT NULL,
