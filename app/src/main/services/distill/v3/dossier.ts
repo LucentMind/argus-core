@@ -303,21 +303,26 @@ export function parseDossier(text: string): {
  * rather than trusted: dropping an unverifiable claim only costs a knowledge asset, keeping one
  * materializes an asset on evidence nobody can check.
  */
-export function pruneUnknownCites(
-  dossier: Dossier,
-  input: CaseDistillInput
-): { dossier: Dossier; dropped: Record<string, number> } {
+/** Predicate: can the frozen input verify this cite? Shared by the dossier and attribution stages. */
+export function citeKnownIn(input: CaseDistillInput): (c: DossierCite) => boolean {
   const findingIds = new Set(
     input.findings.map((f) => f.id).filter((id): id is number => typeof id === 'number')
   )
   const turnCounts = new Map((input.world?.sessions ?? []).map((s) => [s.id, s.messages.length]))
   const evidencePaths = new Set(input.evidence.map((e) => e.relPath))
-  const known = (c: DossierCite): boolean => {
+  return (c) => {
     if ('finding' in c) return findingIds.has(c.finding)
     if ('evidence' in c) return evidencePaths.has(c.evidence)
     const total = turnCounts.get(c.session)
     return total !== undefined && Number.isInteger(c.turn) && c.turn >= 0 && c.turn < total
   }
+}
+
+export function pruneUnknownCites(
+  dossier: Dossier,
+  input: CaseDistillInput
+): { dossier: Dossier; dropped: Record<string, number> } {
+  const known = citeKnownIn(input)
   const dropped: Record<string, number> = {}
   const keep = <T extends DossierCited>(item: T | null, key: string): T | null => {
     if (!item) return null

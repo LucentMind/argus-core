@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { stagePromptHash, caseDistillPipelineHash } from '../promptHash'
+import { stagePromptHash, caseDistillPipelineHash, V3_STAGES } from '../promptHash'
 import { caseDistillPromptHash } from '../../promptHash'
 
 describe('v3 prompt hashes', () => {
@@ -18,5 +18,13 @@ describe('v3 prompt hashes', () => {
     )
     expect(changed).not.toBe(base)
     expect(base).not.toBe(caseDistillPromptHash())
+  })
+  it('attribution is a hashed stage and the pipeline hash folds it in', () => {
+    expect(V3_STAGES).toContain('attribution')
+    const a = stagePromptHash('attribution')
+    expect(a).toMatch(/^[0-9a-f]{12}$/)
+    expect(
+      stagePromptHash('attribution', (id) => (id.endsWith('.contract') ? 'changed' : ''))
+    ).not.toBe(a)
   })
 })
