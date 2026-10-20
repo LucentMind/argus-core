@@ -118,6 +118,7 @@ import type {
   GlobalMetrics,
   MetricsSummary,
   FindingRow,
+  RetractResult,
   ReviewState,
   UsageStatsPayload
 } from '../shared/observability'
@@ -959,6 +960,12 @@ const argus = {
       ipcRenderer.on(IPC.devPromptsChanged, listener)
       return () => ipcRenderer.removeListener(IPC.devPromptsChanged, listener)
     }
+  },
+  /** Dev-only: the agent's retraction write path, for the deterministic fake-runner gate.
+   *  Exposed unconditionally like `devPrompts` — main enforces the gate. */
+  devFindings: {
+    retract: (id: number, reason: string): Promise<RetractResult> =>
+      invoke(IPC.devFindingsRetract, id, reason)
   },
   /** The click-6-times-on-the-version unlock. Exposed unconditionally like `devPrompts` below —
    *  main enforces the gate and this is the mechanism for reaching it in a packaged build. */

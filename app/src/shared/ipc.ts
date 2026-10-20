@@ -165,6 +165,7 @@ export const IPC = {
   devPromptsCapture: 'dev-prompts:capture',
   devPromptsExportDistillEval: 'dev-prompts:export-distill-eval',
   devPromptsExportAttributions: 'dev-prompts:export-attributions',
+  devFindingsRetract: 'dev-findings:retract',
   /** main → renderer: active override ids changed; the banner and the page both re-read. */
   devPromptsChanged: 'dev-prompts:changed',
   bundleExport: 'bundle:export',
