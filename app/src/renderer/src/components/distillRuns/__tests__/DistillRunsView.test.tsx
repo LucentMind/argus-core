@@ -45,6 +45,7 @@ const detailFor = (r: DistillRunListRow): DistillRunDetail => ({
     summaryPresent: false,
     summary: null,
     candidates: null,
+    attribution: null,
     materialized: null
   }
 })

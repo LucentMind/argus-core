@@ -116,6 +116,7 @@ const detail = (): DistillRunDetail => ({
         confidence: 0.5
       }
     ],
+    attribution: null,
     materialized: [
       {
         type: 'reference-edit',
@@ -139,6 +140,7 @@ describe('RunDetail', () => {
       'strip-dossier',
       'strip-summary',
       'strip-candidates',
+      'strip-attribution',
       'strip-veto',
       'strip-materialize',
       'strip-validators',
@@ -190,6 +192,89 @@ describe('RunDetail', () => {
     d.parsed.candidates = null
     render(<RunDetail detail={d} progress={null} />)
     expect(screen.getByTestId('card-candidates')).toHaveTextContent('CANDS RAW')
+  })
+  it('renders the attribution card: verdict rows, silent rows, cite chips and dropped counters', () => {
+    const base = detail()
+    const d: DistillRunDetail = {
+      ...base,
+      stages: {
+        ...base.stages,
+        attribution: { promptHash: 'a', promptChars: 5, rawOutput: 'ATTR RAW' },
+        attributionUnknownAssetDropped: { 'skill/x': 1 },
+        attributionMalformedDropped: { applied: 2 },
+        attributionUncitedDropped: 3
+      },
+      parsed: {
+        ...base.parsed,
+        attribution: [
+          {
+            kind: 'skill',
+            name: 'diagnose-reroute-race',
+            applied: true,
+            verdict: 'helped',
+            reason: 'found the ordering',
+            cites: [{ finding: 139 }]
+          },
+          {
+            kind: 'memory',
+            name: 'quiet-note',
+            applied: null,
+            verdict: null,
+            reason: '',
+            cites: []
+          }
+        ]
+      }
+    }
+    render(<RunDetail detail={d} progress={null} />)
+    const card = screen.getByTestId('card-attribution')
+    expect(card).toHaveTextContent('attribution')
+    expect(card).toHaveTextContent('diagnose-reroute-race')
+    expect(card).toHaveTextContent('helped')
+    expect(card).toHaveTextContent('found the ordering')
+    expect(card).toHaveTextContent('finding 139')
+    expect(card).toHaveTextContent('quiet-note')
+    const rows = screen.getAllByTestId('attribution-row')
+    expect(rows[1]).toHaveTextContent('silent')
+    expect(card).toHaveTextContent('unknown asset skill/x ×1')
+    expect(card).toHaveTextContent('malformed applied ×2')
+    expect(card).toHaveTextContent('uncited ×3')
+  })
+  it('renders an applied=false row as not applied and shows no counters when none were dropped', () => {
+    const base = detail()
+    const d: DistillRunDetail = {
+      ...base,
+      stages: { ...base.stages, attribution: { promptHash: 'a', promptChars: 5, rawOutput: 'R' } },
+      parsed: {
+        ...base.parsed,
+        attribution: [
+          {
+            kind: 'reference',
+            name: 'ref-a',
+            applied: false,
+            verdict: null,
+            reason: 'unused',
+            cites: []
+          }
+        ]
+      }
+    }
+    render(<RunDetail detail={d} progress={null} />)
+    const card = screen.getByTestId('card-attribution')
+    expect(card).toHaveTextContent('not applied')
+    expect(card).not.toHaveTextContent('unknown asset')
+    expect(card).not.toHaveTextContent('malformed')
+    expect(card).not.toHaveTextContent('uncited')
+  })
+  it('a skipped attribution stage reads as skipped on the card and the strip, never as an error', () => {
+    const base = detail()
+    const d: DistillRunDetail = {
+      ...base,
+      stages: { ...base.stages, attributionSkipped: 'declined' }
+    }
+    render(<RunDetail detail={d} progress={null} />)
+    expect(screen.getByTestId('card-attribution')).toHaveTextContent('skipped · declined at close')
+    expect(screen.getByTestId('strip-attribution').dataset.state).toBe('skipped')
   })
   it('renders the trajectory as a tool-call list, collapsed', () => {
     render(<RunDetail detail={detail()} progress={null} />)

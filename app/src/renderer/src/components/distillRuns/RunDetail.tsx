@@ -2,7 +2,13 @@ import { Fragment } from 'react'
 import type { DistillProgress, DistillRunDetail } from '../../../../shared/distill'
 import { Chip } from '../ui'
 import { PipelineStrip } from './PipelineStrip'
-import { StageCard, DossierBody, CandidatesBody, MaterializeBody } from './StageCards'
+import {
+  StageCard,
+  DossierBody,
+  CandidatesBody,
+  AttributionBody,
+  MaterializeBody
+} from './StageCards'
 import { dropBreakdown, isV3Shape, stamp, stripNodes } from './runsModel'
 
 /** One rendered stage of a run, keyed so compare mode can put the same stage of two runs in the
@@ -25,6 +31,7 @@ export function sectionRank(key: string): number {
     agent: 100,
     summary: 200,
     candidates: 300,
+    attribution: 350,
     'materialize-none': 400,
     validators: 800,
     trajectory: 900
@@ -241,6 +248,40 @@ export function runSections(detail: DistillRunDetail): RunSection[] {
           <div id={`card-${job.id}-veto`} />
         </>
       )
+    })
+
+    // A skipped stage has no record, so StageCard would only say "not reached" and drop the
+    // reason; a decision gets its own plain line instead (same shape as `materialize-none`).
+    out.push({
+      key: 'attribution',
+      node:
+        s?.attributionSkipped && !s.attribution ? (
+          <section
+            id={`card-${job.id}-attribution`}
+            data-testid="card-attribution"
+            className="rounded-r2 surface-card p-3 font-mono text-[11px] text-dim"
+          >
+            attribution — skipped ·{' '}
+            {s.attributionSkipped === 'declined' ? 'declined at close' : 'no assets in this case'}
+          </section>
+        ) : (
+          <StageCard
+            id="attribution"
+            jobId={job.id}
+            name="attribution"
+            record={s?.attribution}
+            structured={detail.parsed.attribution !== null}
+          >
+            {detail.parsed.attribution && (
+              <AttributionBody
+                verdicts={detail.parsed.attribution}
+                malformed={s?.attributionMalformedDropped}
+                unknown={s?.attributionUnknownAssetDropped}
+                uncited={s?.attributionUncitedDropped}
+              />
+            )}
+          </StageCard>
+        )
     })
 
     if (mats.length === 0)
