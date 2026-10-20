@@ -1,7 +1,7 @@
 import type { CaseResolution, CaseStatus } from './types'
 import type { ReviewState } from './observability'
 import type { RcaDraft } from './rca'
-import type { AssetInventoryEntry } from './attribution'
+import type { AssetInventoryEntry, AssetVerdict } from './attribution'
 import type { CaseOutcome } from './caseOutcome'
 import type {
   Dossier,
@@ -243,6 +243,10 @@ export interface DistillRunDetail {
     summaryPresent: boolean
     summary: CaseDistillSummary | null
     candidates: KnowledgeCandidate[] | null
+    /** Parsed against this run's OWN input snapshot inventory, cite-pruned, with an explicit
+     *  silent row per inventoried asset the judge skipped (the pipeline's own gates). Null when
+     *  the stage is absent, its output does not parse, or the snapshot cannot be read. */
+    attribution: AssetVerdict[] | null
     materialized:
       | {
           type: string

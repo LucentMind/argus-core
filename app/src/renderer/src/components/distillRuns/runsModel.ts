@@ -86,6 +86,7 @@ export function runRowLabel(r: DistillRunListRow): string {
   const parts = [`#${r.id}`]
   if (r.pipeline) parts.push(r.pipeline)
   if (r.dryRun) parts.push('dry')
+  if (r.kind === 'attribution') parts.push('attribution only')
   parts.push(stamp(r.finishedAt ?? r.createdAt))
   if (r.state === 'failed') return [...parts, 'failed'].join(' · ')
   if (inFlight(r)) return [...parts, r.state].join(' · ')
@@ -143,6 +144,7 @@ const V3_ORDER: { id: string; label: string; phase: DistillPhase | null }[] = [
   { id: 'dossier', label: 'dossier', phase: 'dossier' },
   { id: 'summary', label: 'summary', phase: 'summary+candidates' },
   { id: 'candidates', label: 'candidates', phase: 'summary+candidates' },
+  { id: 'attribution', label: 'attribution', phase: 'summary+candidates' },
   { id: 'veto', label: 'veto', phase: 'veto' },
   { id: 'materialize', label: 'materialize', phase: 'materialize' },
   { id: 'validators', label: 'validators', phase: 'validators' },
@@ -263,6 +265,36 @@ export function stripNodes(
   const matCost = mats.reduce((a, m) => a + (m.usage?.costUsd ?? 0), 0)
   const matErr = mats.find((m) => m.error)
   const candidatesOk = s.candidates && !s.candidates.error
+  // A skipped stage is a decision (the job declined it, or the case had nothing to grade), never a
+  // failure — it renders `skipped`, not `error`.
+  const attributionNode = (): StripNode => {
+    if (s.attributionSkipped)
+      return {
+        id: 'attribution',
+        label: 'attribution',
+        stat: s.attributionSkipped === 'declined' ? 'declined' : 'no assets',
+        state: 'skipped'
+      }
+    if (!s.attribution)
+      return { id: 'attribution', label: 'attribution', stat: '—', state: 'not-reached' }
+    if (s.attribution.error)
+      return {
+        id: 'attribution',
+        label: 'attribution',
+        stat: 'error',
+        state: 'error',
+        error: s.attribution.error
+      }
+    const v = detail.parsed.attribution ?? []
+    const applied = v.filter((x) => x.applied === true).length
+    const misled = v.filter((x) => x.verdict === 'misled').length
+    return {
+      id: 'attribution',
+      label: 'attribution',
+      stat: `${applied} applied · ${misled} misled`,
+      state: 'done'
+    }
+  }
   return [
     input,
     {
@@ -286,6 +318,7 @@ export function stripNodes(
         `${usd(s.candidates?.usage?.costUsd)} · ${detail.parsed.candidates?.length ?? 0} out`
       )
     },
+    attributionNode(),
     {
       id: 'veto',
       label: 'veto',
