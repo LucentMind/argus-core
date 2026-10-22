@@ -2,75 +2,25 @@
 
 ## Unreleased
 
-83 commits since v2.5.0, 194 files changed (+19,716 / −332).
-
-### Added
-
-**Session rewind and fork**
-
-- Every completed turn in a chat now offers **Rewind to here** and **Fork from here**. Rewind
-  retracts the turns after that point (nothing is deleted — they stay visible, greyed and
-  inert, and the model no longer sees them), and prefills the composer so you can steer
-  differently. Fork starts a new session from that point, leaving the original untouched,
-  with a divider marking where the branch began and a link back to its parent.
-- On Claude, both use the CLI's native fork with **file checkpointing**: rewind previews and
-  restores the files the agent changed after that turn, and a fork keeps full context. Where
-  a turn has no provider anchor (an inherited fork turn, or one that survived an earlier
-  native rewind) or the driver can't branch natively, the new session gets a digest summary
-  instead, and the confirmation dialog and divider say which one actually happened. If the
-  file restore is refused (no checkpoints, anchor missing), the rewind degrades to a
-  conversation-only branch rather than failing.
-- Rewound turns are skipped by everything that reads history on the model's behalf: the
-  resume digest, `read_session_transcript`, distillation input and RCA input; findings
-  retracted by a rewind are dropped from distillation. Archive and restore round-trip the
-  rewound state, provider anchors and fork lineage, and restored chat titles and transcripts
-  are repointed at the rebuilt turn rows.
-
-**HiveMind: set up an empty repo**
-
-- When the configured HiveMind repo is empty, Settings → HiveMind offers to scaffold the
-  expected structure (`README.md`, `skills/`, `references/`, `references/confluence/`) with
-  a preview of exactly which files would be added, each written only if missing. A repo with
-  no commits at all is pushed directly; an empty-but-seeded one opens a PR instead.
-- Re-running reuses your own open init PR (pushing any new commits) and refuses to open a
-  second one over a teammate's. A zero-commit clone now reports ready instead of surfacing
-  a raw git error. The expected repository layout is documented in `docs/hivemind-repo.md`.
-
-**Chat find highlights hits inside messages**
-
-- Chat find previously ringed whole bubbles, which doesn't help locate the match in a long
-  message. Hits are now painted inside matching messages (all softly, the current one
-  strongly) and the view scrolls to the first hit of the current message. Matches that span
-  inline formatting are found.
-
-**Knowledge-asset attribution**
-
-- At case close, a new distillation stage judges each skill, reference and memory that
-  appeared in the case: applied or not, and helped / neutral / misled, with transcript cites.
-  Results feed a "Knowledge usefulness" group on Observability (per domain, with emergent
-  domains per asset), a helped/misled chip on Library rows, and the run detail.
-- Close dialog: a second checkbox, "Attribute skills and references" (default from
-  Settings → Distillation). Declining distillation but keeping attribution runs an
-  attribution-only job; a failed dossier or a v2 run falls back to the same job.
-- Retracting a finding whose reason names an asset, or rejecting an edit proposal as
-  wrong/overfit, overrides the judge's verdict to misled.
-- Langfuse sink: one `asset.contribution` score per verdict with OTel GenAI-shaped metadata;
-  the dev Prompts page can export the same events as NDJSON.
-
-**Distillation testing (dev)**
-
-- A fake headless runner seam: with dev tools on, `ARGUS_HEADLESS_FAKE=<dir>` answers every
-  headless prompt from per-case fixture files, so the real pipeline runs without the SDK.
-- A ten-scenario fixture library (`app/scripts/fixtures/distill/`) and a vitest suite that runs
-  each through the real queue, staging, close routing and override paths.
-- A credential-free CDP gate (`npm run gate:attribution-fake`, also a CI step) and a dev-gated
-  `window.argus.devFindings.retract` door for exercising the retraction override.
+2 commits since v2.6.0-beta.1, 8 files changed (+111 / −35).
 
 ### Changed
 
-- Every v3 distillation `prompt_hash` changes with this release: the new attribution stage is
-  folded into the pipeline hash, so runs from before and after it never compare as the same
-  prompt in the runs browser or the eval harness.
+- The case menu's **Close case** row is now **Close tab**, with a tooltip: it only closes the
+  tab and leaves the case open, which read like the lifecycle action. **Close as…** gets a
+  "resolve the case" tooltip so the two rows are told apart.
+
+### Fixed
+
+- Dropdown menus opened over their own trigger instead of beneath it; the panel now sits
+  directly under the button.
+- Submenus in the title bar closed while the pointer was still moving across them: a 1px
+  draggable strip under the case group briefly handed the pointer to the OS, firing
+  mouseleave. Menu and submenu panels are now no-drag themselves.
+- The recent-cases strip stretched across the whole title bar as one no-drag box, so with a
+  single tab only ~7% of the bar could drag the window. It is now sized to its tabs and
+  right-aligned (about 37% draggable in the same window); with many tabs it caps at the same
+  width and scrolls.
 
 ## v2.5.0 — 2026-10-15
 
