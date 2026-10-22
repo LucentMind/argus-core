@@ -15,14 +15,14 @@ import type { DistillJobRow } from '../../../shared/distill'
  * menu trigger (user-directed, 2026-08-02). It carried a `⋯` glyph beside the id before, which
  * made the id itself look inert and put a 12px target next to a 60px one that did the same
  * thing. No caret replaces it either — a caret beside a case id promises a list of cases, and
- * this menu opens Close as… / Export / Re-distill / Close case.
+ * this menu opens Close as… / Export / Re-distill / Close tab.
  *
  * The box is drawn on hover only, for the same reason the mode switcher's is: a resting border
  * around every control turned the bar into a row of nested rectangles. The border is declared
  * transparent rather than absent so nothing shifts a pixel when it appears.
  *
  * The actions live here rather than in a parent for the same reason `Open in Jira` lives in
- * `JiraSection`: one component owns one subject end to end. `Close case` is what lets the anchor
+ * `JiraSection`: one component owns one subject end to end. `Close tab` is what lets the anchor
  * have no `×` — the active case is not in the tab strip any more, so there is no `×` to press.
  */
 
@@ -277,7 +277,14 @@ export function CaseAnchor({
           // from MenuButton's default `ghost` variant; only the hover hairline is added.
           triggerClassName="h-[30px]! px-2.5! font-mono text-sm! text-signal! hover:border-hair!"
           items={[
-            { label: closeAsLabel, children: statusItems },
+            {
+              label: closeAsLabel,
+              title:
+                status === 'closed'
+                  ? 'Change the resolution, or reopen the case'
+                  : 'Resolve the case — marks it closed with a reason',
+              children: statusItems
+            },
             {
               label: 'Export',
               children: [
@@ -382,7 +389,11 @@ export function CaseAnchor({
                   }
                 ]),
             {
-              label: 'Close case',
+              // Not "Close case": that read as the lifecycle action and the case stayed open
+              // (user report 2026-10-22). This row only closes the tab; `Close as…` above is the
+              // one row that resolves the case.
+              label: 'Close tab',
+              title: 'Closes this tab and returns to all cases — the case stays open',
               onSelect: () => {
                 uiStore.closeTab(slug)
                 onHome()
@@ -395,7 +406,7 @@ export function CaseAnchor({
               //
               // It used to own a confirm of its own — a `choose()` prompt — and that made the
               // app's highest-blast-radius action its least-guarded one: a menu item one row
-              // under the benign `Close case`, then a single button, with no type-the-slug step,
+              // under the benign `Close tab`, then a single button, with no type-the-slug step,
               // and it was the only surface offering "delete the bundle too". The dialog asks the
               // archive question just as well (it takes `archivedAt`) and names the bundle's size
               // while doing it, so nothing is lost by deferring to it — and the two delete
@@ -404,7 +415,7 @@ export function CaseAnchor({
               // `danger` tone, like every other destructive row in the app (see
               // ConnectorsSettings' Remove): this is the app's highest-blast-radius menu item
               // and it sat in the same default ink as `Export`, one row under the benign
-              // `Close case`.
+              // `Close tab`.
               label: 'Delete case…',
               tone: 'danger',
               onSelect: () => setDeleteOpen(true)

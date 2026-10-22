@@ -17,7 +17,7 @@ import { formatMb } from '../lib/evidenceDisplay'
  *
  * The type-the-slug guard is unchanged and gates both actions. It is also the ONLY delete guard
  * in the app now: the case anchor's `Delete case…` row opens this dialog rather than carrying a
- * second, weaker confirm of its own. That row sits one line under the benign `Close case`, is a
+ * second, weaker confirm of its own. That row sits one line under the benign `Close tab`, is a
  * single click away from a confirm button, and was the only surface offering "delete the bundle
  * too" — the weakest guard on the most destructive option. One surface, one guard.
  */
