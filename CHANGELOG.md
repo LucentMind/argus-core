@@ -2,7 +2,46 @@
 
 ## Unreleased
 
+83 commits since v2.5.0, 194 files changed (+19,716 / −332).
+
 ### Added
+
+**Session rewind and fork**
+
+- Every completed turn in a chat now offers **Rewind to here** and **Fork from here**. Rewind
+  retracts the turns after that point (nothing is deleted — they stay visible, greyed and
+  inert, and the model no longer sees them), and prefills the composer so you can steer
+  differently. Fork starts a new session from that point, leaving the original untouched,
+  with a divider marking where the branch began and a link back to its parent.
+- On Claude, both use the CLI's native fork with **file checkpointing**: rewind previews and
+  restores the files the agent changed after that turn, and a fork keeps full context. Where
+  a turn has no provider anchor (an inherited fork turn, or one that survived an earlier
+  native rewind) or the driver can't branch natively, the new session gets a digest summary
+  instead, and the confirmation dialog and divider say which one actually happened. If the
+  file restore is refused (no checkpoints, anchor missing), the rewind degrades to a
+  conversation-only branch rather than failing.
+- Rewound turns are skipped by everything that reads history on the model's behalf: the
+  resume digest, `read_session_transcript`, distillation input and RCA input; findings
+  retracted by a rewind are dropped from distillation. Archive and restore round-trip the
+  rewound state, provider anchors and fork lineage, and restored chat titles and transcripts
+  are repointed at the rebuilt turn rows.
+
+**HiveMind: set up an empty repo**
+
+- When the configured HiveMind repo is empty, Settings → HiveMind offers to scaffold the
+  expected structure (`README.md`, `skills/`, `references/`, `references/confluence/`) with
+  a preview of exactly which files would be added, each written only if missing. A repo with
+  no commits at all is pushed directly; an empty-but-seeded one opens a PR instead.
+- Re-running reuses your own open init PR (pushing any new commits) and refuses to open a
+  second one over a teammate's. A zero-commit clone now reports ready instead of surfacing
+  a raw git error. The expected repository layout is documented in `docs/hivemind-repo.md`.
+
+**Chat find highlights hits inside messages**
+
+- Chat find previously ringed whole bubbles, which doesn't help locate the match in a long
+  message. Hits are now painted inside matching messages (all softly, the current one
+  strongly) and the view scrolls to the first hit of the current message. Matches that span
+  inline formatting are found.
 
 **Knowledge-asset attribution**
 
