@@ -57,22 +57,29 @@ describe('RecentTabs', () => {
     expect(nav.querySelectorAll('[data-tab-separator]')).toHaveLength(1)
   })
 
-  // What this component owes its parent: it takes the leftover space (`flex-1`) and gives all
-  // of it back on demand (`min-w-0`), scrolling rather than growing. It must place NO margin of
-  // its own — an `ml-[50%]` here is the exact bug that pushed the bar's action icons out of the
-  // window, since a percentage margin cannot flex. Bounding is TopBar's job (see its own test).
+  // What this component owes its parent: it is as wide as its tabs and no wider (`min-w-0` lets it
+  // give width back and scroll rather than grow), right-aligned by its OWN auto margin, and it
+  // places no percentage margin — an `ml-[50%]` here is the exact bug that pushed the bar's action
+  // icons out of the window, since a percentage margin cannot flex. Bounding is TopBar's job.
   //
-  // The right-alignment is an auto margin on the inner row; `justify-end` on the scroller
-  // instead would spill the overflow past the container's start edge, where no amount of
-  // scrolling reaches it. jsdom lays nothing out, so this is the only level at which any of it
-  // is assertable.
-  it('takes the leftover space, yields it all back, and never places itself', () => {
+  // It must NOT claim the leftover space (`flex-1`): the band is one `argus-nodrag` box, so every
+  // pixel it takes is a pixel of title bar that cannot drag the window. With one small tab the old
+  // `flex-1` band blocked ~460px of empty bar (measured over WM_NCHITTEST, 2026-10-22).
+  //
+  // The right-alignment of the tabs within an overflowing band is an auto margin on the inner row;
+  // `justify-end` on the scroller instead would spill the overflow past the container's start edge,
+  // where no amount of scrolling reaches it. jsdom lays nothing out, so this is the only level at
+  // which any of it is assertable.
+  it('is as wide as its tabs, yields width back, and never claims the leftover space', () => {
     uiStore.openTab('alpha')
     render(<RecentTabs activeSlug={null} onSelect={vi.fn()} />)
     const nav = screen.getByRole('navigation', { name: 'Recent cases' })
-    expect(nav.className).toContain('flex-1')
-    expect(nav.className).toContain('min-w-0')
-    expect(nav.className).toContain('overflow-x-auto')
+    const cls = nav.className.split(/\s+/)
+    expect(cls).not.toContain('flex-1')
+    expect(cls).not.toContain('grow')
+    expect(cls).toContain('ml-auto')
+    expect(cls).toContain('min-w-0')
+    expect(cls).toContain('overflow-x-auto')
     expect(nav.className).not.toMatch(/\bml-\[/)
     expect(nav.className).not.toContain('justify-end')
     const row = nav.firstElementChild
