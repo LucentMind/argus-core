@@ -356,7 +356,7 @@ describe('TopBar', () => {
     expect(nav.textContent).not.toContain('NAV-1')
     expect(nav.textContent).toContain('NAV-2')
     expect(screen.getByTestId('case-group').textContent).toContain('NAV-1')
-    // the anchor has no × — Close case in its menu is the replacement
+    // the anchor has no × — Close tab in its menu is the replacement
     expect(screen.queryByRole('button', { name: 'Close NAV-1' })).toBeNull()
   })
 

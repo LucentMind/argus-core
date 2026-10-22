@@ -102,6 +102,31 @@ describe('MenuButton', () => {
       expect(body, `${selector} must not declare overflow`).not.toMatch(/(?<![\w-])overflow\s*:/)
     }
   })
+
+  it('the dropdown names its own offset below the trigger (top-full), not the static position', () => {
+    // The wrapper is `inline-flex`, and an absolutely positioned child of a flex container with
+    // `top: auto` sits at the container's TOP edge, not under the trigger — so without an explicit
+    // `top-full` the panel opened over its own trigger (measured: trigger 9..39, panel at 13).
+    // jsdom has no layout; the measured proof is the live rect check in the fix's report.
+    render(<MenuButton label="Edit" aria-label="actions" items={items()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'actions' }))
+    expect(screen.getByRole('menu').className.split(/\s+/)).toContain('top-full')
+  })
+
+  it('the dropdown and its submenu are their own no-drag regions', () => {
+    // The title bar is a window-drag region, and a no-drag box on an ancestor only subtracts ITS
+    // rect: a popover that crosses a draggable pixel loses the pointer to the OS for that instant
+    // (Windows answers WM_NCHITTEST with HTCAPTION), which fires `mouseleave` and closes the
+    // submenu mid-move. Chromium builds no-drag regions from each styled element's own
+    // border-box, so the panels have to carry the class themselves.
+    render(<MenuButton label="Edit" aria-label="actions" items={nested()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'actions' }))
+    const [panel] = screen.getAllByRole('menu')
+    expect(panel.className.split(/\s+/)).toContain('argus-nodrag')
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Export' }).parentElement!)
+    const sub = screen.getAllByRole('menu')[1]
+    expect(sub.parentElement!.className.split(/\s+/)).toContain('argus-nodrag')
+  })
 })
 
 // Submenu parents open on hover *and* on click. Real pointer input fires mouseenter

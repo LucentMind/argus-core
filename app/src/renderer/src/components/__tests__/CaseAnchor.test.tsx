@@ -116,7 +116,7 @@ describe('CaseAnchor', () => {
     expect(screen.getByText('Close as…')).toBeTruthy()
     expect(screen.getByText('Export')).toBeTruthy()
     expect(screen.getByText('Distill')).toBeTruthy()
-    expect(screen.getByText('Close case')).toBeTruthy()
+    expect(screen.getByText('Close tab')).toBeTruthy()
   })
 
   it('doubles the Close as… row as the status readout for a closed case', async () => {
@@ -176,13 +176,29 @@ describe('CaseAnchor', () => {
     expect(needsRunMock).not.toHaveBeenCalled()
   })
 
-  it('closes the tab and navigates home from Close case', async () => {
+  it('tells the two "close" rows apart: one resolves the case, one only closes the tab', async () => {
+    // The tab-closing row used to be labelled "Close case" and was mistaken for the lifecycle
+    // action (user report 2026-10-22): the case stayed open. The labels now differ and each row
+    // says what it does on hover.
+    const user = userEvent.setup()
+    renderAnchor()
+    await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
+    expect(screen.queryByText('Close case')).toBeNull()
+    expect(screen.getByText('Close as…').closest('button')!.getAttribute('title')).toMatch(
+      /resolve the case/i
+    )
+    expect(screen.getByText('Close tab').closest('button')!.getAttribute('title')).toMatch(
+      /case stays open/i
+    )
+  })
+
+  it('closes the tab and navigates home from Close tab', async () => {
     const user = userEvent.setup()
     const onHome = vi.fn()
     uiStore.openTab('NN-5187')
     renderAnchor({ onHome })
     await user.click(screen.getByRole('button', { name: 'Case actions · NN-5187' }))
-    await user.click(screen.getByText('Close case'))
+    await user.click(screen.getByText('Close tab'))
     expect(uiStore.get().recentTabs).toEqual([])
     expect(onHome).toHaveBeenCalled()
   })
@@ -941,7 +957,7 @@ describe('archive actions: honest copy and gated rows', () => {
     expect(row.className).toContain('text-danger')
     // and the benign neighbour it sits under is NOT in that tone — otherwise the assertion
     // above would pass on a menu that painted every row red.
-    expect(screen.getByRole('menuitem', { name: 'Close case' }).className).not.toContain(
+    expect(screen.getByRole('menuitem', { name: 'Close tab' }).className).not.toContain(
       'text-danger'
     )
   })

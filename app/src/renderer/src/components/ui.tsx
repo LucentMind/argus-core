@@ -354,11 +354,19 @@ export function MenuButton({
                   } as CSSProperties)
                 : undefined
             }
+            // `argus-nodrag` on the panel itself: inside a window-drag region (the title bar) an
+            // ancestor's no-drag box only subtracts ITS rect, so a popover that crosses one draggable
+            // pixel loses the pointer to the OS there — `mouseleave` fires and a submenu closes
+            // mid-move. Chromium builds no-drag regions from each styled element's own border-box.
+            //
+            // `top-full`, not a bare `mt-1`: the wrapper is `inline-flex`, and an absolutely
+            // positioned child of a flex container with `top: auto` sits at the container's TOP
+            // edge, so the panel opened over its own trigger.
             className={
               portal && anchor
-                ? 'z-50 min-w-44 rounded-r2 overlay-menu p-1'
-                : `absolute z-30 min-w-44 rounded-r2 overlay-menu p-1 ${
-                    openUp ? 'bottom-full mb-1' : 'mt-1'
+                ? 'argus-nodrag z-50 min-w-44 rounded-r2 overlay-menu p-1'
+                : `argus-nodrag absolute z-30 min-w-44 rounded-r2 overlay-menu p-1 ${
+                    openUp ? 'bottom-full mb-1' : 'top-full mt-1'
                   } ${align === 'left' ? 'left-0' : 'right-0'}`
             }
           >
@@ -398,7 +406,7 @@ export function MenuButton({
                     // inside this DOM subtree. A bare `ml-1` margin leaves the pointer
                     // over neither element mid-cross, firing the parent's onMouseLeave
                     // and closing the submenu before it can be reached.
-                    <div className="absolute left-full top-0 z-40 pl-1">
+                    <div className="argus-nodrag absolute left-full top-0 z-40 pl-1">
                       <div role="menu" className="min-w-44 rounded-r2 overlay-menu p-1">
                         {it.children.map((sub, j) => (
                           <button
