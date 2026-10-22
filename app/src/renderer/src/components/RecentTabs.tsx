@@ -13,11 +13,17 @@ import { uiStore } from '../lib/uiStore'
  * to go and pushed everything after it off the right edge. Bounding is the parent's job; this
  * one only has to shrink to nothing (`min-w-0`) when asked.
  *
- * The right-alignment is an `ml-auto` on the inner row, NOT `justify-end` on the scroller. An
- * auto margin collapses to zero once the content overflows, so the list simply starts scrolling
- * from its left edge; `justify-end` instead keeps pushing, and the overflow spills past the
- * container's start edge where scrolling cannot reach it. Shift+wheel scrolls it natively — an
- * `overflow-x` container needs no handler.
+ * The band is as wide as its tabs and no wider — NOT `flex-1`. It is one `argus-nodrag` box, so
+ * every pixel it claims is a pixel of title bar that cannot drag the window; the old `flex-1`
+ * band blocked ~460px of empty bar behind a single small tab (measured with WM_NCHITTEST,
+ * 2026-10-22). Its own `ml-auto` keeps it flush against the action icons, and `min-w-0` lets it
+ * shrink and scroll once the tabs outgrow the room. The empty bar to its left stays draggable.
+ *
+ * Within an overflowing band the right-alignment is an `ml-auto` on the inner row, NOT
+ * `justify-end` on the scroller. An auto margin collapses to zero once the content overflows, so
+ * the list simply starts scrolling from its left edge; `justify-end` instead keeps pushing, and
+ * the overflow spills past the container's start edge where scrolling cannot reach it.
+ * Shift+wheel scrolls it natively — an `overflow-x` container needs no handler.
  *
  * The active case is deliberately absent: it lives in the bar's case anchor, and showing it in
  * both places is the duplication this layout exists to remove.
@@ -45,7 +51,7 @@ export function RecentTabs({
   return (
     <nav
       aria-label="Recent cases"
-      className="tabstrip-fade argus-nodrag flex h-full min-w-0 flex-1 items-center overflow-x-auto"
+      className="tabstrip-fade argus-nodrag ml-auto flex h-full min-w-0 items-center overflow-x-auto"
     >
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {recentTabs

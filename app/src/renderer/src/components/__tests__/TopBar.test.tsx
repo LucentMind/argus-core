@@ -380,7 +380,10 @@ describe('TopBar', () => {
     )
     const nav = screen.getByRole('navigation', { name: 'Recent cases' })
     expect(nav.className).toContain('overflow-x-auto')
-    expect(nav.className).toContain('flex-1')
+    // content-sized, right-aligned by its own auto margin — `flex-1` here would make the whole
+    // leftover bar one no-drag box and leave nothing to drag the window by
+    expect(nav.className.split(/\s+/)).not.toContain('flex-1')
+    expect(nav.className.split(/\s+/)).toContain('ml-auto')
     // no percentage margin in the band itself — that is the defect
     expect(nav.className).not.toMatch(/\bml-\[/)
 
