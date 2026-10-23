@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, type Mock } from 'vitest'
-import { createClaudeBranching, ANCHOR_NOT_IN_TRANSCRIPT, type ClaudeBranching } from '../branch'
+import {
+  createClaudeBranching,
+  transcriptTurns,
+  ANCHOR_NOT_IN_TRANSCRIPT,
+  type ClaudeBranching
+} from '../branch'
 import type { CreateQueryFn, QueryHandle } from '../index'
 
 /** The SDK's control method, spelled out so each test's mock widens to the same type
@@ -192,5 +197,61 @@ describe('claude branching', () => {
       error: ANCHOR_NOT_IN_TRANSCRIPT
     })
     expect(q.calls).toHaveLength(0) // no query is opened when the anchor can't be resolved
+  })
+})
+
+describe('transcriptTurns / listTurns', () => {
+  const text = (t: string): { content: { type: string; text: string }[] } => ({
+    content: [{ type: 'text', text: t }]
+  })
+  /** The shapes a real transcript carries (derive-transcript.mjs, 2026-10-23): a block-array
+   *  prompt, thinking/tool_use/text assistants, a tool_result carrier, a string prompt — plus a
+   *  sub-agent's message, which the stream capture gates out and so must this. */
+  const real = [
+    { type: 'user', uuid: 'u-1', message: text('Create note.txt'), parent_tool_use_id: null },
+    { type: 'assistant', uuid: 'a-1', message: { content: [{ type: 'thinking' }] } },
+    { type: 'assistant', uuid: 'a-2', message: { content: [{ type: 'tool_use', id: 't1' }] } },
+    {
+      type: 'user',
+      uuid: 'u-tr',
+      message: { content: [{ type: 'tool_result', tool_use_id: 't1' }] },
+      parent_tool_use_id: null
+    },
+    { type: 'assistant', uuid: 'a-3', message: text('done') },
+    { type: 'assistant', uuid: 's-1', message: text('sub'), parent_tool_use_id: 't1' },
+    {
+      type: 'user',
+      uuid: 'u-2',
+      message: { content: 'What did I ask?' },
+      parent_tool_use_id: null
+    },
+    { type: 'assistant', uuid: 'a-4', message: text('note.txt') }
+  ]
+
+  it('splits at real prompts and anchors each turn at its last top-level assistant', () => {
+    expect(transcriptTurns(real)).toEqual([
+      { text: 'Create note.txt', anchor: 'a-3' },
+      { text: 'What did I ask?', anchor: 'a-4' }
+    ])
+  })
+
+  it('reports a turn the provider recorded no reply for with a null anchor', () => {
+    expect(transcriptTurns([{ type: 'user', uuid: 'u', message: { content: 'hi' } }])).toEqual([
+      { text: 'hi', anchor: null }
+    ])
+  })
+
+  it('reads the current cursor through getSessionMessages, under the case dir', async () => {
+    const msgs = vi.fn(async () => real)
+    const b = createClaudeBranching({
+      createQuery: fakeControlQuery().createQuery,
+      fork: vi.fn(),
+      messages: msgs,
+      spawnEnv: () => ({})
+    })
+    await expect(b.listTurns({ cursor: 'sess-1', caseDir: 'C:/case' })).resolves.toHaveLength(2)
+    expect(msgs).toHaveBeenCalledWith('sess-1', { dir: 'C:/case' })
+    msgs.mockResolvedValueOnce([]) // what a pruned transcript reads as
+    await expect(b.listTurns({ cursor: 'gone', caseDir: 'C:/case' })).resolves.toEqual([])
   })
 })

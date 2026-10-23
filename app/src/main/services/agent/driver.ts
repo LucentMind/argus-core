@@ -325,6 +325,16 @@ export interface BranchArgs {
   cliPath?: string
 }
 
+/** One turn of the provider's own transcript, oldest first, as `listTurns` reports it. */
+export interface ProviderTurn {
+  /** The prompt as the provider recorded it — for a turn that carried a history digest, the
+   *  digest followed by the user's text (session.ts sends `digest + text`). */
+  text: string
+  /** Where a branch that keeps this turn slices: its last top-level assistant message, or null
+   *  when the provider recorded none (a turn that failed before any reply). */
+  anchor: string | null
+}
+
 export interface RewindFilesPreview {
   restored: string[]
   skipped: number
@@ -393,4 +403,12 @@ export interface AgentDriver {
    * Optional: presence MUST match `capabilities.branching === 'native'`.
    */
   previewRewind?(args: BranchArgs): Promise<RewindFilesPreview>
+  /**
+   * The provider transcript behind `cursor`, as turns — how a branch resolves an anchor turn
+   * whose stored `provider_anchor_id` is NULL (every turn surviving a native rewind (V14), every
+   * inherited turn of a fork (V2), every turn recorded before anchors were). `[]` when the
+   * transcript is gone. A transcript read, never a CLI child. Optional: presence MUST match
+   * `capabilities.branching === 'native'`.
+   */
+  listTurns?(args: Pick<BranchArgs, 'cursor' | 'caseDir'>): Promise<ProviderTurn[]>
 }

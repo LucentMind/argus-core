@@ -11,6 +11,7 @@ import { assertCaseWritable } from '../caseFreeze'
 import { retractFinding } from '../findings'
 import { readSessionEvents, copySessionMirror } from './mirror'
 import { liveTurnIds } from './liveTurns'
+import { alignAnchor } from './anchorAlign'
 import { sessionSummary, TITLE_MAX } from './sessionStore'
 
 export interface BranchDeps {
@@ -134,21 +135,65 @@ function promptFrom(events: AgentEvent[], turnId: number): string {
 }
 
 /**
- * One "does this session branch through the provider itself" predicate, shared by the preview
- * and both write paths (rewind, fork) so none of them can compute a different answer from the
- * others. All three provider hooks are required together, not just the one the caller happens
- * to use next: a driver that only implements some of `previewRewind`/`rewindTo`/`forkAt` is not
- * safely "native" for any of them, and checking only the hook in play would let the preview
- * promise a native rewind that the write path (missing `rewindTo`) could never actually perform.
+ * Whether this session can branch through the provider at all. All three provider hooks are
+ * required together, not just the one the caller happens to use next: a driver that only
+ * implements some of `previewRewind`/`rewindTo`/`forkAt` is not safely "native" for any of them,
+ * and checking only the hook in play would let the preview promise a native rewind that the
+ * write path (missing `rewindTo`) could never actually perform.
  */
-function nativeBranching(driver: AgentDriver, session: SessionRow, anchorRow: TurnRow): boolean {
+function canBranchNatively(driver: AgentDriver, session: SessionRow): boolean {
   return (
     driver.capabilities.branching === 'native' &&
     !!driver.previewRewind &&
     !!driver.rewindTo &&
     !!driver.forkAt &&
-    !!session.driver_cursor &&
-    !!anchorRow.provider_anchor_id
+    !!session.driver_cursor
+  )
+}
+
+/**
+ * The provider anchor a branch at this turn slices at, or null for the digest path — ONE
+ * answer, shared by the preview and both write paths (rewind, fork), so none of them can
+ * compute a different one from the others.
+ *
+ * The anchor the stream recorded wins when there is one. When it is NULL — every turn surviving
+ * a native rewind (V14), every inherited turn of a fork (V2), every turn from before anchors
+ * were recorded — it is derived from the provider's CURRENT transcript (`listTurns`), aligned
+ * against this session's live prompts. Deriving rather than remapping is what makes a second
+ * rewind or fork stay native: the fork that replaced the cursor remapped every uuid, but its
+ * transcript is the same conversation, so reading it again finds the new ones.
+ *
+ * Every failure is the digest path, never a throw: a transcript the CLI has pruned reads as no
+ * turns, and `alignAnchor` refuses anything it cannot place exactly. A wrong anchor would fork
+ * the wrong history without a word; a digest is what this session would have got anyway.
+ *
+ * Safe to call before `evictLive`: it reads only `turn.started` lines, written when each turn
+ * BEGAN, and the mirror's 250 ms flush debounce (mirror.ts) has long put those on disk for any
+ * turn preflight lets through — a running turn is refused.
+ */
+async function branchAnchor(
+  deps: BranchDeps,
+  caseSlug: string,
+  session: SessionRow,
+  anchorRow: TurnRow,
+  driver: AgentDriver
+): Promise<string | null> {
+  if (!canBranchNatively(driver, session)) return null
+  if (anchorRow.provider_anchor_id) return anchorRow.provider_anchor_id
+  if (!driver.listTurns) return null
+  const dir = caseDir(deps.argusHome, caseSlug)
+  const live = liveTurnRows(deps.db, session.id)
+  const events = readSessionEvents(dir, session.id)
+  let provider
+  try {
+    provider = await driver.listTurns({ cursor: session.driver_cursor!, caseDir: dir })
+  } catch {
+    return null
+  }
+  return alignAnchor(
+    live.map((t) => promptFrom(events, t.id)),
+    live.findIndex((t) => t.id === anchorRow.id),
+    provider
   )
 }
 
@@ -156,17 +201,17 @@ function nativeBranching(driver: AgentDriver, session: SessionRow, anchorRow: Tu
  * What branching a branch AT THIS ANCHOR would actually get — the one question the renderer
  * cannot answer for itself.
  *
- * `capabilitiesFor(settings, instanceId).branching` is a DRIVER fact; `nativeBranching` is an
+ * `capabilitiesFor(settings, instanceId).branching` is a DRIVER fact; `branchAnchor` is an
  * ANCHOR fact, and they disagree routinely: the capability says 'digest' while settings are
- * still loading or when `instanceId` is null, and 'native' on a Claude turn that carries no
- * `provider_anchor_id` — which is every inherited turn of a fork (V2) and every turn surviving
- * a native rewind (V14). Deriving the fork dialog's promise and the permanent divider's wording
- * from the capability let both state the opposite of what happened.
+ * still loading or when `instanceId` is null, and 'native' on a Claude session whose transcript
+ * the CLI has pruned, or whose turns `alignAnchor` cannot place. Deriving the fork dialog's
+ * promise and the permanent divider's wording from the capability let both state the opposite
+ * of what happened.
  *
- * Read-only and cheap: preflight plus the predicate, no driver round trip (that is
- * `rewindPreview`'s dry run) and no eviction. Preflight runs under the FORK rules — the last
- * live turn is a legal fork anchor even though it is not a legal rewind anchor — so the same
- * call serves the fork dialog; a rewind's own preview already reports `branching` itself.
+ * Read-only and cheap: preflight plus `branchAnchor` — at most a transcript read, never a CLI
+ * child (that is `rewindPreview`'s dry run) and no eviction. Preflight runs under the FORK rules
+ * — the last live turn is a legal fork anchor even though it is not a legal rewind anchor — so
+ * the same call serves the fork dialog; a rewind's own preview already reports `branching`.
  */
 export async function branchPreview(
   deps: BranchDeps,
@@ -176,7 +221,8 @@ export async function branchPreview(
 ): Promise<{ branching: Branching }> {
   const { session, anchorRow } = preflight(deps, caseSlug, sessionId, anchorTurnId, 'fork')
   const driver = deps.driverFor(sessionId)
-  return { branching: nativeBranching(driver, session, anchorRow) ? 'native' : 'digest' }
+  const anchor = await branchAnchor(deps, caseSlug, session, anchorRow, driver)
+  return { branching: anchor ? 'native' : 'digest' }
 }
 
 interface TailFindingRow {
@@ -205,28 +251,29 @@ interface RewindPlan {
   session: SessionRow
   anchorRow: TurnRow
   tail: TurnRow[]
-  native: boolean
+  /** `branchAnchor`'s answer: the provider id to slice at, or null for the digest path. */
+  anchor: string | null
   findings: TailFindingRow[]
   calls: { tool: string; count: number }[]
 }
 
 /**
- * Everything a rewind at this anchor knows from the DATABASE alone: preflight, the tail, its
- * findings and tool calls, and whether the provider will branch this natively.
+ * Everything a rewind at this anchor knows without a CLI child: preflight, the tail, its
+ * findings and tool calls, and the anchor the provider would slice at (`branchAnchor` — the
+ * database, plus at most a transcript read).
  *
  * Split out because `rewindSession` used to call `rewindPreview` a second time "to
- * re-validate" and then discard most of its result. On Claude that is not a database read —
- * `rewindPreview` runs the driver's dry run, so the write path was spending a second
- * `getSessionMessages` and starting a second CLI child, against a session that at that moment
- * was still warm. The dry run belongs to the dialog; re-validation is what preflight (here) and
- * the in-transaction `isTurnActive` re-check do.
+ * re-validate" and then discard most of its result. On Claude that is not a cheap read —
+ * `rewindPreview` runs the driver's dry run, so the write path was starting a second CLI child
+ * against a session that at that moment was still warm. The dry run belongs to the dialog;
+ * re-validation is what preflight (here) and the in-transaction `isTurnActive` re-check do.
  */
-function rewindPlan(
+async function rewindPlan(
   deps: BranchDeps,
   caseSlug: string,
   sessionId: number,
   anchorTurnId: number
-): RewindPlan {
+): Promise<RewindPlan> {
   const { session, anchorRow, tail } = preflight(deps, caseSlug, sessionId, anchorTurnId, 'rewind')
   const tailIds = tail.map((t) => t.id)
   const marks = tailIds.map(() => '?').join(',')
@@ -245,7 +292,7 @@ function rewindPlan(
     session,
     anchorRow,
     tail,
-    native: nativeBranching(deps.driverFor(sessionId), session, anchorRow),
+    anchor: await branchAnchor(deps, caseSlug, session, anchorRow, deps.driverFor(sessionId)),
     findings,
     calls
   }
@@ -257,14 +304,14 @@ export async function rewindPreview(
   sessionId: number,
   anchorTurnId: number
 ): Promise<RewindPreview> {
-  const { session, anchorRow, tail, native, findings, calls } = rewindPlan(
+  const { session, tail, anchor, findings, calls } = await rewindPlan(
     deps,
     caseSlug,
     sessionId,
     anchorTurnId
   )
   const driver = deps.driverFor(sessionId)
-  const files: RewindPreview['files'] = native
+  const files: RewindPreview['files'] = anchor
     ? {
         kind: 'native',
         // spread, not field-by-field: the driver's optional `error` (no checkpoints, anchor
@@ -272,7 +319,7 @@ export async function rewindPreview(
         // fields by hand is how it would silently stop reaching the renderer.
         ...(await driver.previewRewind!({
           cursor: session.driver_cursor!,
-          anchor: anchorRow.provider_anchor_id!,
+          anchor,
           caseDir: caseDir(deps.argusHome, caseSlug),
           cliPath: deps.cliPathFor(sessionId)
         }))
@@ -282,7 +329,7 @@ export async function rewindPreview(
   const events = tail.length ? readSessionEvents(caseDir(deps.argusHome, caseSlug), sessionId) : []
   return {
     anchorTurnId,
-    branching: native ? 'native' : 'digest',
+    branching: anchor ? 'native' : 'digest',
     tail: tail.map((t) => ({
       turnId: t.id,
       userText: promptFrom(events, t.id)
@@ -319,19 +366,19 @@ export function rewindSession(
   opts?: { filesUnavailable?: boolean }
 ): Promise<RewindResult> {
   return withBranchLock(sessionId, async () => {
-    // Preflight + the tail/findings/tool-call reads, from the DATABASE only. No second
+    // Preflight, the tail/findings/tool-call reads and the anchor — no CLI child. No second
     // `rewindPreview`: that would re-run the driver's dry run against a still-warm session (I4).
-    const { session, anchorRow, native } = rewindPlan(deps, caseSlug, sessionId, anchorTurnId)
+    const { session, anchor } = await rewindPlan(deps, caseSlug, sessionId, anchorTurnId)
     const driver = deps.driverFor(sessionId)
     const now = deps.now?.() ?? new Date().toISOString()
     // 1. evict the warm session (flushes the mirror; nothing appends during the write below)
     await deps.evictLive(caseSlug, sessionId)
     // 2. the only irreversible external step — BEFORE any write.
     let newCursor: string | null = null
-    if (native) {
+    if (anchor) {
       const args = {
         cursor: session.driver_cursor!,
-        anchor: anchorRow.provider_anchor_id!,
+        anchor,
         caseDir: caseDir(deps.argusHome, caseSlug),
         cliPath: deps.cliPathFor(sessionId)
       }
@@ -379,8 +426,8 @@ export function rewindSession(
       // names nothing in the session it now belongs to. Found live 2026-09-05
       // (`scripts/cdp-session-branch.mjs`): after a rewind, "Fork from here" on the anchor turn
       // failed with `Message <anchor> not found in session <new cursor>` — a hard error, not a
-      // degraded path. Forget them here, so a later branch at one of those turns takes the
-      // digest route (`nativeBranching` requires a non-null anchor) instead.
+      // degraded path. Forget them here, so a later branch at one of those turns derives its
+      // anchor from the NEW cursor's transcript (`branchAnchor`) instead of slicing at a stale id.
       //
       // Runs AFTER the mark loop so the rewound tail is already excluded by status: those ids
       // stay valid in `pre_rewind_cursor`, which the statement below preserves, and preflight
@@ -439,12 +486,12 @@ export function forkCaseSession(
     const driver = deps.driverFor(sessionId)
     const now = deps.now?.() ?? new Date().toISOString()
     await deps.evictLive(caseSlug, sessionId) // flush the parent's mirror before copying it
-    const native = nativeBranching(driver, session, anchorRow)
+    const anchor = await branchAnchor(deps, caseSlug, session, anchorRow, driver)
     let cursor: string | null = null
-    if (native) {
+    if (anchor) {
       cursor = await driver.forkAt!({
         cursor: session.driver_cursor!,
-        anchor: anchorRow.provider_anchor_id!,
+        anchor,
         caseDir: caseDir(deps.argusHome, caseSlug),
         cliPath: deps.cliPathFor(sessionId)
       })
