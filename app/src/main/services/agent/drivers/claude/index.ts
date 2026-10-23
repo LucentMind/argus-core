@@ -515,6 +515,7 @@ export function createClaudeDriver(
     forkAt: branching.forkAt,
     rewindTo: branching.rewindTo,
     previewRewind: branching.previewRewind,
+    listTurns: branching.listTurns,
 
     // Delegates to probe.ts (colocated Task 6). AuthStatus carries a few more optional
     // fields (email/subscription/version) than the driver-agnostic core of

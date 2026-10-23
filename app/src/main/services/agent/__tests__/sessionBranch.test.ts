@@ -49,14 +49,26 @@ function nativeDriver(over: Partial<AgentDriver> = {}): AgentDriver {
     forkAt: vi.fn(async () => 'fork-cursor'),
     rewindTo: vi.fn(async () => 'rewound-cursor'),
     previewRewind: vi.fn(async () => ({ restored: ['note.txt'], skipped: 0 })),
+    // Default: the provider transcript is gone (what the CLI's own pruning leaves behind), so
+    // only a STORED anchor branches natively unless a test says otherwise (`transcripts`).
+    listTurns: vi.fn(async () => []),
     ...over
   }
+}
+/** A `listTurns` that knows a transcript per provider cursor: `[prompt, anchor]` per turn. */
+function transcripts(
+  byCursor: Record<string, [string, string | null][]>
+): NonNullable<AgentDriver['listTurns']> {
+  return vi.fn(async ({ cursor }: { cursor: string }) =>
+    (byCursor[cursor] ?? []).map(([text, anchor]) => ({ text, anchor }))
+  )
 }
 function digestDriver(): AgentDriver {
   const d = nativeDriver()
   delete (d as Partial<AgentDriver>).forkAt
   delete (d as Partial<AgentDriver>).rewindTo
   delete (d as Partial<AgentDriver>).previewRewind
+  delete (d as Partial<AgentDriver>).listTurns
   return { ...d, kind: 'codex', capabilities: { ...d.capabilities, branching: 'digest' } }
 }
 function deps(driver: AgentDriver, over: Partial<BranchDeps> = {}): BranchDeps {
@@ -232,7 +244,7 @@ describe('branchPreview', () => {
       branching: 'native'
     })
   })
-  it('reports digest when the anchor turn has no provider anchor (V2 / V14)', async () => {
+  it('reports digest when the anchor turn has no provider anchor and the transcript is gone', async () => {
     db.prepare(`UPDATE turns SET provider_anchor_id = NULL WHERE id = ?`).run(turns[1])
     expect(await branchPreview(deps(nativeDriver()), SLUG, sessionId, turns[1])).toEqual({
       branching: 'digest'
@@ -260,6 +272,164 @@ describe('branchPreview', () => {
     expect(drv.previewRewind).not.toHaveBeenCalled()
     expect(d.evictLive).not.toHaveBeenCalled()
     expect(db.prepare(`SELECT COUNT(*) AS n FROM sessions`).get()).toEqual({ n: 1 })
+  })
+})
+
+describe('on-demand anchors (a NULL provider_anchor_id derived from the provider transcript)', () => {
+  const nullAnchors = (sid: number): void => {
+    db.prepare(`UPDATE turns SET provider_anchor_id = NULL WHERE session_id = ?`).run(sid)
+  }
+  const original: [string, string][] = [
+    ['prompt 1', 'x-1'],
+    ['prompt 2', 'x-2'],
+    ['prompt 3', 'x-3']
+  ]
+
+  it('previews native when the transcript places the anchor turn, digest when it cannot', async () => {
+    nullAnchors(sessionId)
+    const placed = nativeDriver({ listTurns: transcripts({ 'cur-0': original }) })
+    expect(await branchPreview(deps(placed), SLUG, sessionId, turns[1])).toEqual({
+      branching: 'native'
+    })
+    const wrong = nativeDriver({
+      listTurns: transcripts({
+        'cur-0': [
+          ['prompt 1', 'x-1'],
+          ['something else', 'x-2']
+        ]
+      })
+    })
+    expect(await branchPreview(deps(wrong), SLUG, sessionId, turns[1])).toEqual({
+      branching: 'digest'
+    })
+  })
+
+  it('takes the digest path, without throwing, when reading the transcript fails', async () => {
+    nullAnchors(sessionId)
+    const drv = nativeDriver({
+      listTurns: vi.fn(async () => {
+        throw new Error('EACCES')
+      })
+    })
+    expect(await branchPreview(deps(drv), SLUG, sessionId, turns[1])).toEqual({
+      branching: 'digest'
+    })
+    await rewindSession(deps(drv), SLUG, sessionId, turns[0])
+    expect(drv.rewindTo).not.toHaveBeenCalled()
+    expect(db.prepare(`SELECT driver_cursor FROM sessions WHERE id = ?`).get(sessionId)).toEqual({
+      driver_cursor: null
+    })
+  })
+
+  it('uses the stored anchor when there is one and never reads the transcript', async () => {
+    const drv = nativeDriver({ listTurns: transcripts({ 'cur-0': original }) })
+    await rewindSession(deps(drv), SLUG, sessionId, turns[0])
+    expect(drv.rewindTo).toHaveBeenCalledWith(expect.objectContaining({ anchor: 'a-1' }))
+    expect(drv.listTurns).not.toHaveBeenCalled()
+  })
+
+  it('previews and rewinds with the derived anchor, against the current cursor', async () => {
+    nullAnchors(sessionId)
+    const drv = nativeDriver({ listTurns: transcripts({ 'cur-0': original }) })
+    const p = await rewindPreview(deps(drv), SLUG, sessionId, turns[1])
+    expect(p.branching).toBe('native')
+    expect(drv.previewRewind).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: 'cur-0', anchor: 'x-2' })
+    )
+    await rewindSession(deps(drv), SLUG, sessionId, turns[1])
+    expect(drv.rewindTo).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: 'cur-0', anchor: 'x-2' })
+    )
+  })
+
+  it('keeps a SECOND rewind native: the survivors re-derive against the forked cursor', async () => {
+    // The V14 path end to end. Rewind 1 slices at the stored a-2 and the SDK hands back a fork
+    // whose uuids are all new; the survivors' anchors are forgotten. Rewind 2, at turn 1, then
+    // finds its anchor in the NEW cursor's transcript — r-1, never the stale a-1.
+    const drv = nativeDriver({
+      listTurns: transcripts({
+        'rewound-cursor': [
+          ['prompt 1', 'r-1'],
+          ['prompt 2', 'r-2']
+        ]
+      })
+    })
+    await rewindSession(deps(drv), SLUG, sessionId, turns[1])
+    await rewindSession(deps(drv), SLUG, sessionId, turns[0])
+    expect(drv.rewindTo).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ cursor: 'cur-0', anchor: 'a-2' })
+    )
+    expect(drv.rewindTo).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ cursor: 'rewound-cursor', anchor: 'r-1' })
+    )
+    expect(
+      db
+        .prepare(`SELECT driver_cursor, pre_rewind_cursor FROM sessions WHERE id = ?`)
+        .get(sessionId)
+    ).toEqual({ driver_cursor: 'rewound-cursor', pre_rewind_cursor: 'rewound-cursor' })
+  })
+
+  it('ignores the rewound tail when aligning: rewound, then the prefilled prompt resent', async () => {
+    // A rewind prefills the composer with the first discarded prompt, so the commonest next turn
+    // is that same text again. The provider transcript then holds turn 1 and the resend — NOT
+    // the rewound rows. Aligning against every row would match the REWOUND "prompt 2" to the
+    // resend, leave the live one unmatched beside an identical matched one, and refuse.
+    const drv = nativeDriver({
+      listTurns: transcripts({
+        'rewound-cursor': [
+          ['prompt 1', 'r-1'],
+          ['prompt 2', 'r-4']
+        ]
+      })
+    })
+    await rewindSession(deps(drv), SLUG, sessionId, turns[0])
+    const t4 = Number(
+      db
+        .prepare(
+          `INSERT INTO turns (case_id, session_id, turn_index, status, created_at) VALUES (?, ?, 4, 'success', ?)`
+        )
+        .run(caseId, sessionId, now).lastInsertRowid
+    )
+    fs.appendFileSync(
+      path.join(caseDir(tmp, SLUG), 'sessions', `${sessionId}.jsonl`),
+      JSON.stringify({
+        eventId: 'e4',
+        caseId,
+        caseSlug: SLUG,
+        sessionId,
+        turnId: t4,
+        ts: now,
+        type: 'turn.started',
+        payload: { userText: 'prompt 2' }
+      }) + '\n'
+    )
+    await rewindSession(deps(drv), SLUG, sessionId, turns[0])
+    expect(drv.rewindTo).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: 'rewound-cursor', anchor: 'r-1' })
+    )
+  })
+
+  it('forks a fork natively at an INHERITED turn (V2), slicing the child transcript', async () => {
+    const drv = nativeDriver({
+      listTurns: transcripts({
+        'fork-cursor': [
+          ['prompt 1', 'f-1'],
+          ['prompt 2', 'f-2']
+        ]
+      })
+    })
+    const child = await forkCaseSession(deps(drv), SLUG, sessionId, turns[1])
+    const inherited = db
+      .prepare(`SELECT id FROM turns WHERE session_id = ? ORDER BY id`)
+      .all(child.id) as { id: number }[]
+    const grandchild = await forkCaseSession(deps(drv), SLUG, child.id, inherited[0].id)
+    expect(drv.forkAt).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: 'fork-cursor', anchor: 'f-1' })
+    )
+    expect(grandchild.forkedFrom?.branching).toBe('native')
+    expect(grandchild.historyOrphaned).toBe(false)
   })
 })
 
@@ -326,7 +496,8 @@ describe('rewindSession', () => {
     // every message uuid across a fork (the same fact deviation V2 records for a fork's
     // inherited turns) — so every turn that survives the rewind carries an id that names
     // nothing in the session it now belongs to. Forgetting them makes a later branch at one of
-    // those turns take the digest path instead of calling the SDK with an unresolvable id.
+    // those turns derive a fresh anchor from the new cursor's transcript (see "on-demand
+    // anchors") instead of calling the SDK with an unresolvable id.
     // The rewound tail keeps its ids: they are still valid in `pre_rewind_cursor`, which the
     // same statement preserves, and preflight refuses a rewound turn as an anchor anyway.
     await rewindSession(deps(nativeDriver()), SLUG, sessionId, turns[0])
