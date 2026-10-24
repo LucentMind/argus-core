@@ -380,9 +380,11 @@ open case (a Distill / Re-distill from the case menu) the stage records
   job is labelled `attribution only` in the runs rail.
 - **Langfuse** (and any other enabled observability provider; see [observability.md](observability.md) for where scores go): one `asset.contribution` score per verdict, with OTel GenAI-shaped metadata
   (asset, domain, outcome, judge model, prompt hash). Silent rows are not scored. Each score's id
-  is deterministic — the first 32 hex of `sha256(install | case | kind | name)` — so an override
-  or a redistill re-emits the *same* score (Langfuse upserts it) instead of adding a second one;
-  re-applying an unchanged override emits nothing.
+  is deterministic — the first 32 hex of `sha256(install | case | kind | name)` — and identical
+  across providers, so an override or a redistill re-emits a score with the *same* id. Langfuse
+  upserts it instead of adding a second one; an OTLP backend receives a **new**
+  `evaluation asset.contribution` span on every re-emit, so OTLP consumers must deduplicate on
+  `argus.score.id` (latest wins). Re-applying an unchanged override emits nothing.
 - **Prompts (dev)**: the same events export as vendor-neutral NDJSON.
 
 **Implicit overrides.** Two human actions correct the judge without any new UI. **Retracting a
