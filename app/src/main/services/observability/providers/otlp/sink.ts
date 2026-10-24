@@ -7,7 +7,7 @@ import {
   type Attributes,
   type AttributeValue,
   type Context,
-  type Span
+  type SpanContext
 } from '@opentelemetry/api'
 import type { ObservationIntent, ScoreIntent, TraceRootIntent } from '../../intent'
 import type { ObservationSink } from '../../sink'
@@ -60,26 +60,24 @@ const messages = (role: 'user' | 'assistant', text: string): string =>
 /**
  * ObservationSink → OTLP spans in the OpenTelemetry GenAI conventions (spec §4.5).
  *
- * Mirrors the Langfuse sink's rules: one root per seed, cached on the `trace-root`
- * intent; the root hangs off a synthetic parent `{ traceIdFromSeed(seed),
- * synthSpanId(seed) }` so its trace id is seed-derived; a child intent with no cached
- * root (e.g. after a restart) attaches to that same synthetic parent and never
- * creates a placeholder root; every child span is started at the intent's
- * `startTime` and ended immediately at its `endTime`.
+ * Span lifetimes mirror the Langfuse sink exactly: one root per seed, started on the
+ * `trace-root` intent under a synthetic parent `{ traceIdFromSeed(seed),
+ * synthSpanId(seed) }` (so its trace id is seed-derived), ended at once (zero-length),
+ * and only its SpanContext cached. Children parent to the cached context; a child
+ * intent with no cached root (e.g. after a restart) attaches to the same synthetic
+ * parent and never creates a placeholder root (nor populates the cache).
+ * Generation/tool spans start at the intent's `startTime` and end at its `endTime`;
+ * `event`/`score` intents each become a short zero-length child span (`event <name>` /
+ * `evaluation <name>`) carrying the span event, ended immediately.
  *
- * One deliberate difference — root LIFETIME: Langfuse ends its root at once because
- * it attaches scores by trace id. OTel `event`/`score` intents are span EVENTS, which
- * need a live span, so this sink keeps each root span OPEN in `roots` until
- * `shutdown()` and attaches events/scores to it. A batch processor therefore exports
- * children as they end and each root only at shutdown. An `event`/`score` for a seed
- * with no live root opens a short `event <name>` / `evaluation <name>` span under the
- * synthetic parent, attaches the event, and ends it.
+ * No span is ever left open across intents, so a crash loses nothing already emitted
+ * and a batch processor exports every span — the root included — on the next flush.
  *
  * `captureContent` is per adapter: when off, no `gen_ai.input/output.messages` events
  * and no tool result are emitted, whatever the intent carries.
  */
 export class OtlpSink implements ObservationSink {
-  private roots = new Map<string, Span>()
+  private roots = new Map<string, SpanContext>()
   private error: string | null = null
   private stopped = false
 
@@ -113,18 +111,20 @@ export class OtlpSink implements ObservationSink {
     })
   }
 
-  /** Live root context when cached, else the synthetic parent (never cached). */
+  /** The cached root's context when there is one, else the synthetic parent (never cached). */
   private parentFor(seed: string): Context {
     const root = this.roots.get(seed)
-    return root ? trace.setSpan(context.active(), root) : this.syntheticParent(seed)
+    return root ? trace.setSpanContext(context.active(), root) : this.syntheticParent(seed)
   }
 
   private startRoot(i: TraceRootIntent): void {
     if (this.roots.has(i.seed)) return
+    const now = new Date()
     const span = this.tracing.tracer.startSpan(
       `${S.OP_INVOKE_AGENT} ${i.name}`,
       {
         kind: SpanKind.CLIENT,
+        startTime: now,
         attributes: {
           ...attrs(i.metadata, 'argus.'),
           [S.ATTR_GEN_AI_OPERATION_NAME]: S.OP_INVOKE_AGENT,
@@ -135,31 +135,30 @@ export class OtlpSink implements ObservationSink {
       },
       this.syntheticParent(i.seed)
     )
-    this.roots.set(i.seed, span)
+    span.end(now) // zero-length: never held open
+    this.roots.set(i.seed, span.spanContext())
   }
 
-  /** Attach a span event to the live root, or to a short span of its own when there is none. */
-  private addRootEvent(
+  /** A zero-length child span (at now) under `parentFor(seed)` that carries one span event. */
+  private eventSpan(
     seed: string,
-    shortSpan: { name: string; op?: string },
-    name: string,
+    spanName: string,
+    op: string | undefined,
+    eventName: string,
     a: Attributes
   ): void {
-    const root = this.roots.get(seed)
-    if (root) {
-      root.addEvent(name, a)
-      return
-    }
+    const now = new Date()
     const span = this.tracing.tracer.startSpan(
-      shortSpan.name,
+      spanName,
       {
         kind: SpanKind.INTERNAL,
-        attributes: shortSpan.op ? { [S.ATTR_GEN_AI_OPERATION_NAME]: shortSpan.op } : {}
+        startTime: now,
+        attributes: op ? { [S.ATTR_GEN_AI_OPERATION_NAME]: op } : {}
       },
-      this.syntheticParent(seed)
+      this.parentFor(seed)
     )
-    span.addEvent(name, a)
-    span.end()
+    span.addEvent(eventName, a, now)
+    span.end(now)
   }
 
   private scoreAttrs(i: ScoreIntent): Attributes {
@@ -239,16 +238,17 @@ export class OtlpSink implements ObservationSink {
       }
 
       case 'event':
-        this.addRootEvent(i.seed, { name: `event ${i.name}` }, i.name, {
+        this.eventSpan(i.seed, `event ${i.name}`, undefined, i.name, {
           ...attrs(i.metadata),
           [S.ATTR_ARGUS_LEVEL]: i.level ?? 'DEFAULT'
         })
         return
 
       case 'score':
-        this.addRootEvent(
+        this.eventSpan(
           i.seed,
-          { name: `${S.OP_EVALUATION} ${i.name}`, op: S.OP_EVALUATION },
+          `${S.OP_EVALUATION} ${i.name}`,
+          S.OP_EVALUATION,
           S.EVENT_GEN_AI_EVALUATION_RESULT,
           this.scoreAttrs(i)
         )
@@ -262,14 +262,12 @@ export class OtlpSink implements ObservationSink {
     } catch (err) {
       this.latch(err)
     }
-    this.error ??= this.tracing.lastExportError()
   }
 
   async shutdown(): Promise<void> {
     if (this.stopped) return
     this.stopped = true
-    for (const root of this.roots.values()) root.end()
-    this.roots.clear()
+    this.roots.clear() // contexts only: there is no open span to end
     await this.flush()
     try {
       await this.tracing.shutdown()
@@ -278,6 +276,7 @@ export class OtlpSink implements ObservationSink {
     }
   }
 
+  /** The sink's own recording error first, else the latest export failure (read live, never folded). */
   lastError(): string | null {
     return this.error ?? this.tracing.lastExportError()
   }
