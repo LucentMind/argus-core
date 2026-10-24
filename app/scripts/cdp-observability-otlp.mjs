@@ -22,8 +22,9 @@
  *      `observability:otlp` row → ok, AND the receiver saw the `argus.probe` span.
  *   4. close fx-helped (distill + attribution) → settle → DB has the verdict rows → the receiver
  *      decodes the two judged assets' evaluation spans: names, slug, score, trace id derived from
- *      the case's latest session seed, the synthetic parent span id, the resource, and NO content
- *      attribute anywhere (captureContent off).
+ *      the case's latest session seed, the synthetic parent span id, the resource, and (a shape
+ *      check only) no message/tool-content key on those spans; captureContent stripping itself
+ *      is covered by the sink unit tests, since a fixture close emits no generation/tool spans.
  *   5. negative control: disable the provider through the settings file, wait for the app to
  *      report it AND for the rebuild's shutdown flush to land, then close a copy of fx-helped
  *      under another slug (same judged verdicts — the DB proves scores WOULD have been emitted)
@@ -257,6 +258,16 @@ const main = async () => {
     probe?.resource
   )
 
+  check(
+    'no OTLP request hit a wrong path (only POST /v1/traces is accepted)',
+    rx.wrongPath() === 0,
+    { count: rx.wrongPath(), lastPath: rx.lastWrongPath() }
+  )
+  // The probe already satisfies "a request arrived / spans decoded", so the close is asserted
+  // against these baselines, not against zero.
+  const reqAfterProbe = rx.requests()
+  const spansAfterProbe = rx.spans().length
+
   // ---- close fx-helped: attribution scores → evaluation spans ----
   console.error(`\n--- ${fxOn.slug} (provider ON) ---`)
   check(
@@ -279,14 +290,23 @@ const main = async () => {
     () => evalEvents(evalSpansOf(fxOn.slug)).length >= judged.length,
     EXPORT_TIMEOUT_MS
   ).catch(() => null)
-  // Non-vacuity first: requests arrived, and they decoded.
-  check('receiver: ≥1 request arrived', rx.requests() >= 1, rx.requests())
+  // Non-vacuity first: the CLOSE produced new requests and spans (beyond the probe), and they
+  // decoded.
+  check(
+    'receiver: the close produced new requests (beyond the probe)',
+    rx.requests() > reqAfterProbe,
+    { afterProbe: reqAfterProbe, now: rx.requests() }
+  )
   check(
     'receiver: every request decoded as OTLP/JSON (none undecoded)',
     rx.undecoded() === 0,
     rx.undecoded()
   )
-  check('receiver: spans decoded', rx.spans().length > 0, rx.spans().length)
+  check(
+    'receiver: the close produced new decoded spans (beyond the probe)',
+    rx.spans().length > spansAfterProbe,
+    { afterProbe: spansAfterProbe, now: rx.spans().length }
+  )
 
   const spans = evalSpansOf(fxOn.slug)
   const events = evalEvents(spans)
@@ -340,8 +360,12 @@ const main = async () => {
       ...CONTENT_KEYS.filter((k) => k in e.attributes).map((k) => `${x.name}: event attr ${k}`)
     ])
   ])
+  // SHAPE check only, not a captureContent test. A seeded fixture close emits only `score`
+  // intents (plus the probe), and the OTLP sink writes message / tool-result content solely for
+  // `generation` / `tool` intents, so this passes even with captureContent on or the strip
+  // removed. Stripping is covered by the sink unit tests until a live-session flow exists.
   check(
-    'captureContent off: no gen_ai.input/output.messages or gen_ai.tool.call.result anywhere',
+    'evaluation/probe spans carry no message/tool-content keys (shape; captureContent stripping is covered by the sink unit tests until a live-session flow exists)',
     all.length > 0 && contentHits.length === 0,
     contentHits.length ? contentHits : `${all.length} spans scanned`
   )

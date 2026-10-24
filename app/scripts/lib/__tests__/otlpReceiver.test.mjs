@@ -86,4 +86,27 @@ describe('startOtlpReceiver', () => {
       await rx.close()
     }
   })
+  it('answers 404 to a POST on any path but /v1/traces and counts it, without decoding', async () => {
+    const rx = await startOtlpReceiver({ port: 0 })
+    try {
+      const body = JSON.stringify({
+        resourceSpans: [{ scopeSpans: [{ spans: [{ name: 'x', traceId: 'a', spanId: 'b' }] }] }]
+      })
+      const wrong = await fetch(`${rx.url}/traces`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body
+      })
+      expect(wrong.status).toBe(404)
+      expect(rx.wrongPath()).toBe(1)
+      expect(rx.lastWrongPath()).toBe('/traces')
+      expect(rx.spans()).toEqual([])
+      const ok = await post(rx.url, 'application/json', body)
+      expect(ok.status).toBe(200)
+      expect(rx.spans()).toHaveLength(1)
+      expect(rx.wrongPath()).toBe(1)
+    } finally {
+      await rx.close()
+    }
+  })
 })
