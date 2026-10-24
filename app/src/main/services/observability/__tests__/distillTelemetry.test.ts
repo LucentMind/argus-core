@@ -317,6 +317,147 @@ describe('jobIntents', () => {
   })
 })
 
+describe('jobIntents hardening', () => {
+  const PARSE_ERR = `Unexpected token 'S', "RAW-DOSSIER-TEXT-7f3a is" ... is not valid JSON`
+  const failedRow = (): JobDbRow =>
+    row({
+      state: 'failed',
+      error: `dossier: ${PARSE_ERR}\nsecond line`,
+      item_count: null,
+      stages_json: JSON.stringify({
+        dossier: { promptHash: 'h-d', promptChars: 1200, rawOutput: RAW.dossier, error: PARSE_ERR }
+      } satisfies PipelineStages),
+      dropped_json: null
+    })
+
+  it('captureContent=false → error strings quote nothing (no raw model text) and are first-line only', () => {
+    const out = jobIntents(failedRow(), ctx)
+    expect(JSON.stringify(out)).not.toContain('RAW-DOSSIER-TEXT-7f3a')
+    expect(JSON.stringify(out)).not.toContain('second line')
+    const [root] = byKind<TraceRootIntent>(out, 'trace-root')
+    expect((root.metadata.stages as Record<string, { error: string }>).dossier.error).toBe(
+      'Unexpected token "…", "…" ... is not valid JSON'
+    )
+    expect(root.metadata.error).toBe('dossier: Unexpected token "…", "…" ... is not valid JSON')
+    const ev = byKind<EventIntent>(out, 'event').find((e) => e.name === 'stage dossier error')!
+    expect(ev.metadata).toEqual({ message: 'Unexpected token "…", "…" ... is not valid JSON' })
+  })
+
+  it('captureContent=true → error strings pass through verbatim (first line only)', () => {
+    const out = jobIntents(failedRow(), { ...ctx, captureContent: true })
+    const [root] = byKind<TraceRootIntent>(out, 'trace-root')
+    expect((root.metadata.stages as Record<string, { error: string }>).dossier.error).toBe(
+      PARSE_ERR
+    )
+    expect(root.metadata.error).toBe(`dossier: ${PARSE_ERR}`)
+    const ev = byKind<EventIntent>(out, 'event').find((e) => e.name === 'stage dossier error')!
+    expect(ev.metadata).toEqual({ message: PARSE_ERR })
+  })
+
+  it('error strings are capped at 300 chars', () => {
+    const out = jobIntents(row({ state: 'failed', error: 'x'.repeat(1000) }), ctx)
+    expect((byKind<TraceRootIntent>(out, 'trace-root')[0].metadata.error as string).length).toBe(
+      300
+    )
+  })
+
+  it('materialize that is not an array, or has null/non-object entries → skipped, never throws', () => {
+    const good = stages.materialize![0]
+    const notArray = jobIntents(
+      row({ stages_json: JSON.stringify({ dossier: stages.dossier, materialize: 'oops' }) }),
+      ctx
+    )
+    expect(byKind<GenerationIntent>(notArray, 'generation').map((g) => g.name)).toEqual([
+      'stage dossier'
+    ])
+    const mixed = jobIntents(
+      row({
+        stages_json: JSON.stringify({ dossier: stages.dossier, materialize: [null, 5, 'x', good] })
+      }),
+      ctx
+    )
+    expect(byKind<GenerationIntent>(mixed, 'generation').map((g) => g.name)).toEqual([
+      'stage dossier',
+      'stage materialize skill-edit fx-skill'
+    ])
+  })
+
+  it('dropped_json arrays with null/non-object entries → bad entries skipped, never throws', () => {
+    const out = jobIntents(
+      row({
+        dropped_json: JSON.stringify([
+          null,
+          7,
+          'x',
+          { type: 'skill-new', target: 'x', title: 'x', reason: 'cap', stage: 'staging' }
+        ])
+      }),
+      ctx
+    )
+    expect(byKind<EventIntent>(out, 'event').find((e) => e.name === 'drops')!.metadata).toEqual({
+      staging: { cap: 1 }
+    })
+  })
+
+  it('a drop with no stage → bucket `unknown`', () => {
+    const out = jobIntents(
+      row({
+        dropped_json: JSON.stringify([
+          { type: 'skill-new', target: 'x', title: 'x', reason: 'cap' }
+        ])
+      }),
+      ctx
+    )
+    expect(byKind<EventIntent>(out, 'event').find((e) => e.name === 'drops')!.metadata).toEqual({
+      unknown: { cap: 1 }
+    })
+  })
+
+  it('two materialize entries → reverse walk: the LAST ends at finished_at, the previous ends where the last starts', () => {
+    const m1 = { ...stages.materialize![0], target: 'a', usage: { durationMs: 3000 } }
+    const m2 = { ...stages.materialize![0], target: 'b', usage: { durationMs: 2000 } }
+    const out = jobIntents(
+      row({ stages_json: JSON.stringify({ materialize: [m1, m2] }), dropped_json: null }),
+      ctx
+    )
+    const gens = byKind<GenerationIntent>(out, 'generation')
+    expect(gens.map((g) => g.name)).toEqual([
+      'stage materialize skill-edit a',
+      'stage materialize skill-edit b'
+    ])
+    expect(gens[1].endTime).toBe(finishedMs)
+    expect(gens[1].startTime).toBe(finishedMs - 2000)
+    expect(gens[0].endTime).toBe(finishedMs - 2000)
+    expect(gens[0].startTime).toBe(finishedMs - 5000)
+  })
+
+  it('finished_at null → generations still have finite numeric times', () => {
+    const out = jobIntents(row({ finished_at: null }), ctx)
+    const gens = byKind<GenerationIntent>(out, 'generation')
+    expect(gens.length).toBeGreaterThan(0)
+    for (const g of gens) {
+      expect(Number.isFinite(g.startTime)).toBe(true)
+      expect(Number.isFinite(g.endTime)).toBe(true)
+    }
+  })
+
+  it('a stage with no usage → zero-length generation with no usage/costUsd keys', () => {
+    const out = jobIntents(
+      row({
+        stages_json: JSON.stringify({
+          dossier: { promptHash: 'h-d', promptChars: 1, rawOutput: RAW.dossier }
+        }),
+        dropped_json: null
+      }),
+      ctx
+    )
+    const [g] = byKind<GenerationIntent>(out, 'generation')
+    expect(g.endTime).toBe(g.startTime)
+    expect(g).not.toHaveProperty('usage')
+    expect(g).not.toHaveProperty('costUsd')
+  })
+})
+
 describe('proposal scores', () => {
   const base = {
     file: 'fx-helped-skill-edit.md',
@@ -368,6 +509,23 @@ describe('proposal scores', () => {
       metadata: { 'argus.proposal.reject_reason': 'overfit' }
     })
     expect(rej.metadata).not.toHaveProperty('argus.proposal.reject_note')
+  })
+
+  it('reject note → only the first non-empty line, trimmed, capped at 200 chars', () => {
+    const two = proposalScoreIntent(
+      { ...base, outcome: 'rejected', rejectNote: '\n  first line  \nsecond line' },
+      's',
+      c
+    )
+    expect(two.comment).toBe('first line')
+    const long = proposalScoreIntent(
+      { ...base, outcome: 'rejected', rejectNote: 'y'.repeat(500) },
+      's',
+      c
+    )
+    expect(long.comment).toBe('y'.repeat(200))
+    const blank = proposalScoreIntent({ ...base, outcome: 'rejected', rejectNote: ' \n ' }, 's', c)
+    expect(blank).not.toHaveProperty('comment')
   })
 
   it('human-authored proposal → argus.job.id null (seed chosen by the caller)', () => {
