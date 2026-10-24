@@ -1,10 +1,7 @@
 import {
-  InMemorySpanExporter,
   SimpleSpanProcessor,
   type ReadableSpan,
-  type Span,
-  type SpanExporter,
-  type SpanProcessor
+  type SpanExporter
 } from '@opentelemetry/sdk-trace-node'
 import { ExportResultCode } from '@opentelemetry/core'
 import { OtlpSink, traceIdFromSeed } from '../sink'
@@ -17,44 +14,35 @@ import {
 } from '../../__tests__/sinkContract'
 
 /**
- * The OTLP sink keeps each root span OPEN (it carries the event/score span events)
- * until shutdown, so the exporter alone never sees a root before shutdown. The harness
- * therefore records every span at `onStart` (the live Span object is readable as it
- * mutates) — which is also exactly the "attempt" count: a start reaches the SDK before
- * any export can accept or reject it.
+ * Every OTLP span (the root included) is ended as soon as its intent is applied, so
+ * the exporter sees everything on `flush`. The fake backend counts each span it is
+ * handed BEFORE it accepts or rejects it (`attempts`), and keeps the accepted ones in
+ * its own buffer (`InMemorySpanExporter.shutdown()` would clear it).
  */
-function recording(inner: SpanProcessor, started: Span[]): SpanProcessor {
-  return {
-    onStart: (span, ctx) => {
-      started.push(span)
-      inner.onStart(span, ctx)
-    },
-    onEnd: (span) => inner.onEnd(span),
-    forceFlush: () => inner.forceFlush(),
-    shutdown: () => inner.shutdown()
-  }
-}
-
 function harness(opts: { captureContent: boolean }): ContractHarness {
-  const mem = new InMemorySpanExporter()
+  const finished: ReadableSpan[] = []
+  let attempts = 0
   let throwing = false
   const backend: SpanExporter = {
-    export: (spans, cb) =>
-      throwing
-        ? cb({ code: ExportResultCode.FAILED, error: new Error('backend down') })
-        : mem.export(spans, cb),
-    shutdown: () => mem.shutdown(),
+    export: (spans, cb) => {
+      attempts += spans.length
+      if (throwing) {
+        cb({ code: ExportResultCode.FAILED, error: new Error('backend down') })
+        return
+      }
+      finished.push(...spans)
+      cb({ code: ExportResultCode.SUCCESS })
+    },
+    shutdown: () => Promise.resolve(),
     forceFlush: () => Promise.resolve()
   }
   const box = { last: null as string | null }
-  const started: Span[] = []
   const tracing = createOtlpTracingWith(
-    recording(new SimpleSpanProcessor(observeExports(backend, box)), started),
+    new SimpleSpanProcessor(observeExports(backend, box)),
     { 'service.name': 'argus' },
     box
   )
   const sink = new OtlpSink(tracing, opts)
-  const spans = (): ReadableSpan[] => started
   const isRoot = (s: ReadableSpan): boolean =>
     s.attributes[S.ATTR_GEN_AI_OPERATION_NAME] === S.OP_INVOKE_AGENT
   return {
@@ -66,30 +54,30 @@ function harness(opts: { captureContent: boolean }): ContractHarness {
       throwing = true
     },
     recorded: () => {
-      const root = spans().find(
+      const root = finished.find(
         (s) => isRoot(s) && s.spanContext().traceId === traceIdFromSeed(CONTRACT_SEED)
       )
       const rootId = root?.spanContext().spanId
-      // §4.5: generation/tool are child spans of the root; an `event` intent is a span
-      // EVENT on the root (not a span) — it is the third "child" the contract counts.
-      const childSpans = spans().filter(
-        (s) => rootId != null && s.parentSpanContext?.spanId === rootId
-      )
-      const childEvents = (root?.events ?? []).filter(
-        (e) => e.name !== S.EVENT_GEN_AI_EVALUATION_RESULT
-      )
+      // §4.5: generation, tool and the `event <name>` span are children of the root.
+      // Evaluation spans are children too, but the contract counts scores separately.
+      const childrenOfRoot = finished.filter(
+        (s) =>
+          rootId != null &&
+          s.parentSpanContext?.spanId === rootId &&
+          s.attributes[S.ATTR_GEN_AI_OPERATION_NAME] !== S.OP_EVALUATION
+      ).length
       return {
-        roots: spans().filter(isRoot).length,
-        childrenOfRoot: childSpans.length + childEvents.length,
-        attempts: spans().length,
+        roots: finished.filter(isRoot).length,
+        childrenOfRoot,
+        attempts,
         scoresForSeed: (seed) =>
-          spans()
+          finished
             .filter((s) => s.spanContext().traceId === traceIdFromSeed(seed))
             .flatMap((s) => s.events)
             .filter((e) => e.name === S.EVENT_GEN_AI_EVALUATION_RESULT).length,
         containsText: (t) =>
           JSON.stringify(
-            spans().map((s) => [s.name, s.attributes, s.events.map((e) => [e.name, e.attributes])])
+            finished.map((s) => [s.name, s.attributes, s.events.map((e) => [e.name, e.attributes])])
           ).includes(t)
       }
     }

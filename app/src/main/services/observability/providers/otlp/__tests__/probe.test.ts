@@ -61,7 +61,7 @@ describe('probeOtlp', () => {
     expect(r).toEqual({ ok: false, detail: 'Invalid URL' })
   })
 
-  it('appends /v1/traces only when the endpoint lacks it, and passes protocol + Authorization to the factory', async () => {
+  it('appends /v1/traces only when the endpoint lacks it, and passes protocol + Authorization + a 5 s timeout to the factory', async () => {
     const seen: Parameters<ExporterFactory>[0][] = []
     const r = await probeOtlp(
       { endpoint: 'http://x:4318/v1/traces', protocol: 'http/protobuf', authorization: 'Bearer t' },
@@ -75,7 +75,9 @@ describe('probeOtlp', () => {
       {
         url: 'http://x:4318/v1/traces',
         protocol: 'http/protobuf',
-        headers: { Authorization: 'Bearer t' }
+        headers: { Authorization: 'Bearer t' },
+        // Bounded so an unreachable host fails the probe in 5 s, not the 10 s default.
+        timeoutMillis: 5000
       }
     ])
   })
