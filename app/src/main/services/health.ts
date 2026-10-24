@@ -5,6 +5,7 @@ import { promisify } from 'node:util'
 import type { AuthStatus } from '../../shared/types'
 import type { DiscoveredTool } from '../../shared/connectors'
 import type { HealthCheckResult, HealthRow } from '../../shared/health'
+import type { ObservabilityProviderId } from '../../shared/observabilityProviders'
 
 const execFileAsync = promisify(execFile)
 
@@ -23,8 +24,9 @@ export interface HealthDeps {
   atlassianCheck: () => Promise<{ ok: boolean; detail: string }>
   refsyncConfigured: () => boolean
   confluenceCheck: () => Promise<{ ok: boolean; detail: string }>
-  langfuseConfigured: () => boolean
-  langfuseCheck: () => Promise<{ ok: boolean; detail: string }>
+  /** Enabled + complete observability providers: one health row each (id 'observability:<id>'). */
+  observabilityProviders: () => Array<{ id: ObservabilityProviderId; label: string }>
+  observabilityCheck: (id: ObservabilityProviderId) => Promise<{ ok: boolean; detail: string }>
 }
 
 const STATIC_ROWS: HealthRow[] = [
@@ -61,9 +63,11 @@ export class HealthService {
             }
           ]
         : []),
-      ...(this.deps.langfuseConfigured()
-        ? [{ id: 'langfuse', label: 'Langfuse (observability)', category: 'connectors' as const }]
-        : []),
+      ...this.deps.observabilityProviders().map((p) => ({
+        id: `observability:${p.id}`,
+        label: `${p.label} (observability)`,
+        category: 'connectors' as const
+      })),
       ...this.deps
         .enabledConnectors()
         .map((c) => ({ id: `connector:${c.id}`, label: c.name, category: 'connectors' as const }))
@@ -136,8 +140,10 @@ export class HealthService {
               })
         }
       }
-      if (row.id === 'langfuse') {
-        const r = await this.deps.langfuseCheck()
+      if (row.id.startsWith('observability:')) {
+        const r = await this.deps.observabilityCheck(
+          row.id.slice('observability:'.length) as ObservabilityProviderId
+        )
         return {
           ...row,
           ok: r.ok,
@@ -146,7 +152,7 @@ export class HealthService {
             ? {}
             : {
                 fixHint:
-                  'Check host URL + keys on Settings → Observability, and that your Langfuse instance is reachable.'
+                  'Check the endpoint, credentials and reachability on Settings → Observability.'
               })
         }
       }

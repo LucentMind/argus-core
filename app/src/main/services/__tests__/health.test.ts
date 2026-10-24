@@ -33,8 +33,8 @@ const deps = (over: Partial<HealthDeps> = {}): HealthDeps => ({
   atlassianCheck: async () => ({ ok: false, detail: 'unset' }),
   refsyncConfigured: () => false,
   confluenceCheck: async () => ({ ok: false, detail: 'unset' }),
-  langfuseConfigured: () => false,
-  langfuseCheck: async () => ({ ok: false, detail: 'unset' }),
+  observabilityProviders: () => [],
+  observabilityCheck: async () => ({ ok: false, detail: 'unset' }),
   ...over
 })
 
@@ -234,26 +234,29 @@ describe('HealthService', () => {
     expect(svc.rows().map((r) => r.id)).not.toContain('confluence-rest')
   })
 
-  it('adds a langfuse row when configured and reports the check', async () => {
+  it('adds one observability row per enabled provider and routes the check', async () => {
     const svc = new HealthService(
       deps({
-        langfuseConfigured: () => true,
-        langfuseCheck: async () => ({ ok: true, detail: 'reachable' })
+        observabilityProviders: () => [
+          { id: 'langfuse', label: 'Langfuse' },
+          { id: 'otlp', label: 'OpenTelemetry (OTLP/HTTP)' }
+        ],
+        observabilityCheck: async (id) => ({ ok: id === 'otlp', detail: id })
       })
     )
-    expect(svc.rows().some((r) => r.id === 'langfuse')).toBe(true)
+    expect(
+      svc
+        .rows()
+        .filter((r) => r.id.startsWith('observability:'))
+        .map((r) => r.label)
+    ).toEqual(['Langfuse (observability)', 'OpenTelemetry (OTLP/HTTP) (observability)'])
     const results: HealthCheckResult[] = []
-    await svc.run(['langfuse'], (r) => results.push(r))
-    expect(results[0]).toMatchObject({ id: 'langfuse', ok: true, detail: 'reachable' })
+    await svc.run(['observability:otlp'], (r) => results.push(r))
+    expect(results[0]).toMatchObject({ id: 'observability:otlp', ok: true, detail: 'otlp' })
   })
 
-  it('omits the langfuse row when not configured', () => {
-    const svc = new HealthService(
-      deps({
-        langfuseConfigured: () => false,
-        langfuseCheck: async () => ({ ok: false, detail: '' })
-      })
-    )
-    expect(svc.rows().some((r) => r.id === 'langfuse')).toBe(false)
+  it('omits observability rows when no provider is enabled', () => {
+    const svc = new HealthService(deps({ observabilityProviders: () => [] }))
+    expect(svc.rows().some((r) => r.id.startsWith('observability:'))).toBe(false)
   })
 })
