@@ -20,10 +20,12 @@ Per agent session, one trace:
 | Score | `finding_accepted` (1 / 0) | A finding was accepted / rejected on review (pending findings are not scored). |
 | Score | `asset.contribution` (1 / 0 / −1) | Distillation's per-asset verdict: did a skill, reference or memory help or mislead a case. Silent verdicts are not scored. |
 
-Per distill job (case job, attribution-only job, reject-digest job, dry run), one trace with the
-seed `argus-distill-job-<id>`, grouped under the case like the agent traces. It is emitted once
-per terminal job row (done, failed, cancelled, or recovered on boot), and again only if the job is
-retried:
+Per distill job ATTEMPT (case job, attribution-only job, reject-digest job, dry run), one trace
+with the seed `argus-distill-job-<id>@<finished_at>` (the row's id and its `finished_at`
+timestamp; plain `argus-distill-job-<id>` for a row with no `finished_at`), grouped under the case
+like the agent traces. It is emitted once per terminal job row (done, failed, cancelled, or
+recovered on boot), and again only if the job is retried. A retry re-runs the same row id but
+finishes at a new time, so it is a **new trace**; the failed attempt's trace is left as it was:
 
 | Signal | Name | Notes |
 |---|---|---|
@@ -31,11 +33,14 @@ retried:
 | Generation | `stage <name>` (`stage materialize <type> <target>`) | One per recorded stage: the distill model, tokens, cost, start/end reconstructed from the recorded durations (sequential approximation: dossier, then summary / candidates / attribution in parallel, then materialize). OTLP spans are named `chat <model>` and carry the stage name as `argus.span.name`. |
 | Event | `stage <name> error` (level ERROR) | The stage's error message. |
 | Event | `drops`, `parser drops`, `attribution skipped`, `stages unreadable` | Drop counts by stage and reason; dossier / candidates / attribution parser counters; why attribution did not run; a corrupt `stages_json`. |
-| Score | `proposal.outcome` (1 / 0.5 / 0) | A proposal was accepted / accepted with edits / rejected. Attached to the job that produced it if that job row still exists, otherwise to the case's latest session (a human-authored proposal); dropped if the case has no session. Metadata: `argus.proposal.type`, `argus.proposal.target`, `argus.proposal.outcome`, `argus.proposal.edited`, `argus.proposal.reject_reason`, `argus.case.slug`, `argus.job.id`, `argus.install.id`, `argus.app.version`; the first line of a reject note is the comment. Id = `sha256(install id | proposal file)`, so a re-decision upserts in Langfuse; OTLP consumers deduplicate on `argus.score.id`. Deleting a pending proposal emits nothing. |
+| Score | `proposal.outcome` (1 / 0.5 / 0) | A proposal was accepted / accepted with edits / rejected. "Edited" means the proposal's own text was changed; an accept whose only edits are to sibling files (`editedFiles`) counts as `accepted`. Attached to the trace of the job attempt that produced it if that job row still exists for the same case (a proposal belongs to the row's latest attempt: a failed run stages nothing and a done job cannot be retried), otherwise to the case's latest session (a human-authored proposal); dropped if the case has no session. Metadata: `argus.proposal.type`, `argus.proposal.target`, `argus.proposal.outcome`, `argus.proposal.edited`, `argus.proposal.reject_reason`, `argus.case.slug`, `argus.job.id`, `argus.install.id`, `argus.app.version`; the first line of a reject note is the comment. Id = `sha256(install id | proposal file | proposal date)`: one id per proposal WRITE (the record's `date` is stamped once when the proposal is written, and file names are reused after a proposal is archived, so a re-distill that reuses a name gets a new id). OTLP consumers deduplicate on `argus.score.id`. Deleting a pending proposal emits nothing. |
 
-Error strings on a distill trace (job and stage errors) are cut to their first line and 300
-characters; with `captureContent` off every quoted segment in them is also replaced with `"..."`,
-because parser errors can quote the model's output.
+Error strings on a distill trace (job and stage errors) are cut to their first line, then at
+their first quote character of any kind (`"`, `'` or `` ` ``) with `…` appended, then to 300
+characters — so `Unexpected token 'H', "Here is th"... is not valid JSON` becomes
+`Unexpected token …`. Parser errors can quote the model's output, and that output can itself
+contain quotes, so nothing after the first quote is kept. This is independent of
+`captureContent`: error strings travel as metadata, which no adapter strips.
 
 An `asset.contribution` score carries the verdict's explanation as its comment and these
 metadata keys: `argus.asset.kind`, `argus.asset.name`, `argus.asset.tier`, `argus.case.domain`,
