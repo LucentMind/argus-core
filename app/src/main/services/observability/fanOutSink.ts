@@ -22,18 +22,25 @@ export class FanOutSink implements ObservationSink {
   }
 
   async flush(): Promise<void> {
-    const results = await Promise.allSettled(this.children.map((c) => c.flush()))
-    results.forEach((r, i) => {
-      if (r.status === 'rejected') {
-        this.errors[i] = r.reason instanceof Error ? r.reason.message : String(r.reason)
-      }
-    })
+    await this.settleAll((c) => c.flush())
   }
 
   async shutdown(): Promise<void> {
     if (this.stopped) return
     this.stopped = true
-    await Promise.allSettled(this.children.map((c) => c.shutdown()))
+    await this.settleAll((c) => c.shutdown())
+  }
+
+  /** Runs `op` on every child; a sync throw or a rejection is latched, never propagated. */
+  private async settleAll(op: (c: ObservationSink) => Promise<void>): Promise<void> {
+    const results = await Promise.allSettled(
+      this.children.map((c) => Promise.resolve().then(() => op(c)))
+    )
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        this.errors[i] = r.reason instanceof Error ? r.reason.message : String(r.reason)
+      }
+    })
   }
 
   childErrors(): (string | null)[] {
