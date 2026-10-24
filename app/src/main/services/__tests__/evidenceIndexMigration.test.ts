@@ -343,10 +343,14 @@ describe('evidence index migration', () => {
 
     const gaps = probeTimes.slice(1).map((t, i) => t - probeTimes[i])
     const maxGap = Math.max(...gaps)
-    // Generous bound for a loaded CI box: a single unbroken synchronous block moving ~5MB
-    // of legacy content through SQLite comfortably exceeds this on the hardware the 340ms/
-    // row and 3s/artifact numbers in the file header comment were measured on.
-    expect(maxGap).toBeLessThan(1000)
+    const total = probeTimes[probeTimes.length - 1] - probeTimes[0]
+    // Relative, not wall-clock: the longest unbroken synchronous block must be a fraction of
+    // the whole migration. Against the old per-row-savepoint code (no await inside the row)
+    // the single block IS the migration (ratio ~1.0); with the 1MB yield cadence over ~5MB it
+    // is ~0.2–0.3. An absolute bound (1000ms) failed on GitHub's Windows runner, whose disk
+    // made ONE block take 1312ms while the whole row still yielded five times — machine speed
+    // must not decide this test (see the file header's measured numbers for the local box).
+    expect(maxGap).toBeLessThan(total * 0.6)
     // Robustness net against wall-clock flakiness: the probe must have actually fired
     // several times DURING the migration (not just once before and once after), proving
     // multiple real yields happened, independent of how long each gap measured.
