@@ -25,20 +25,20 @@ export function attributionScoreId(e: AssetAttributionEvent): string {
  * a connector fault. A throw from `sink.emit` would be a network or config
  * condition and is recorded via `lastError()`.
  *
- * Note that path is currently inert: the concrete `LangfuseSink` never throws
- * synchronously — it swallows failures into its own private field — so `lastError()`
- * is not populated by a real sink failure, and no caller reads it either. Runtime
- * ingestion failures are therefore not surfaced anywhere today; the Langfuse health
- * row runs an independent credential probe (`probeLangfuseCredentials`). Wiring
- * runtime failures into health is a deliberate open question, not an oversight.
+ * Note that path is largely inert: real sinks never throw synchronously — they swallow
+ * failures into their own `lastError?()` — so this class's `lastError()` is not populated by a
+ * real sink failure, and no caller reads it. Per-provider health rows instead merge each
+ * provider's probe with the live sink's own `lastError?.()` (see `index.ts` `observabilityCheck`).
+ * `sink` and `opts` are readonly-public so the factory test can assert wiring without reaching
+ * into privates.
  */
 export class ObservationExporter {
   private state: ExporterState = initialState()
   private error: string | null = null
 
   constructor(
-    private sink: ObservationSink,
-    private opts: { captureContent: boolean }
+    readonly sink: ObservationSink,
+    readonly opts: { captureContent: boolean }
   ) {}
 
   handle(e: AgentEvent): void {

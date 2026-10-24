@@ -341,9 +341,13 @@ import {
 } from '../shared/types'
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { ObservationExporter } from './services/observability/exporter'
-import { LangfuseSink } from './services/observability/providers/langfuse/sink'
-import { createLangfuseTracing } from './services/observability/providers/langfuse/tracing'
-import { probeLangfuseCredentials } from './services/observability/providers/langfuse/probe'
+import type { ObservationSink } from './services/observability/sink'
+import { buildObservationExporter } from './services/observability/buildExporter'
+import { OBSERVABILITY_PROVIDERS } from './services/observability/providers'
+import {
+  OBSERVABILITY_PROVIDER_IDS,
+  type ObservabilityProviderId
+} from '../shared/observabilityProviders'
 import { usageStats, ensureTrackingStarted } from './services/observability/usage'
 import {
   listFindings,
@@ -925,24 +929,25 @@ function registerIpc(): void {
     token: (id) => secretStore.resolve(corpusTokenSecret(id)) ?? undefined
   })
 
-  // — observability: Langfuse exporter (off by default; needs enabled+host+publicKey+secret) —
+  // — observability: provider adapters (all off by default; each needs its own required fields) —
+  // The install id is created lazily (an unconfigured install costs no disk write at boot); it is
+  // declared here so both the exporter factory and the attribution/export paths below share it.
+  let installId: string | null = null
+  let observabilityEnabled: { id: ObservabilityProviderId; label: string }[] = []
+  let observabilitySinks: Partial<Record<ObservabilityProviderId, ObservationSink>> = {}
   const buildExporter = (): void => {
-    const s = settingsService.get().observability?.providers?.langfuse
-    if (!s?.enabled || !s.host || !s.publicKey) {
-      observationExporter = null
-      return
-    }
-    const secretKey = secretStore.resolve('observability/langfuse/secret-key')
-    if (!secretKey) {
-      observationExporter = null
-      return
-    }
-    observationExporter = new ObservationExporter(
-      new LangfuseSink(createLangfuseTracing({ host: s.host, publicKey: s.publicKey, secretKey }), {
-        captureContent: s.captureContent
-      }),
-      { captureContent: s.captureContent }
+    const s = settingsService.get()
+    const anyEnabled = OBSERVABILITY_PROVIDER_IDS.some(
+      (id) => (s.observability?.providers?.[id] as { enabled?: boolean } | undefined)?.enabled
     )
+    if (anyEnabled) installId ??= readOrCreateInstanceId(argusHome)
+    const built = buildObservationExporter(s, (n) => secretStore.resolve(n), {
+      installId: installId ?? '',
+      appVersion: app.getVersion()
+    })
+    observationExporter = built.exporter
+    observabilityEnabled = built.enabled
+    observabilitySinks = built.sinks
   }
   buildExporter()
 
@@ -1143,7 +1148,6 @@ function registerIpc(): void {
   // Vendor-neutral attribution emission (spec §4.9): verdict rows → `asset.contribution` scores
   // on the case's latest session trace. Resolved lazily so an unconfigured Langfuse costs no disk
   // write at boot; never throws — it is called from the queue, the reject IPC and a tool handler.
-  let installId: string | null = null
   function emitAttributions(rows: AttributionRow[]): void {
     if (!observationExporter || rows.length === 0) return
     try {
@@ -4096,17 +4100,19 @@ function registerIpc(): void {
         return { ok: false, detail: (err as Error).message }
       }
     },
-    langfuseConfigured: () => {
-      const s = settingsService.get().observability?.providers?.langfuse
-      return Boolean(s?.enabled && s.host && s.publicKey)
-    },
-    langfuseCheck: async () => {
-      const s = settingsService.get().observability?.providers?.langfuse
-      return probeLangfuseCredentials({
-        host: s?.host ?? '',
-        publicKey: s?.publicKey ?? '',
-        secretKey: secretStore.resolve('observability/langfuse/secret-key') ?? ''
-      })
+    observabilityProviders: () => observabilityEnabled,
+    observabilityCheck: async (id) => {
+      const cfg = (settingsService.get().observability?.providers?.[id] ?? {}) as Record<
+        string,
+        unknown
+      >
+      const r = await OBSERVABILITY_PROVIDERS[id].probe(cfg, (n) => secretStore.resolve(n))
+      // A passing probe says the endpoint is reachable now; the live sink may still have latched
+      // an ingestion failure (rejected export) — surface it rather than a bare green row.
+      const latched = observabilitySinks[id]?.lastError?.()
+      return r.ok && latched
+        ? { ok: true, detail: `${r.detail} · last export error: ${latched}` }
+        : r
     }
   })
 
