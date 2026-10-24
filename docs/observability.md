@@ -20,6 +20,23 @@ Per agent session, one trace:
 | Score | `finding_accepted` (1 / 0) | A finding was accepted / rejected on review (pending findings are not scored). |
 | Score | `asset.contribution` (1 / 0 / −1) | Distillation's per-asset verdict: did a skill, reference or memory help or mislead a case. Silent verdicts are not scored. |
 
+Per distill job (case job, attribution-only job, reject-digest job, dry run), one trace with the
+seed `argus-distill-job-<id>`, grouped under the case like the agent traces. It is emitted once
+per terminal job row (done, failed, cancelled, or recovered on boot), and again only if the job is
+retried:
+
+| Signal | Name | Notes |
+|---|---|---|
+| Trace root | `distill <case slug>` (`distill:attribution <slug>`, `distill:reject-digest`) | Metadata: job id, kind, pipeline, state (done / failed / cancelled), dry run, prompt hash, item count, cost, duration, turn and tool-call counts, error, install id, app version, case domain and outcome, and per-stage prompt hash / prompt chars / validator flags / error under `stages`. At an OTLP backend the root span is `invoke_agent <name>` and each metadata key is the attribute `argus.<camelCase key>` (`argus.jobId`, `argus.costUsd`, `argus.stages` as JSON, ...). |
+| Generation | `stage <name>` (`stage materialize <type> <target>`) | One per recorded stage: the distill model, tokens, cost, start/end reconstructed from the recorded durations (sequential approximation: dossier, then summary / candidates / attribution in parallel, then materialize). OTLP spans are named `chat <model>` and carry the stage name as `argus.span.name`. |
+| Event | `stage <name> error` (level ERROR) | The stage's error message. |
+| Event | `drops`, `parser drops`, `attribution skipped`, `stages unreadable` | Drop counts by stage and reason; dossier / candidates / attribution parser counters; why attribution did not run; a corrupt `stages_json`. |
+| Score | `proposal.outcome` (1 / 0.5 / 0) | A proposal was accepted / accepted with edits / rejected. Attached to the job that produced it if that job row still exists, otherwise to the case's latest session (a human-authored proposal); dropped if the case has no session. Metadata: `argus.proposal.type`, `argus.proposal.target`, `argus.proposal.outcome`, `argus.proposal.edited`, `argus.proposal.reject_reason`, `argus.case.slug`, `argus.job.id`, `argus.install.id`, `argus.app.version`; the first line of a reject note is the comment. Id = `sha256(install id | proposal file)`, so a re-decision upserts in Langfuse; OTLP consumers deduplicate on `argus.score.id`. Deleting a pending proposal emits nothing. |
+
+Error strings on a distill trace (job and stage errors) are cut to their first line and 300
+characters; with `captureContent` off every quoted segment in them is also replaced with `"..."`,
+because parser errors can quote the model's output.
+
 An `asset.contribution` score carries the verdict's explanation as its comment and these
 metadata keys: `argus.asset.kind`, `argus.asset.name`, `argus.asset.tier`, `argus.case.domain`,
 `argus.case.outcome`, `argus.case.slug`, `argus.install.id`, `argus.app.version`,
@@ -28,9 +45,10 @@ corrected the judge. See [distillation.md](distillation.md) §1.6 for what the v
 
 **What `captureContent` gates.** With it off (the default) nothing a user or the model wrote
 leaves the machine: no prompt (the user's turn text), no completion (the assistant's text) and no
-tool output preview. Token counts, cost, timings, tool names, case slugs and asset names are still
-sent. With it on, the turn's input and output and each tool's output preview are added to the
-spans. The switch is per provider.
+tool output preview, and no stage raw output of a distill job (the model's JSON for the dossier,
+summary, candidates, attribution and materialize stages). Token counts, cost, timings, tool names,
+case slugs and asset names are still sent. With it on, the turn's input and output and each tool's output preview are added to the
+spans, and each distill `stage` generation carries that stage's raw output as its output. The switch is per provider.
 
 ## Providers
 
