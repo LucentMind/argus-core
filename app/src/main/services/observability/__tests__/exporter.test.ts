@@ -151,4 +151,48 @@ describe('ObservationExporter', () => {
     expect(ex.lastError()).toBeNull()
     spy.mockRestore()
   })
+
+  it('traceDistillJob forwards the intents verbatim; scoreProposal pushes one score', () => {
+    const { sink, seen } = fakeSink()
+    const x = new ObservationExporter(sink, { captureContent: false })
+    const intents: ObservationIntent[] = [
+      {
+        kind: 'trace-root',
+        seed: 'argus-distill-job-5',
+        name: 'distill c',
+        caseSlug: 'c',
+        metadata: { jobId: 5 }
+      },
+      { kind: 'generation', seed: 'argus-distill-job-5', name: 'stage dossier', model: 'm' }
+    ]
+    x.traceDistillJob(intents)
+    expect(seen).toEqual(intents)
+    x.scoreProposal({
+      kind: 'score',
+      seed: 'argus-distill-job-5',
+      name: 'proposal.outcome',
+      value: 1,
+      id: 'a'.repeat(32)
+    })
+    expect(seen).toHaveLength(3)
+    expect(seen[2]).toMatchObject({ name: 'proposal.outcome', value: 1 })
+  })
+
+  it('traceDistillJob with an empty list emits nothing; a throwing sink is latched, not thrown', () => {
+    const { sink, seen } = fakeSink()
+    const x = new ObservationExporter(sink, { captureContent: false })
+    x.traceDistillJob([])
+    expect(seen).toEqual([])
+    const bad = new ObservationExporter(
+      {
+        ...sink,
+        emit: () => {
+          throw new Error('down')
+        }
+      },
+      { captureContent: false }
+    )
+    expect(() => bad.traceDistillJob([{ kind: 'event', seed: 's', name: 'e' }])).not.toThrow()
+    expect(bad.lastError()).toBe('down')
+  })
 })
