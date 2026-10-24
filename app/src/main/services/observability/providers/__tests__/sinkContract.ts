@@ -6,10 +6,14 @@ export interface ContractHarness {
   sink: ObservationSink
   /** Resolve any deferred ids and let pending work land. */
   settle: () => Promise<void>
-  /** Make the backend throw on the next call. */
+  /** From now on (permanently), make the backend throw on every call. */
   backendThrows: () => void
   recorded: () => {
     roots: number
+    /** Non-root observations/spans whose parent is the root for CONTRACT_SEED. */
+    childrenOfRoot: number
+    /** Backend start/observation calls, counted BEFORE the backend accepts or rejects them. */
+    attempts: number
     scoresForSeed: (seed: string) => number
     containsText: (s: string) => boolean
   }
@@ -64,6 +68,7 @@ export function describeSinkContract(
       await h.sink.flush()
       const r = h.recorded()
       expect(r.roots).toBe(1)
+      expect(r.childrenOfRoot).toBe(3) // generation + tool + event
       expect(r.scoresForSeed(CONTRACT_SEED)).toBe(1)
       expect(r.scoresForSeed('argus-session-78')).toBe(1)
     })
@@ -73,6 +78,7 @@ export function describeSinkContract(
       h.backendThrows()
       expect(() => h.sink.emit(CONTRACT_SCRIPT)).not.toThrow()
       await expect(h.sink.flush()).resolves.toBeUndefined()
+      // The contract requires lastError (optional only on the interface, for test fakes).
       expect(h.sink.lastError?.()).toBeTruthy()
     })
 
@@ -82,6 +88,8 @@ export function describeSinkContract(
       await on.settle()
       await on.sink.flush()
       expect(on.recorded().containsText('CONTENT-IN')).toBe(true)
+      expect(on.recorded().containsText('CONTENT-OUT')).toBe(true)
+      expect(on.recorded().containsText('CONTENT-TOOL')).toBe(true)
 
       const off = make({ captureContent: false })
       off.sink.emit(CONTRACT_SCRIPT)
@@ -94,12 +102,26 @@ export function describeSinkContract(
 
     it('shutdown is idempotent and emit after shutdown is a no-op', async () => {
       const h = make({ captureContent: true })
-      await h.sink.shutdown()
-      await h.sink.shutdown()
-      const before = h.recorded().roots
+      // Positive control, not a baseline: proves the harness records at all, so the
+      // post-shutdown assertions below cannot pass merely because nothing is ever recorded.
       h.sink.emit(CONTRACT_SCRIPT)
       await h.settle()
-      expect(h.recorded().roots).toBe(before)
+      await h.sink.flush()
+      expect(h.recorded().roots).toBe(1)
+      const attemptsBefore = h.recorded().attempts
+
+      await h.sink.shutdown()
+      await h.sink.shutdown()
+
+      h.sink.emit(CONTRACT_SCRIPT)
+      await h.settle()
+      // A stopped sink may resolve or reject its flush; tolerate both.
+      await h.sink.flush().catch(() => {})
+
+      expect(h.recorded().roots).toBe(1)
+      // The sink itself must not reach the backend after shutdown (a backend that
+      // rejects late spans would otherwise mask a sink that ignores `stopped`).
+      expect(h.recorded().attempts).toBe(attemptsBefore)
     })
   })
 }

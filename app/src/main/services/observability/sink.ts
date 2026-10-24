@@ -9,6 +9,8 @@ export interface ObservationSink {
   emit(intents: ObservationIntent[]): void
   flush(): Promise<void>
   shutdown(): Promise<void>
-  /** Last ingestion error, for the health row. Optional: a sink may not track one. */
+  /** Last ingestion error, for the health row. Optional on the interface for test fakes;
+   *  every real adapter MUST implement it — the contract suite
+   *  (`providers/__tests__/sinkContract.ts`) asserts it. */
   lastError?(): string | null
 }

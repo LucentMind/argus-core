@@ -61,4 +61,51 @@ describe('FanOutSink', () => {
     await fan.shutdown()
     expect(slow.shutdown).toHaveBeenCalledTimes(1)
   })
+
+  it('a synchronously throwing flush or shutdown never rejects the fan-out and is latched', async () => {
+    const bad = child({
+      flush: vi.fn(() => {
+        throw new Error('sync-flush')
+      }) as unknown as ObservationSink['flush'],
+      shutdown: vi.fn(() => {
+        throw new Error('sync-shutdown')
+      }) as unknown as ObservationSink['shutdown']
+    })
+    const good = child()
+    const fan = new FanOutSink([bad, good])
+    await expect(fan.flush()).resolves.toBeUndefined()
+    expect(good.flush).toHaveBeenCalled()
+    expect(fan.childErrors()).toEqual(['sync-flush', null])
+    await expect(fan.shutdown()).resolves.toBeUndefined()
+    expect(good.shutdown).toHaveBeenCalled()
+    expect(fan.childErrors()[0]).toBe('sync-shutdown')
+  })
+
+  it('a rejecting shutdown is latched like a rejecting flush', async () => {
+    const bad = child({
+      shutdown: vi.fn(async () => {
+        throw new Error('shutdown-fail')
+      })
+    })
+    const fan = new FanOutSink([bad, child()])
+    await expect(fan.shutdown()).resolves.toBeUndefined()
+    expect(fan.childErrors()).toEqual(['shutdown-fail', null])
+  })
+
+  it('emit after shutdown is a no-op on every child', async () => {
+    const a = child()
+    const b = child()
+    const fan = new FanOutSink([a, b])
+    await fan.shutdown()
+    fan.emit([score])
+    expect(a.seen).toHaveLength(0)
+    expect(b.seen).toHaveLength(0)
+  })
+
+  it("childErrors falls back to a child's own lastError when the fan-out caught nothing", () => {
+    const own = child({ lastError: () => 'own-error' })
+    const fan = new FanOutSink([own, child()])
+    expect(fan.childErrors()).toEqual(['own-error', null])
+    expect(fan.lastError()).toBe('own-error')
+  })
 })
