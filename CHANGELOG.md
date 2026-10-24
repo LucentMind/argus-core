@@ -4,8 +4,22 @@
 
 2 commits since v2.6.0-beta.1, 8 files changed (+111 / −35).
 
+### Added
+
+**Observability providers**
+
+- Observability is now provider-based. Settings → Observability shows one section per
+  provider — Langfuse (unchanged) and a new **OpenTelemetry (OTLP/HTTP)** exporter that
+  speaks the GenAI semantic conventions and works with Datadog, Grafana, any collector, or
+  Langfuse's OTLP endpoint. Several providers can be enabled at once; each has its own
+  content-capture switch, secret and health row ("Test connection").
+- Adapter contract tests and a credential-free live gate (`npm run gate:observability-otlp`)
+  run in CI against a local OTLP receiver.
+
 ### Changed
 
+- Settings: `observability.langfuse` moved to `observability.providers.langfuse` (migrated
+  once on first start; the Langfuse secret is unchanged).
 - The case menu's **Close case** row is now **Close tab**, with a tooltip: it only closes the
   tab and leaves the case open, which read like the lifecycle action. **Close as…** gets a
   "resolve the case" tooltip so the two rows are told apart.

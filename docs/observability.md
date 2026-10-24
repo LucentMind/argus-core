@@ -1,0 +1,160 @@
+# Observability
+
+Argus can export what its agent does — traces, cost, latency and a handful of scores — to an
+external backend. It is **off by default**: nothing leaves the machine until a provider is enabled
+and complete in **Settings → Observability**. Backends are *providers*; two exist today, Langfuse
+and OpenTelemetry (OTLP/HTTP), and any number can be on at once.
+
+## What Argus sends
+
+Per agent session, one trace:
+
+| Signal | Name | Notes |
+|---|---|---|
+| Trace root | `<case slug> · session <id>` | Grouped by case (Langfuse session id / `gen_ai.conversation.id`). A resumed session adds a `session resumed` event to the existing trace. |
+| Generation | `turn` | One per completed turn: model, input/output tokens, cost (USD), start and end time. |
+| Tool call | the tool's name | Start/end time; an erroring call is marked as an error. |
+| Event | `session error` (level ERROR) | Carries the error message. |
+| Score | `hitl_approved` (1 / 0) | A permission request was allowed / denied. |
+| Score | `turn_error` (1) | A turn ended in error. |
+| Score | `finding_accepted` (1 / 0) | A finding was accepted / rejected on review (pending findings are not scored). |
+| Score | `asset.contribution` (1 / 0 / −1) | Distillation's per-asset verdict: did a skill, reference or memory help or mislead a case. Silent verdicts are not scored. |
+
+An `asset.contribution` score carries the verdict's explanation as its comment and these
+metadata keys: `argus.asset.kind`, `argus.asset.name`, `argus.asset.tier`, `argus.case.domain`,
+`argus.case.outcome`, `argus.case.slug`, `argus.install.id`, `argus.app.version`,
+`argus.judge.model`, `argus.judge.prompt_hash`, and `argus.override.source` when a human
+corrected the judge. See [distillation.md](distillation.md) §1.6 for what the verdicts mean.
+
+**What `captureContent` gates.** With it off (the default) nothing a user or the model wrote
+leaves the machine: no prompt (the user's turn text), no completion (the assistant's text) and no
+tool output preview. Token counts, cost, timings, tool names, case slugs and asset names are still
+sent. With it on, the turn's input and output and each tool's output preview are added to the
+spans. The switch is per provider.
+
+## Providers
+
+Settings → Observability shows one section per provider, generated from the descriptors in
+`app/src/shared/observabilityProviders.ts`. Each section has an **Enable** toggle, the provider's
+fields, a **Capture prompt and completion content** switch (with a privacy warning) and a **Test
+connection** button.
+
+| Provider | Fields | Secret (encrypted store) |
+|---|---|---|
+| Langfuse | Host URL, Public key | `observability/langfuse/secret-key` |
+| OpenTelemetry (OTLP/HTTP) | Endpoint, Protocol (`http/protobuf` default, or `http/json`) | `observability/otlp/authorization` (optional) |
+
+Secrets never live in `settings.json`; the stored settings are under
+`observability.providers.<id>` (`enabled`, the plain fields, `captureContent`).
+
+A provider is **enabled and complete** when its toggle is on and every required field and secret
+is present (Langfuse: host, public key, secret key; OTLP: endpoint). Only such a provider gets a
+sink and a health row named `observability:<id>`; an enabled-but-incomplete provider gets neither.
+If a complete provider's sink cannot be built (for example a malformed URL), its row is shown
+anyway and its detail is the constructor error. A passing probe appends the live sink's last
+export error, so a green connection that is still failing to ingest says so.
+
+**Several providers at once.** Every intent is forwarded to every enabled sink (`FanOutSink`);
+one failing adapter never starves another, and flush/shutdown settle independently. The event
+reducer runs with `captureContent` = OR over the enabled providers, and each adapter strips
+input, output and tool results itself when its own flag is off — so enabling content capture for
+one backend does not leak it to another.
+
+**Upgrading.** The old `observability.langfuse` block is moved once, on first start, to
+`observability.providers.langfuse` (stamp `migrations.observabilityProvider`; the legacy key is
+removed). The Langfuse secret name is unchanged, so nothing needs re-entering.
+
+## Langfuse
+
+Works with Langfuse cloud or a self-hosted instance: set the host (for example
+`https://cloud.langfuse.com`), the public key (`pk-lf-…`) and the secret key (`sk-lf-…`). **Test
+connection** calls `GET <host>/api/public/projects` with HTTP Basic auth. Unlike the
+unauthenticated `/api/public/health`, this fails on bad keys or the wrong regional host.
+
+Scores use deterministic ids: the first 32 hex of `sha256(install id | case | asset kind | asset
+name)` for `asset.contribution`. An override or a redistill therefore **upserts** the same score
+instead of adding a contradicting second one.
+
+## OpenTelemetry (OTLP/HTTP)
+
+Sends spans using the OpenTelemetry GenAI semantic conventions (still *Development* status; all
+attribute names are pinned in `providers/otlp/semconv.ts`, so an upstream rename is one edit).
+Resource attributes: `service.name=argus`, `service.version=<app version>`, `argus.install.id`.
+
+**Protocol and endpoint.** `http/protobuf` (default) uses `@opentelemetry/exporter-trace-otlp-proto`;
+`http/json` uses `@opentelemetry/exporter-trace-otlp-http`. The endpoint is the base URL;
+`/v1/traces` is appended unless it is already there (`http://localhost:4318` and
+`http://localhost:4318/v1/traces` are equivalent).
+
+**Authorization.** The optional secret is sent verbatim as the `Authorization` header value —
+for example `Bearer <token>` or `Basic <base64>`. It is the only header the field can set.
+
+**Pointing it at a backend**
+
+- *Grafana Alloy / Tempo, or any OpenTelemetry Collector* — endpoint is the collector's OTLP/HTTP
+  receiver, typically `http://<host>:4318`.
+- *Langfuse's OTLP endpoint* — endpoint `https://<langfuse host>/api/public/otel`, Authorization
+  `Basic <base64(publicKey:secretKey)>`.
+- *Datadog* — Datadog's direct OTLP intake authenticates with a `DD-API-KEY` header, which the
+  Authorization field does not set. Point the endpoint at a Datadog Agent with OTLP ingest
+  enabled, or at an OpenTelemetry Collector using the Datadog exporter, and let that hold the key.
+
+### Mapping
+
+Every intent already carries its own start and end time, so each becomes one span started and
+ended at once. Argus never keeps a span open across intents: a crash loses nothing already
+emitted, and every span, root included, is exported on the next flush.
+
+| Intent | Span / event | Attributes |
+|---|---|---|
+| `trace-root` | Span `invoke_agent <name>`, kind `CLIENT`, zero-length | `gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name=argus`, `gen_ai.conversation.id=<case slug>`, `argus.case.slug`, root metadata as `argus.*` (`argus.caseSlug`, `argus.caseId`). |
+| `generation` | Child span `chat <model>`, kind `CLIENT`, from the intent's start to end | `gen_ai.operation.name=chat`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `argus.cost_usd`. Only with `captureContent`: span events `gen_ai.input.messages` / `gen_ai.output.messages` carrying the text as a JSON message list. |
+| `tool` | Child span `execute_tool <name>`, from start to end | `gen_ai.operation.name=execute_tool`, `gen_ai.tool.name`; `isError` sets span status `ERROR`; only with `captureContent`: `gen_ai.tool.call.result`. |
+| `event` | Zero-length child span `event <name>` carrying a span event named `<name>` | `argus.level` (`DEFAULT` or `ERROR`) plus the intent's metadata as attributes. |
+| `score` | Zero-length child span `evaluation <name>` (`gen_ai.operation.name=evaluation`) carrying the span event `gen_ai.evaluation.result` | `gen_ai.evaluation.name`, `gen_ai.evaluation.score.value`, `gen_ai.evaluation.explanation` (the comment), the intent's metadata verbatim (so `argus.*` keys survive), and `argus.score.id` when the intent has a deterministic id (the same id Langfuse uses). |
+
+**Trace identity.** The trace id is `sha256(seed)` truncated to 32 hex, the same derivation the
+Langfuse sink uses. The root is started under a synthetic parent `{trace id, synthetic span id}`
+derived from the seed, ended immediately, and only its span context is cached. A child, event or
+score arriving with no cached root (for example after an app restart, for a session whose root
+was exported in an earlier run) attaches to that same synthetic parent: it lands in the right
+trace and nothing creates a placeholder root.
+
+**Test connection.** OTLP has no credential endpoint, so the probe is a real export: one
+`argus.probe` span through a throw-away exporter, with a 5 s timeout. Success reports
+`exported 1 span to <url>`; a 401, 404 or refused connection surfaces as the exporter's error.
+
+## Adding a provider
+
+1. Add the id to `ObservabilityProviderId` / `OBSERVABILITY_PROVIDER_IDS` and a descriptor (label,
+   description, `fields`: text, select or secret) in `app/src/shared/observabilityProviders.ts`,
+   and a settings block under `observability.providers` in `app/src/shared/settings.ts`.
+2. Create `app/src/main/services/observability/providers/<id>/index.ts` exporting an
+   `ObservabilityProvider { descriptor, missing, createSink, probe }` (see `providers/types.ts`):
+   `missing` names the first absent required field or secret, `createSink` returns an
+   `ObservationSink` (or `null` when incomplete) honouring `ctx.captureContent`, and `probe`
+   backs **Test connection**.
+3. Register it in `OBSERVABILITY_PROVIDERS` in `providers/index.ts` — the record type makes a
+   missing registration a compile error.
+4. Add a contract test that calls `describeSinkContract(label, make)` from
+   `providers/__tests__/sinkContract.ts` with a fake backend. It checks that a seed gets exactly one root with its children and scores
+   attached (including a score whose root does not exist), that `emit` never throws and a failing
+   backend is reported through `lastError()`, that content is sent only when `captureContent` is on,
+   and that `shutdown` is idempotent and stops further export.
+
+The settings page and health rows are generated from the descriptor and the registry, so neither
+needs a change.
+
+## Testing
+
+- `npm run gate:observability-otlp` (from `app/`) — credential-free. It starts a local OTLP/JSON
+  receiver (`app/scripts/lib/otlpReceiver.mjs`), boots the app with a fake distill runner and the
+  OTLP provider pointed at it, and asserts that `asset.contribution` evaluation events arrive and
+  that no content leaves with `captureContent` off. CI runs it.
+- Adapter contract suites: `providers/langfuse/__tests__/sink.contract.test.ts` and
+  `providers/otlp/__tests__/sink.contract.test.ts`.
+- `app/src/main/services/observability/__tests__/buildExporter.test.ts` — none / incomplete /
+  one / several providers, fan-out wiring, a throwing factory, and the probe-plus-last-error merge.
+
+To inspect the wire format by hand, run the receiver from `app/scripts/lib/otlpReceiver.mjs`,
+set the OTLP provider's endpoint to it with protocol `http/json`, and use **Test connection**.
