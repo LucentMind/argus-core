@@ -12,7 +12,11 @@ export type ExporterFactory = (cfg: {
   url: string
   protocol: OtlpProtocol
   headers: Record<string, string>
+  timeoutMillis?: number
 }) => SpanExporter
+
+/** Bounds the probe on an unreachable host (the exporter's default is 10 s of retries). */
+const PROBE_TIMEOUT_MS = 5000
 
 /**
  * OTLP has no credential endpoint, so the health check is a real export: one
@@ -31,7 +35,8 @@ export async function probeOtlp(
     const inner = factory({
       url,
       protocol: cfg.protocol,
-      headers: cfg.authorization ? { Authorization: cfg.authorization } : {}
+      headers: cfg.authorization ? { Authorization: cfg.authorization } : {},
+      timeoutMillis: PROBE_TIMEOUT_MS
     })
     let result: { ok: boolean; detail: string } | null = null
     const observing: SpanExporter = {

@@ -34,14 +34,21 @@ export function tracesUrl(endpoint: string): string {
  * `exporter-trace-otlp-http` is JSON-only (it hardcodes the JSON serializer and
  * `Content-Type: application/json`) and protobuf lives in the sibling
  * `exporter-trace-otlp-proto` (hardcodes `application/x-protobuf`). Each class sets
- * its own Content-Type; we never set it by hand.
+ * its own Content-Type; we never set it by hand. Pinning: `exporter-trace-otlp-http`
+ * and `exporter-trace-otlp-proto` must move together (same exact version).
+ * `timeoutMillis` bounds each export (OTel's default is 10 s); the probe passes 5 s.
  */
 export function createOtlpExporter(cfg: {
   url: string
   protocol: OtlpProtocol
   headers: Record<string, string>
+  timeoutMillis?: number
 }): SpanExporter {
-  const opts = { url: cfg.url, headers: cfg.headers }
+  const opts = {
+    url: cfg.url,
+    headers: cfg.headers,
+    ...(cfg.timeoutMillis != null ? { timeoutMillis: cfg.timeoutMillis } : {})
+  }
   return cfg.protocol === 'http/json'
     ? new OTLPTraceExporterJson(opts)
     : new OTLPTraceExporterProto(opts)

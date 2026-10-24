@@ -2,8 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
-  type ReadableSpan,
-  type SpanExporter
+  type ReadableSpan
 } from '@opentelemetry/sdk-trace-node'
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api'
 import { ExportResultCode } from '@opentelemetry/core'
@@ -21,14 +20,7 @@ function harness(captureContent = true): {
   spans: () => ReadableSpan[]
 } {
   const exporter = new InMemorySpanExporter()
-  // InMemorySpanExporter.shutdown() clears its buffer; roots export only at sink
-  // shutdown, so keep the buffer readable after it.
-  const keep: SpanExporter = {
-    export: (spans, cb) => exporter.export(spans, cb),
-    shutdown: async () => {},
-    forceFlush: () => exporter.forceFlush()
-  }
-  const tracing = createOtlpTracingWith(new SimpleSpanProcessor(keep), {
+  const tracing = createOtlpTracingWith(new SimpleSpanProcessor(exporter), {
     'service.name': 'argus',
     [S.ATTR_ARGUS_INSTALL_ID]: 'inst-1'
   })
@@ -44,8 +36,8 @@ describe('OtlpSink', () => {
   it('maps the contract script to GenAI-convention spans and events', async () => {
     const h = harness()
     h.sink.emit(CONTRACT_SCRIPT)
-    // The root stays open (it carries the event/score span events) until shutdown.
-    await h.sink.shutdown()
+    // Every span — the root included — is ended at once, so a flush exports them all.
+    await h.sink.flush()
     const spans = h.spans()
 
     const root = byOp(spans, S.OP_INVOKE_AGENT)!
@@ -87,20 +79,36 @@ describe('OtlpSink', () => {
     expect(ms(tool.startTime)).toBeCloseTo(1100, 0)
     expect(ms(tool.endTime)).toBeCloseTo(1200, 0)
 
-    const ev = root.events.find((e) => e.name === 'session resumed')!
+    // The root is zero-length and carries no events: event/score intents become short
+    // child spans of it (no span is ever held open to receive them).
+    expect(root.events).toEqual([])
+    expect(root.startTime).toEqual(root.endTime)
+
+    const evSpan = spans.find((s) => s.name === 'event session resumed')!
+    expect(evSpan.parentSpanContext?.spanId).toBe(root.spanContext().spanId)
+    expect(evSpan.spanContext().traceId).toBe(root.spanContext().traceId)
+    expect(evSpan.startTime).toEqual(evSpan.endTime)
+    const ev = evSpan.events.find((e) => e.name === 'session resumed')!
     expect(ev).toBeDefined()
     expect(ev.attributes?.[S.ATTR_ARGUS_LEVEL]).toBe('DEFAULT')
-    const scoreEv = root.events.find((e) => e.name === S.EVENT_GEN_AI_EVALUATION_RESULT)!
+
+    const hitl = spans.find((s) => s.name === 'evaluation hitl_approved')!
+    expect(hitl.attributes[S.ATTR_GEN_AI_OPERATION_NAME]).toBe(S.OP_EVALUATION)
+    expect(hitl.parentSpanContext?.spanId).toBe(root.spanContext().spanId)
+    expect(hitl.startTime).toEqual(hitl.endTime)
+    const scoreEv = hitl.events.find((e) => e.name === S.EVENT_GEN_AI_EVALUATION_RESULT)!
     expect(scoreEv.attributes?.[S.ATTR_GEN_AI_EVALUATION_NAME]).toBe('hitl_approved')
     expect(scoreEv.attributes?.[S.ATTR_GEN_AI_EVALUATION_SCORE_VALUE]).toBe(1)
 
-    // argus-session-78 has no live root → one short evaluation span, nothing more.
+    // argus-session-78 has no cached root → its evaluation span hangs off the synthetic parent.
     const evalSpan = spans.find((s) => s.name === 'evaluation finding_accepted')!
     expect(evalSpan.spanContext().traceId).toBe(traceIdFromSeed('argus-session-78'))
-    expect(spans).toHaveLength(4)
+    expect(evalSpan.parentSpanContext?.spanId).toBe(synthSpanId('argus-session-78'))
+    // root, chat, tool, event span, two evaluation spans.
+    expect(spans).toHaveLength(6)
   })
 
-  it('exports children on flush while the root stays open until shutdown', async () => {
+  it('the root is exported on flush (zero-length, never held open until shutdown)', async () => {
     const h = harness()
     h.sink.emit(CONTRACT_SCRIPT.slice(0, 3))
     await h.sink.flush()
@@ -109,21 +117,19 @@ describe('OtlpSink', () => {
         .spans()
         .map((s) => s.attributes[S.ATTR_GEN_AI_OPERATION_NAME])
         .sort()
-    ).toEqual([S.OP_CHAT, S.OP_EXECUTE_TOOL])
-    await h.sink.shutdown()
-    expect(byOp(h.spans(), S.OP_INVOKE_AGENT)).toBeDefined()
+    ).toEqual([S.OP_CHAT, S.OP_EXECUTE_TOOL, S.OP_INVOKE_AGENT].sort())
   })
 
   it('a duplicate trace-root reuses the cached root', async () => {
     const h = harness()
     h.sink.emit([CONTRACT_SCRIPT[0], CONTRACT_SCRIPT[0]])
-    await h.sink.shutdown()
+    await h.sink.flush()
     expect(
       h.spans().filter((s) => s.attributes[S.ATTR_GEN_AI_OPERATION_NAME] === S.OP_INVOKE_AGENT)
     ).toHaveLength(1)
   })
 
-  it('a score with no live root opens a short evaluation span in the seed-derived trace', async () => {
+  it('a score with no cached root opens a short evaluation span in the seed-derived trace', async () => {
     const h = harness()
     h.sink.emit([
       {
@@ -179,7 +185,7 @@ describe('OtlpSink', () => {
     // A later trace-root for the same seed still creates the real root (the synthetic
     // path never populated the root cache).
     h.sink.emit([{ kind: 'trace-root', seed, name: 'c · s', caseSlug: 'c', metadata: {} }])
-    await h.sink.shutdown()
+    await h.sink.flush()
     expect(byOp(h.spans(), S.OP_INVOKE_AGENT)?.spanContext().traceId).toBe(traceIdFromSeed(seed))
   })
 
@@ -190,7 +196,7 @@ describe('OtlpSink', () => {
       { ...CONTRACT_SCRIPT[2], isError: true } as ObservationIntent,
       CONTRACT_SCRIPT[1]
     ])
-    await h.sink.shutdown()
+    await h.sink.flush()
     const spans = h.spans()
     const tool = byOp(spans, S.OP_EXECUTE_TOOL)!
     expect(tool.status.code).toBe(SpanStatusCode.ERROR)
@@ -217,6 +223,30 @@ describe('OtlpSink', () => {
     sink.emit([CONTRACT_SCRIPT[1]])
     await sink.flush()
     expect(sink.lastError()).toBe('503 down')
+  })
+
+  it('lastError reports the newest export failure (no stale message frozen by flush)', async () => {
+    const box = { last: null as string | null }
+    let next = 'first failure'
+    const failing = observeExports(
+      {
+        export: (_s, cb) => cb({ code: ExportResultCode.FAILED, error: new Error(next) }),
+        shutdown: async () => {},
+        forceFlush: async () => {}
+      },
+      box
+    )
+    const sink = new OtlpSink(
+      createOtlpTracingWith(new SimpleSpanProcessor(failing), { 'service.name': 'argus' }, box),
+      { captureContent: true }
+    )
+    sink.emit([CONTRACT_SCRIPT[1]])
+    await sink.flush()
+    expect(sink.lastError()).toBe('first failure')
+    next = 'second failure'
+    sink.emit([CONTRACT_SCRIPT[1]])
+    await sink.flush()
+    expect(sink.lastError()).toBe('second failure')
   })
 
   it('traceIdFromSeed is 32 lowercase hex, deterministic, never all zeros, and equals the Langfuse derivation', async () => {
