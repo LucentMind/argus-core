@@ -6,7 +6,8 @@ import {
   jobIntents,
   proposalScoreId,
   proposalScoreIntent,
-  proposalOutcomeOf
+  proposalOutcomeOf,
+  scrubError
 } from '../distillTelemetry'
 import type { JobDbRow } from '../../distill/queue'
 import type { PipelineStages } from '../../../../shared/distillV3'
@@ -113,8 +114,8 @@ const byKind = <K extends { kind: string }>(all: { kind: string }[], kind: K['ki
 describe('jobIntents', () => {
   it('a done v3 case row → one root, one generation per stage, drop/counter events', () => {
     const out = jobIntents(row(), ctx)
-    const seed = distillJobSeed(42)
-    expect(seed).toBe('argus-distill-job-42')
+    const seed = distillJobSeed(42, FINISHED)
+    expect(seed).toBe(`argus-distill-job-42@${FINISHED}`)
     expect(out.every((i) => i.seed === seed)).toBe(true)
 
     const [root] = byKind<TraceRootIntent>(out, 'trace-root')
@@ -317,6 +318,31 @@ describe('jobIntents', () => {
   })
 })
 
+describe('per-attempt seed', () => {
+  it('distillJobSeed: id@finished_at; a null finished_at → the plain id seed', () => {
+    expect(distillJobSeed(7, '2026-10-24T10:00:10.000Z')).toBe(
+      'argus-distill-job-7@2026-10-24T10:00:10.000Z'
+    )
+    expect(distillJobSeed(7, null)).toBe('argus-distill-job-7')
+  })
+
+  it('a retry (same row id, new finished_at) → a different seed, so a new trace', () => {
+    const failed = jobIntents(row({ state: 'failed', finished_at: FINISHED }), ctx)
+    const retried = jobIntents(row({ finished_at: '2026-10-24T10:05:00.000Z' }), ctx)
+    const seedA = byKind<TraceRootIntent>(failed, 'trace-root')[0].seed
+    const seedB = byKind<TraceRootIntent>(retried, 'trace-root')[0].seed
+    expect(seedA).toBe(`argus-distill-job-42@${FINISHED}`)
+    expect(seedB).toBe('argus-distill-job-42@2026-10-24T10:05:00.000Z')
+    expect(seedA).not.toBe(seedB)
+    expect(retried.every((i) => i.seed === seedB)).toBe(true)
+  })
+
+  it('jobIntents on a row with null finished_at → plain seed on every intent', () => {
+    const out = jobIntents(row({ finished_at: null }), ctx)
+    expect(out.every((i) => i.seed === 'argus-distill-job-42')).toBe(true)
+  })
+})
+
 describe('jobIntents hardening', () => {
   const PARSE_ERR = `Unexpected token 'S', "RAW-DOSSIER-TEXT-7f3a is" ... is not valid JSON`
   const failedRow = (): JobDbRow =>
@@ -330,28 +356,57 @@ describe('jobIntents hardening', () => {
       dropped_json: null
     })
 
-  it('captureContent=false → error strings quote nothing (no raw model text) and are first-line only', () => {
+  it('captureContent=false → error strings are cut at the first quote and first-line only', () => {
     const out = jobIntents(failedRow(), ctx)
     expect(JSON.stringify(out)).not.toContain('RAW-DOSSIER-TEXT-7f3a')
     expect(JSON.stringify(out)).not.toContain('second line')
     const [root] = byKind<TraceRootIntent>(out, 'trace-root')
     expect((root.metadata.stages as Record<string, { error: string }>).dossier.error).toBe(
-      'Unexpected token "…", "…" ... is not valid JSON'
+      'Unexpected token …'
     )
-    expect(root.metadata.error).toBe('dossier: Unexpected token "…", "…" ... is not valid JSON')
+    expect(root.metadata.error).toBe('dossier: Unexpected token …')
     const ev = byKind<EventIntent>(out, 'event').find((e) => e.name === 'stage dossier error')!
-    expect(ev.metadata).toEqual({ message: 'Unexpected token "…", "…" ... is not valid JSON' })
+    expect(ev.metadata).toEqual({ message: 'Unexpected token …' })
   })
 
-  it('captureContent=true → error strings pass through verbatim (first line only)', () => {
+  it('captureContent=true → error strings are STILL cut at the first quote (no adapter strips metadata)', () => {
     const out = jobIntents(failedRow(), { ...ctx, captureContent: true })
     const [root] = byKind<TraceRootIntent>(out, 'trace-root')
     expect((root.metadata.stages as Record<string, { error: string }>).dossier.error).toBe(
-      PARSE_ERR
+      'Unexpected token …'
     )
-    expect(root.metadata.error).toBe(`dossier: ${PARSE_ERR}`)
+    expect(root.metadata.error).toBe('dossier: Unexpected token …')
     const ev = byKind<EventIntent>(out, 'event').find((e) => e.name === 'stage dossier error')!
-    expect(ev.metadata).toEqual({ message: PARSE_ERR })
+    expect(ev.metadata).toEqual({ message: 'Unexpected token …' })
+    // Only the generation's `output` (the content-capture channel) carries the raw text.
+    const nonGen = out.filter((i) => i.kind !== 'generation')
+    expect(JSON.stringify(nonGen)).not.toContain('RAW-DOSSIER-TEXT-7f3a')
+  })
+
+  it('scrubError: nested / mixed quotes leak nothing after the first quote of any kind', () => {
+    const probes: [string, string][] = [
+      [`Unexpected token 's', "{"a": secret-cus"... is not valid JSON`, 'secret-cus'],
+      [`Unexpected token 'S', "Sure! {"x":1}" is not valid JSON`, 'Sure!'],
+      [`Unexpected token 'I', "I think "A"... is not valid JSON`, 'I think'],
+      ['Unexpected `LEAK-BT` in output', 'LEAK-BT'],
+      [`model said "LEAK-DQ" then 'other'`, 'LEAK-DQ']
+    ]
+    for (const [msg, secret] of probes) {
+      const out = scrubError(msg)
+      expect(out).not.toContain(secret)
+      expect(out.endsWith('…')).toBe(true)
+      expect(out).not.toMatch(/["'`]/)
+    }
+    expect(scrubError(probes[0][0])).toBe('Unexpected token …')
+    expect(scrubError(probes[3][0])).toBe('Unexpected …')
+    expect(scrubError(probes[4][0])).toBe('model said …')
+  })
+
+  it('scrubError: a quote-free message passes through, first line only, capped at 300', () => {
+    expect(scrubError('request timed out after 30000 ms\n    at stack frame')).toBe(
+      'request timed out after 30000 ms'
+    )
+    expect(scrubError('y'.repeat(1000))).toBe('y'.repeat(300))
   })
 
   it('error strings are capped at 300 chars', () => {
@@ -464,15 +519,25 @@ describe('proposal scores', () => {
     type: 'skill-edit' as const,
     target: 'fx-helped-skill',
     caseSlug: 'fx-helped',
-    jobId: 42 as number | null
+    jobId: 42 as number | null,
+    date: '2026-10-24T10:00:11.123Z'
   }
   const c = { installId: 'inst-1', appVersion: '2.7.0' }
+  const D1 = '2026-10-24T10:00:11.123Z'
+  const D2 = '2026-10-25T08:30:00.456Z'
 
-  it('deterministic id = sha256(installId|file)[0:32]', () => {
-    expect(proposalScoreId('inst-1', 'a.md')).toBe(
-      createHash('sha256').update('inst-1|a.md').digest('hex').slice(0, 32)
+  it('deterministic id = sha256(installId|file|date)[0:32]', () => {
+    expect(proposalScoreId('inst-1', 'a.md', D1)).toBe(
+      createHash('sha256').update(`inst-1|a.md|${D1}`).digest('hex').slice(0, 32)
     )
-    expect(proposalScoreId('inst-1', 'a.md')).not.toBe(proposalScoreId('inst-2', 'a.md'))
+    expect(proposalScoreId('inst-1', 'a.md', D1)).not.toBe(proposalScoreId('inst-2', 'a.md', D1))
+  })
+
+  it('same file name, different write date (re-distill after archive) → different ids', () => {
+    expect(proposalScoreId('inst-1', 'a.md', D1)).not.toBe(proposalScoreId('inst-1', 'a.md', D2))
+    const first = proposalScoreIntent({ ...base, date: D1, outcome: 'accepted' }, 's', c)
+    const second = proposalScoreIntent({ ...base, date: D2, outcome: 'accepted' }, 's', c)
+    expect(first.id).not.toBe(second.id)
   })
 
   it('accepted → 1, edited → 0.5, rejected → 0 with reason tag and note as comment', () => {
@@ -482,7 +547,7 @@ describe('proposal scores', () => {
       seed: 'argus-distill-job-42',
       name: 'proposal.outcome',
       value: 1,
-      id: proposalScoreId('inst-1', base.file),
+      id: proposalScoreId('inst-1', base.file, base.date),
       metadata: {
         'argus.proposal.type': 'skill-edit',
         'argus.proposal.target': 'fx-helped-skill',

@@ -1227,7 +1227,10 @@ function registerIpc(): void {
     }
   }
   // Proposal decisions as `proposal.outcome` scores. Attachment: a `job:`-stamped proposal whose
-  // row still exists -> that job's trace; otherwise the case's latest session; none -> dropped.
+  // row still exists FOR THE SAME CASE -> that job's trace; otherwise the case's latest session;
+  // none -> dropped. The job seed is per attempt (`distillJobSeed(id, finished_at)`), derived
+  // here from the row exactly as `jobIntents` derives it: a proposal only ever belongs to the
+  // row's latest attempt (a failed run stages nothing and a done job cannot be retried).
   // Never throws — it is called from the proposal IPC handlers after the archive has landed.
   function emitProposalOutcome(
     p: ProposalRecord,
@@ -1238,11 +1241,15 @@ function registerIpc(): void {
     try {
       installId ??= readOrCreateInstanceId(argusHome)
       const jobId = p.jobId != null ? Number(p.jobId) : NaN
-      const jobExists =
-        Number.isInteger(jobId) &&
-        db.prepare(`SELECT 1 FROM distill_jobs WHERE id = ?`).get(jobId) !== undefined
+      const jobRow = Number.isInteger(jobId)
+        ? (db.prepare(`SELECT finished_at, case_slug FROM distill_jobs WHERE id = ?`).get(jobId) as
+            { finished_at: string | null; case_slug: string } | undefined)
+        : undefined
+      // A row with this id for ANOTHER case (DB recreated while the proposals dir survived) is
+      // not the producing job: fall back to the session path rather than score an unrelated trace.
+      const jobExists = jobRow !== undefined && jobRow.case_slug === p.caseSlug
       let seed: string
-      if (jobExists) seed = distillJobSeed(jobId)
+      if (jobExists) seed = distillJobSeed(jobId, jobRow.finished_at)
       else {
         const sessionId = lastSessionIdForCase(db, p.caseSlug)
         if (sessionId === null) {
@@ -1260,6 +1267,7 @@ function registerIpc(): void {
         proposalScoreIntent(
           {
             file: p.file,
+            date: p.date,
             type: p.type,
             target: p.target,
             caseSlug: p.caseSlug,
@@ -3833,14 +3841,18 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.proposalsAccept,
     async (_e, file: string, editedContent?: string, editedFiles?: Record<string, string>) => {
-      // Read the record BEFORE acceptProposal archives it; the score is emitted only after the
-      // accept succeeded (a throw from acceptProposal propagates and nothing is emitted).
+      // Resolve identity FIRST, then read the record and accept with no await in between: the
+      // record the score describes is then the one acceptProposal's own listProposals sees in the
+      // same tick (an await between the two would let a re-distill rewrite the file under us).
+      // The score is emitted only after the accept succeeded (a throw from acceptProposal
+      // propagates and nothing is emitted).
+      const who = await identity()
       const p = listProposals(argusHome).find((x) => x.file === file)
       const accepted = acceptProposal(argusHome, file, {
         db,
         editedContent,
         editedFiles,
-        identity: await identity()
+        identity: who
       })
       if (p) emitProposalOutcome(p, 'accept', { edited: isEditedAccept(p.content, editedContent) })
       // A reference-edit proposal WRITES a reference — it is how an agent's durable knowledge
