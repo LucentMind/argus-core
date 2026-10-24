@@ -1465,6 +1465,148 @@ describe('DistillQueue', () => {
   })
 })
 
+describe('onJobFinished', () => {
+  it('fires once with the terminal row for done and for failed, after the broadcast', async () => {
+    const seen: string[] = []
+    // Recorded (not asserted) inside the hook: the queue swallows a throw from the hook.
+    const lastBroadcastAtHook: string[] = []
+    const { q, broadcasts } = makeQueue({
+      onJobFinished: (r) => {
+        lastBroadcastAtHook.push((broadcasts.at(-1) as DistillStatusPayload).job?.state ?? 'none')
+        seen.push(r.state)
+      }
+    })
+    q.enqueue('case-a')
+    await q.idle()
+    expect(seen).toEqual(['done'])
+    // The terminal broadcast had already gone out by the time the hook ran.
+    expect(lastBroadcastAtHook).toEqual(['done'])
+
+    const rows: { state: string; error: string | null }[] = []
+    const { q: q2 } = makeQueue({
+      distill: async () => {
+        throw new DistillParseError('no json', 'raw')
+      },
+      onJobFinished: (r) => rows.push({ state: r.state, error: r.error })
+    })
+    q2.enqueue('case-b')
+    await q2.idle()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].state).toBe('failed')
+    expect(rows[0].error).toContain('no json')
+  })
+
+  it('a cancelled RUNNING job fires exactly once, at cancel time, not again from runJob', async () => {
+    const seen: string[] = []
+    let aborted = false
+    const { q } = makeQueue({
+      distill: (_i, signal) =>
+        new Promise((_res, rej) => {
+          signal.addEventListener(
+            'abort',
+            () => {
+              aborted = true
+              rej(new Error('aborted'))
+            },
+            { once: true }
+          )
+        }),
+      onJobFinished: (r) => seen.push(r.state)
+    })
+    const job = q.enqueue('case-c')
+    await vi.waitFor(() => expect(q.statusFor('case-c')!.state).toBe('running'), { timeout: 5000 })
+    q.cancel(job.id)
+    expect(seen).toEqual(['cancelled']) // synchronous: before the driver even unwinds
+    expect(aborted).toBe(true)
+    await q.idle() // runJob's finishCancelled runs here and must be deduped
+    expect(seen).toEqual(['cancelled'])
+    // A repeat cancel on the resting row is a no-op too.
+    q.cancel(job.id)
+    expect(seen).toEqual(['cancelled'])
+  })
+
+  it('a cancelled QUEUED job fires once for that job only', async () => {
+    const seen: string[] = []
+    let release: (() => void) | null = null
+    const { q } = makeQueue({
+      distill: () =>
+        new Promise((res) => {
+          release = () => res({ raw: '```json\n{}\n```', output: {} })
+        }),
+      onJobFinished: (r) => seen.push(`${r.case_slug}:${r.state}`)
+    })
+    q.enqueue('case-a')
+    const second = q.enqueue('case-b')
+    await vi.waitFor(() => expect(q.statusFor('case-a')!.state).toBe('running'), { timeout: 5000 })
+    expect(q.statusFor('case-b')!.state).toBe('queued')
+    q.cancel(second.id)
+    expect(seen).toEqual(['case-b:cancelled'])
+    release!()
+    await q.idle()
+    expect(seen).toEqual(['case-b:cancelled', 'case-a:done'])
+  })
+
+  it('recoverOnBoot fires once for each running row it flips, with the post-UPDATE row', () => {
+    const seen: string[] = []
+    const { q } = makeQueue({
+      onJobFinished: (r) => seen.push(`${r.case_slug}:${r.state}:${r.error}`)
+    })
+    for (const slug of ['y', 'z']) {
+      db.prepare(
+        `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES (?,'running','{}','t')`
+      ).run(slug)
+    }
+    db.prepare(
+      `INSERT INTO distill_jobs (case_slug, state, input_snapshot, created_at) VALUES ('w','done','{}','t')`
+    ).run()
+    expect(q.recoverOnBoot()).toBe(2)
+    expect(seen.sort()).toEqual(['y:failed:app quit mid-distill', 'z:failed:app quit mid-distill'])
+    // A second boot pass finds no running rows: nothing fires again.
+    q.recoverOnBoot()
+    expect(seen).toHaveLength(2)
+  })
+
+  it('a throwing hook is logged and swallowed: the row stays terminal and the next job runs', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { q } = makeQueue({
+        onJobFinished: () => {
+          throw new Error('boom')
+        }
+      })
+      q.enqueue('case-d')
+      q.enqueue('case-e')
+      await q.idle()
+      expect(q.statusFor('case-d')!.state).toBe('done')
+      expect(q.statusFor('case-e')!.state).toBe('done')
+      expect(err).toHaveBeenCalledWith('[distill] onJobFinished failed', expect.any(Error))
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  it('retry re-arms the row: the retried run fires again with the same id', async () => {
+    const seen: { id: number; state: string }[] = []
+    let fail = true
+    const { q } = makeQueue({
+      distill: async () => {
+        if (fail) throw new DistillParseError('no json', 'raw')
+        return { raw: '```json\n{}\n```', output: {} }
+      },
+      onJobFinished: (r) => seen.push({ id: r.id, state: r.state })
+    })
+    const job = q.enqueue('case-f')
+    await q.idle()
+    fail = false
+    q.retry(job.id)
+    await q.idle()
+    expect(seen).toEqual([
+      { id: job.id, state: 'failed' },
+      { id: job.id, state: 'done' }
+    ])
+  })
+})
+
 describe('needsDistillRun', () => {
   it('true when no job has ever run', () => {
     const { q } = makeQueue()

@@ -94,6 +94,11 @@ export interface DistillQueueDeps {
   judgeModel?: () => string
   /** Fired after verdict rows land. Advisory: a throw is logged and swallowed. */
   onAttributions?: (rows: AttributionRow[]) => void
+  /** Fired once per terminal transition (done / failed / cancelled / recovered-on-boot) with the
+   *  freshly re-read raw row, AFTER the UPDATE and the status broadcast. Advisory: a throw is
+   *  logged and swallowed; the row is untouched. A `retry()` re-arms the row so its next terminal
+   *  transition fires again. */
+  onJobFinished?: (row: JobDbRow) => void
 }
 
 /**
@@ -240,6 +245,12 @@ export class DistillQueue {
    *  in `runJob`'s `finally` once the job leaves `running`. */
   private progress = new Map<number, DistillProgress>()
 
+  /** Job ids whose current terminal transition has already been announced via `onJobFinished`.
+   *  `cancel()` persists `cancelled` for a running job and `runJob` later calls `finishCancelled`
+   *  for the same row, so the hook needs a dedupe; `retry()` re-queues the SAME row id and
+   *  deletes it from here so the retried run announces again. */
+  private announced = new Set<number>()
+
   constructor(private deps: DistillQueueDeps) {}
 
   /**
@@ -249,11 +260,16 @@ export class DistillQueue {
    * once recovery is done, resume the loop if anything is still queued.
    */
   recoverOnBoot(): number {
+    // Ids BEFORE the UPDATE: afterwards the rows no longer say 'running'.
+    const flipped = this.deps.db
+      .prepare(`SELECT id FROM distill_jobs WHERE state='running'`)
+      .all() as { id: number }[]
     const res = this.deps.db
       .prepare(
         `UPDATE distill_jobs SET state='failed', error='app quit mid-distill', finished_at=? WHERE state='running'`
       )
       .run(new Date().toISOString())
+    for (const { id } of flipped) this.terminal(id)
     if (this.nextQueued()) this.kick()
     return Number(res.changes)
   }
@@ -479,6 +495,8 @@ export class DistillQueue {
     // After the flip, as in `enqueue`: the guard above already proved nothing else but
     // attribution rows can be in flight for this slug, so this cancels exactly those.
     if (isCase) this.cancelOtherInFlight(job.caseSlug, jobId)
+    // Re-arm: this run's terminal transition must announce again (same row id).
+    this.announced.delete(jobId)
     const fresh = this.get(jobId)!
     this.emit(this.getRaw(jobId)!)
     this.kick()
@@ -523,6 +541,9 @@ export class DistillQueue {
       .run(new Date().toISOString(), jobId)
     const fresh = this.get(jobId)!
     this.emit(this.getRaw(jobId)!)
+    // The row is already terminal on disk; announce now (before the abort). For a running job,
+    // runJob's later finishCancelled() reaches terminal() again and is deduped by `announced`.
+    this.terminal(jobId)
     if (wasRunning) {
       // Under this design a running row always has a live controller — runJob sets it before
       // flipping state to 'running', and cancel() is the only place that flips state away from
@@ -619,6 +640,22 @@ export class DistillQueue {
   private get(id: number): DistillJobRow | null {
     const r = this.getRaw(id)
     return r ? toRow(r) : null
+  }
+
+  /** Announces job `id`'s terminal row to `deps.onJobFinished`, at most once per terminal
+   *  transition (`retry()` re-arms). Same never-throws invariant as `emit()`: the hook is
+   *  advisory, so a throw is logged and swallowed and never touches the row or the kick loop.
+   *  Call only AFTER the terminal UPDATE and its status broadcast. */
+  private terminal(id: number): void {
+    if (this.announced.has(id)) return
+    this.announced.add(id)
+    const raw = this.getRaw(id)
+    if (!raw) return
+    try {
+      this.deps.onJobFinished?.(raw)
+    } catch (err) {
+      console.error('[distill] onJobFinished failed', err)
+    }
   }
 
   private getRaw(id: number): JobDbRow | undefined {
@@ -779,6 +816,7 @@ export class DistillQueue {
         r.id
       )
       this.emit(this.getRaw(r.id)!)
+      this.terminal(r.id)
     }
     // cancel() already persists state='cancelled' (with finished_at) synchronously, before it
     // ever aborts this job's controller — see DistillQueue.cancel. Both aborted-branches below
@@ -795,6 +833,7 @@ export class DistillQueue {
         `UPDATE distill_jobs SET state='cancelled', finished_at=COALESCE(finished_at, ?) WHERE id=?`
       ).run(new Date().toISOString(), r.id)
       this.emit(this.getRaw(r.id)!)
+      this.terminal(r.id)
     }
     // Hoisted for the catch's escape-hatch check; set only for a case job, once parsed.
     let caseInput: CaseDistillInput | undefined
