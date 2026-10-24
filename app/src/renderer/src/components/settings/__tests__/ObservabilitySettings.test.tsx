@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { ObservabilitySettings } from '../ObservabilitySettings'
 
@@ -108,20 +108,85 @@ describe('ObservabilitySettings', () => {
     expect(window.argus.secrets.has).toHaveBeenCalledWith('observability/otlp/authorization')
   })
 
-  it("test connection runs the provider's health row and shows the result", async () => {
+  /** Delivers `result` for the OTLP row when the health run is invoked. */
+  function deliverOnRun(result: { ok: boolean; detail: string }): ReturnType<typeof vi.fn> {
     const run = window.argus.health.run as ReturnType<typeof vi.fn>
     ;(window.argus.health.onResult as ReturnType<typeof vi.fn>).mockImplementation(
       (cb: (r: unknown) => void) => {
         run.mockImplementationOnce(async () => {
-          cb({ id: 'observability:otlp', label: 'OTLP', ok: true, detail: 'reachable' })
+          cb({ id: 'observability:otlp', label: 'OTLP', ...result })
         })
         return () => {}
       }
     )
-    render(<ObservabilitySettings payload={payload as never} />)
-    fireEvent.click(screen.getAllByRole('button', { name: 'Test connection' })[1])
+    return run
+  }
+  const otlpEnabled = {
+    settings: {
+      observability: {
+        ...payload.settings.observability,
+        providers: {
+          ...payload.settings.observability.providers,
+          otlp: { ...payload.settings.observability.providers.otlp, enabled: true }
+        }
+      }
+    }
+  }
+  const otlpTestButton = (): HTMLElement =>
+    screen.getAllByRole('button', { name: 'Test connection' })[1]
+
+  it("test connection runs the provider's health row and shows the result", async () => {
+    const run = deliverOnRun({ ok: true, detail: 'reachable' })
+    render(<ObservabilitySettings payload={otlpEnabled as never} />)
+    fireEvent.click(otlpTestButton())
     expect(run).toHaveBeenCalledWith(['observability:otlp'])
-    expect(await screen.findByText(/^ok$/i)).toBeInTheDocument()
+    const chip = await screen.findByText(/^ok$/i)
+    expect(chip).toHaveAttribute('title', 'reachable')
+  })
+
+  it('a passing check with a latched export error says so on the chip', async () => {
+    const detail = 'exported 1 span · last export error: HTTP 401'
+    deliverOnRun({ ok: true, detail })
+    render(<ObservabilitySettings payload={otlpEnabled as never} />)
+    fireEvent.click(otlpTestButton())
+    const chip = await screen.findByText('ok · export error')
+    expect(chip).toHaveAttribute('title', detail)
+  })
+
+  it('a failing check shows a fail chip whose title is the detail', async () => {
+    deliverOnRun({ ok: false, detail: 'not configured: missing endpoint' })
+    render(<ObservabilitySettings payload={otlpEnabled as never} />)
+    fireEvent.click(otlpTestButton())
+    const chip = await screen.findByText(/^fail$/i)
+    expect(chip).toHaveAttribute('title', 'not configured: missing endpoint')
+  })
+
+  it('test connection is disabled while the provider is disabled', async () => {
+    render(<ObservabilitySettings payload={payload as never} />)
+    expect(otlpTestButton()).toBeDisabled()
+    expect(screen.getAllByText(/enable the provider to test it/i).length).toBe(2)
+    await act(async () => {}) // let the mount-time secrets.has lookups settle inside act
+  })
+
+  it('falls back to a failure when no health result arrives', async () => {
+    vi.useFakeTimers()
+    try {
+      // `run` never settles and never delivers a result.
+      ;(window.argus.health.run as ReturnType<typeof vi.fn>).mockImplementation(
+        () => new Promise(() => {})
+      )
+      render(<ObservabilitySettings payload={otlpEnabled as never} />)
+      fireEvent.click(otlpTestButton())
+      expect(screen.getByRole('button', { name: 'Testing…' })).toBeDisabled()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      const chip = screen.getByText(/^fail$/i)
+      expect(chip).toHaveAttribute('title', 'no response from the health check')
+      expect(otlpTestButton()).not.toBeDisabled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('per-provider capture-content switches patch their own block and show the warning', () => {

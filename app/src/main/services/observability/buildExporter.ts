@@ -6,15 +6,19 @@ import {
 import { ObservationExporter } from './exporter'
 import { FanOutSink } from './fanOutSink'
 import type { ObservationSink } from './sink'
-import { OBSERVABILITY_PROVIDERS } from './providers'
+import {
+  OBSERVABILITY_PROVIDERS,
+  type ObservabilityProvider,
+  type SecretResolver
+} from './providers'
 
 export interface BuiltObservability {
   exporter: ObservationExporter | null
-  /** Providers that are enabled AND complete — one health row each. */
+  /** Providers whose sink was built (enabled, complete, and `createSink` did not throw). */
   enabled: { id: ObservabilityProviderId; label: string }[]
-  /** Every provider that is enabled AND complete — one health row each — whether or not its sink
-   *  could be built (a `createSink` that threw still gets a row, so the user sees why it is dead).
-   *  A superset of `enabled`. */
+  /** Every ENABLED provider — one health row each — complete or not, and whether or not its sink
+   *  could be built: an incomplete one reports "not configured: missing <field>", a dead one (its
+   *  `createSink` threw) reports the constructor error. A superset of `enabled`. */
   rows: { id: ObservabilityProviderId; label: string }[]
   /** Why a complete provider's sink could not be built (the `createSink` error message). */
   errors: Partial<Record<ObservabilityProviderId, string>>
@@ -33,6 +37,29 @@ export function mergeProbeWithLastError(
   return probe.ok && lastError
     ? { ok: true, detail: `${probe.detail} · last export error: ${lastError}` }
     : probe
+}
+
+/**
+ * One provider's health check, in order: the sink could not even be constructed (say why, don't
+ * probe) → a required field/secret is missing ("not configured: missing <field>", don't probe) →
+ * probe (never throws: probes construct exporters too, so a hand-edited setting can make them
+ * throw) merged with the live sink's latched export error.
+ */
+export async function checkObservabilityProvider(
+  provider: Pick<ObservabilityProvider, 'missing' | 'probe'>,
+  cfg: Record<string, unknown>,
+  secret: SecretResolver,
+  state: { buildError?: string; lastError?: () => string | null | undefined }
+): Promise<{ ok: boolean; detail: string }> {
+  if (state.buildError) return { ok: false, detail: state.buildError }
+  const field = provider.missing(cfg, secret)
+  if (field !== null) return { ok: false, detail: `not configured: missing ${field}` }
+  try {
+    const r = await provider.probe(cfg, secret)
+    return mergeProbeWithLastError(r, state.lastError?.())
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 /**
@@ -72,9 +99,7 @@ export function buildObservationExporter(
     if (!cfg?.enabled) continue
     const provider = OBSERVABILITY_PROVIDERS[id]
     const cc = cfg.captureContent === true
-    if (provider.missing(cfg, secret) === null) {
-      rows.push({ id, label: provider.descriptor.label })
-    }
+    rows.push({ id, label: provider.descriptor.label })
     let sink: ObservationSink | null
     try {
       sink = provider.createSink(cfg, secret, {
