@@ -378,7 +378,7 @@ open case (a Distill / Re-distill from the case menu) the stage records
   least once; its tooltip carries the domains and the last-applied date.
 - **Distillation runs** (dev): the run detail gains an attribution node, and an attribution-only
   job is labelled `attribution only` in the runs rail.
-- **Langfuse**: one `asset.contribution` score per verdict, with OTel GenAI-shaped metadata
+- **Langfuse** (and any other enabled observability provider; see [observability.md](observability.md) for where scores go): one `asset.contribution` score per verdict, with OTel GenAI-shaped metadata
   (asset, domain, outcome, judge model, prompt hash). Silent rows are not scored. Each score's id
   is deterministic — the first 32 hex of `sha256(install | case | kind | name)` — so an override
   or a redistill re-emits the *same* score (Langfuse upserts it) instead of adding a second one;
