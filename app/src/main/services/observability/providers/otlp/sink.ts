@@ -187,6 +187,7 @@ export class OtlpSink implements ObservationSink {
             attributes: {
               [S.ATTR_GEN_AI_OPERATION_NAME]: S.OP_CHAT,
               [S.ATTR_GEN_AI_REQUEST_MODEL]: i.model,
+              [S.ATTR_ARGUS_SPAN_NAME]: i.name,
               ...(i.usage?.input != null
                 ? { [S.ATTR_GEN_AI_USAGE_INPUT_TOKENS]: i.usage.input }
                 : {}),

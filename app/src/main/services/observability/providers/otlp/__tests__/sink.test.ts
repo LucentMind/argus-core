@@ -129,6 +129,30 @@ describe('OtlpSink', () => {
     ).toHaveLength(1)
   })
 
+  it('generation spans carry the intent name as argus.span.name (span name stays `chat <model>`)', async () => {
+    const h = harness(false)
+    h.sink.emit([
+      {
+        kind: 'trace-root',
+        seed: 'argus-distill-job-1',
+        name: 'distill fx',
+        caseSlug: 'fx',
+        metadata: {}
+      },
+      {
+        kind: 'generation',
+        seed: 'argus-distill-job-1',
+        name: 'stage dossier',
+        model: 'm',
+        usage: { input: 1, output: 2 }
+      }
+    ])
+    await h.sink.flush()
+    const gen = h.spans().find((s) => s.name === 'chat m')!
+    expect(gen.attributes[S.ATTR_ARGUS_SPAN_NAME]).toBe('stage dossier')
+    expect(gen.attributes['argus.span.name']).toBe('stage dossier')
+  })
+
   it('a score with no cached root opens a short evaluation span in the seed-derived trace', async () => {
     const h = harness()
     h.sink.emit([
