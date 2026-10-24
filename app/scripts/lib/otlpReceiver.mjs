@@ -34,6 +34,16 @@ export function attrsOf(list) {
   return out
 }
 
+/** An OTLP fixed64 nanosecond time → its decimal string (compare with `BigInt`, never Number:
+ *  epoch nanos exceed 2^53). OTLP/JSON carries it as a string; a number or a `{ low, high }`
+ *  long-bits pair is normalised too. Missing → ''. */
+export function nanosOf(v) {
+  if (v == null) return ''
+  if (typeof v === 'object' && 'low' in v && 'high' in v)
+    return ((BigInt(v.high >>> 0) << 32n) | BigInt(v.low >>> 0)).toString()
+  return String(v)
+}
+
 /** Flatten one ExportTraceServiceRequest (OTLP/JSON) into the receiver's span records. */
 export function flattenTraces(body) {
   const out = []
@@ -46,6 +56,8 @@ export function flattenTraces(body) {
           traceId: s.traceId,
           spanId: s.spanId,
           parentSpanId: s.parentSpanId ?? '',
+          startTimeUnixNano: nanosOf(s.startTimeUnixNano),
+          endTimeUnixNano: nanosOf(s.endTimeUnixNano),
           scope: ss.scope?.name ?? null,
           attributes: attrsOf(s.attributes),
           events: (s.events ?? []).map((e) => ({
