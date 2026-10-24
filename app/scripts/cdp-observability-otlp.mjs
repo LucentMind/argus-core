@@ -40,7 +40,7 @@
  * Exits 0 when every check passes, 1 when any fails, 2 on an abort (boot / port / identity /
  * settings / fake runner not active).
  */
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -490,8 +490,46 @@ const main = async () => {
   const dossierSpan = stageSpans.find((x) => stageName(x) === 'stage dossier')
   const materializeSpan = stageSpans.find((x) => stageName(x).startsWith('stage materialize '))
   const nanos = (v) => (/^\d+$/.test(String(v ?? '')) ? BigInt(v) : null)
+  // Independent oracle: the job row's own stages_json (read straight from the DB, not via the
+  // telemetry code). `reconstructTimes` makes dossier.end <= materialize.start true no matter what
+  // the sink does, so the ordering below is DERIVED. The load-bearing check is the per-stage
+  // duration: end - start on the wire must equal usage.durationMs * 1e6 from stages_json, which
+  // only holds if the sink honours the intent's startTime/endTime (a sink stamping wall-clock
+  // `now` would give ~0 or a wrong width). The fake runner gives agent stages (dossier) 100 ms and
+  // one-shot stages 10 ms, so the widths differ per stage and are not all zero.
+  const jobRow = withDb((db) =>
+    db.prepare(`SELECT stages_json, duration_ms FROM distill_jobs WHERE id=?`).get(jobId)
+  )
+  let stagesOracle = null
+  try {
+    stagesOracle = JSON.parse(jobRow?.stages_json ?? 'null')
+  } catch {
+    stagesOracle = null
+  }
+  const oracleDur = new Map()
+  if (stagesOracle && typeof stagesOracle === 'object') {
+    for (const k of ['dossier', 'summary', 'candidates', 'attribution'])
+      if (stagesOracle[k]) oracleDur.set(k, stagesOracle[k].usage?.durationMs ?? 0)
+    for (const m of Array.isArray(stagesOracle.materialize) ? stagesOracle.materialize : [])
+      oracleDur.set(`materialize ${m.type} ${m.target}`, m.usage?.durationMs ?? 0)
+  }
+  const durationRows = stageSpans.map((x) => {
+    const key = stageName(x).slice('stage '.length)
+    const s = nanos(x.startTimeUnixNano)
+    const e = nanos(x.endTimeUnixNano)
+    const want = oracleDur.has(key) ? BigInt(oracleDur.get(key)) * 1_000_000n : null
+    return { key, width: s !== null && e !== null ? e - s : null, want }
+  })
   check(
-    `${fxOn.slug}: stage spans are ordered in time (dossier ends before materialize starts)`,
+    `${fxOn.slug}: every stage span's end-start equals its stages_json usage.durationMs * 1e6 (sink honours intent times; widths ${[...new Set(durationRows.map((r) => String(r.want)))].join('/')} ns)`,
+    stageSpans.length >= 4 &&
+      oracleDur.size === stageSpans.length &&
+      durationRows.every((r) => r.want !== null && r.width === r.want) &&
+      new Set(durationRows.map((r) => r.want)).size >= 2,
+    durationRows.map((r) => [r.key, String(r.width), String(r.want)])
+  )
+  check(
+    `${fxOn.slug}: stage spans are ordered in time (dossier ends before materialize starts; derived from reconstructTimes)`,
     Boolean(dossierSpan && materializeSpan) &&
       nanos(dossierSpan.endTimeUnixNano) !== null &&
       nanos(materializeSpan.startTimeUnixNano) !== null &&
@@ -502,10 +540,31 @@ const main = async () => {
   // string in the spans and descends into any string that is itself JSON (the sink JSON-encodes
   // message content), so a quoted / escaped copy of the text is found too — a plain
   // `JSON.stringify(spans).includes(marker)` would miss it (the markers contain `"` and `\n`).
-  const rawMarkers = Object.values(fxOn.stages)
+  //
+  // Two marker sets: the first 40 chars of each stage text (whole-text copies), plus SHORT interior
+  // fragments (every run of 3 consecutive words, 12-24 chars, letters/spaces/hyphens). The
+  // fragments exist because a parser error quotes only a few chars of its input (V8's JSON.parse:
+  // `Unexpected token '`'`, "```json\n{"... is not valid JSON), which a 40-char prefix never
+  // matches. NOTE: the ERROR-string redaction path itself (scrubError) is covered by
+  // distillTelemetry.test.ts; this fixture has no failing stage, so no `error` attribute is
+  // exercised here and the fragments mainly guard the other string-bearing attributes.
+  const stageTexts = Object.values(fxOn.stages)
     .map((st) => st?.text)
-    .filter((t) => typeof t === 'string' && t.length >= 40)
-    .map((t) => t.slice(0, 40))
+    .filter((t) => typeof t === 'string')
+  const prefixMarkers = stageTexts.filter((t) => t.length >= 40).map((t) => t.slice(0, 40))
+  const fragmentMarkers = (() => {
+    const out = new Set()
+    for (const t of stageTexts) {
+      const words = t.split(/\s+/).filter(Boolean)
+      for (let i = 0; i + 3 <= words.length; i++) {
+        const frag = words.slice(i, i + 3).join(' ')
+        if (frag.length >= 12 && frag.length <= 24 && /^[A-Za-z][A-Za-z -]*$/.test(frag))
+          out.add(frag)
+      }
+    }
+    return [...out]
+  })()
+  const rawMarkers = [...new Set([...prefixMarkers, ...fragmentMarkers])]
   const stringsIn = (v, out = []) => {
     if (typeof v === 'string') {
       out.push(v)
@@ -519,28 +578,34 @@ const main = async () => {
     } else if (v && typeof v === 'object') for (const x of Object.values(v)) stringsIn(x, out)
     return out
   }
-  const leaks = (spansToScan) => {
+  const leaks = (spansToScan, markers = rawMarkers) => {
     const all = stringsIn(spansToScan)
-    return rawMarkers.filter((m) => all.some((x) => x.includes(m)))
+    return markers.filter((m) => all.some((x) => x.includes(m)))
   }
-  // Scanner non-vacuity: a span shaped like the sink's captureContent-on output event IS caught.
+  // Scanner non-vacuity: a marker that is unique by construction, JSON-encoded the way the sink
+  // encodes captureContent-on output, is caught exactly once (and nothing else is).
+  const plantedMarker = `PLANTED-LEAK-${randomBytes(6).toString('hex')}`
   const planted = [
     {
       events: [
         {
           attributes: {
             'gen_ai.output.messages': JSON.stringify([
-              { role: 'assistant', parts: [{ type: 'text', content: fxOn.stages.dossier.text }] }
+              { role: 'assistant', parts: [{ type: 'text', content: `x ${plantedMarker} y` }] }
             ])
           }
         }
       ]
     }
   ]
+  const plantedHits = leaks(planted, [...rawMarkers, plantedMarker])
   check(
-    `${fxOn.slug}: the raw-text scanner catches a planted JSON-encoded stage output`,
-    rawMarkers.length >= 4 && leaks(planted).length === 1,
-    { markers: rawMarkers.length, caught: leaks(planted).length }
+    `${fxOn.slug}: the raw-text scanner catches a planted unique marker exactly once (${prefixMarkers.length} prefix + ${fragmentMarkers.length} fragment markers)`,
+    prefixMarkers.length >= 4 &&
+      fragmentMarkers.length >= 4 &&
+      plantedHits.length === 1 &&
+      plantedHits[0] === plantedMarker,
+    { prefixes: prefixMarkers.length, fragments: fragmentMarkers.length, hits: plantedHits }
   )
   check(
     `${fxOn.slug}: no stage raw text anywhere in the job trace (captureContent off)`,
