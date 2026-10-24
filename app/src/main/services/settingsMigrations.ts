@@ -168,3 +168,34 @@ export function migrateFavoritesRanking(
     ...(Object.keys(rewritten).length > 0 ? { agent: { modelPreferences: rewritten } } : {})
   })
 }
+
+/**
+ * One-time upgrade: fold the flat `observability.langfuse` block into
+ * `observability.providers.langfuse` (spec 2026-10-24, provider-agnostic observability).
+ * Idempotent via the `migrations.observabilityProvider` stamp — same sentinel-key shape as
+ * `migrateDefaultRepoToList`; stamped even when there was nothing to move. The legacy key is
+ * undeclared, so `deepMerge`'s null-deletes-key rule is what removes it from the stored file.
+ */
+export function migrateObservabilityProvider(
+  settings: MigratableSettings,
+  now: () => Date = () => new Date()
+): void {
+  const current = settings.get()
+  if (current.migrations.observabilityProvider) return
+  const legacy = (current.observability as Record<string, unknown>).langfuse
+  const moved: Record<string, unknown> = {}
+  if (legacy && typeof legacy === 'object' && !Array.isArray(legacy)) {
+    const l = legacy as Record<string, unknown>
+    if (typeof l.enabled === 'boolean') moved.enabled = l.enabled
+    if (typeof l.host === 'string') moved.host = l.host
+    if (typeof l.publicKey === 'string') moved.publicKey = l.publicKey
+    if (typeof l.captureContent === 'boolean') moved.captureContent = l.captureContent
+  }
+  settings.patch({
+    migrations: { observabilityProvider: now().toISOString() },
+    observability: {
+      langfuse: null,
+      ...(Object.keys(moved).length ? { providers: { langfuse: moved } } : {})
+    }
+  })
+}

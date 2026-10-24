@@ -34,13 +34,6 @@ export interface MetricsQuery {
   since?: string // ISO lower-bound on created_at
 }
 
-export interface LangfuseConfig {
-  enabled: boolean
-  host: string
-  publicKey: string
-  captureContent: boolean
-}
-
 export type ReviewState = 'pending' | 'accepted' | 'rejected'
 
 /** Who set `reviewState`. NULL on rows written before retraction existed (and after a reset

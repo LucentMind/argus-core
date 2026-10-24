@@ -7,7 +7,9 @@ import { ObservabilitySettings } from '../ObservabilitySettings'
 const payload = {
   settings: {
     observability: {
-      langfuse: { enabled: false, host: '', publicKey: '', captureContent: false },
+      providers: {
+        langfuse: { enabled: false, host: '', publicKey: '', captureContent: false }
+      },
       dashboard: { hiddenCards: [] }
     }
   }
@@ -37,7 +39,9 @@ describe('ObservabilitySettings', () => {
     expect(window.argus.settings.patch).toHaveBeenCalledWith(
       expect.objectContaining({
         observability: expect.objectContaining({
-          langfuse: expect.objectContaining({ enabled: true })
+          providers: expect.objectContaining({
+            langfuse: expect.objectContaining({ enabled: true })
+          })
         })
       })
     )
