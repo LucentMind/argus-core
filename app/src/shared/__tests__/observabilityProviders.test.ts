@@ -3,7 +3,8 @@ import {
   PROVIDER_DESCRIPTORS,
   OBSERVABILITY_PROVIDER_IDS,
   secretName,
-  isProviderId
+  isProviderId,
+  isObservabilitySecret
 } from '../observabilityProviders'
 
 describe('observability provider descriptors', () => {
@@ -24,6 +25,13 @@ describe('observability provider descriptors', () => {
   it('secret names keep the legacy Langfuse name', () => {
     expect(secretName('langfuse', 'secret-key')).toBe('observability/langfuse/secret-key')
     expect(secretName('otlp', 'authorization')).toBe('observability/otlp/authorization')
+  })
+  it('isObservabilitySecret matches every provider-scoped secret and nothing else', () => {
+    expect(isObservabilitySecret(secretName('langfuse', 'secret-key'))).toBe(true)
+    expect(isObservabilitySecret(secretName('otlp', 'authorization'))).toBe(true)
+    expect(isObservabilitySecret('connector/jira/token')).toBe(false)
+    expect(isObservabilitySecret('observability')).toBe(false)
+    expect(isObservabilitySecret('x/observability/otlp/authorization')).toBe(false)
   })
   it('isProviderId narrows', () => {
     expect(isProviderId('otlp')).toBe(true)

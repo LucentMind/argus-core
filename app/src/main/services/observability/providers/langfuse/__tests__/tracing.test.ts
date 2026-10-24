@@ -16,7 +16,7 @@ import { synthSpanId } from '../sink'
  * yields — the new instance installs itself as the module-global tracer provider
  * before the old shutdown resumes and reaches `setLangfuseTracerProvider(null)`.
  * Clearing unconditionally there wipes out the live (new) provider, silently
- * disabling telemetry for the rest of the session. See langfuseTracing.ts's
+ * disabling telemetry for the rest of the session. See providers/langfuse/tracing.ts's
  * shutdown() for the identity guard this test protects.
  */
 

@@ -19,7 +19,8 @@ export interface OtlpTracing {
   tracer: Tracer
   forceFlush(): Promise<void>
   shutdown(): Promise<void>
-  /** Last failed export, latched by `observeExports` (OTel reports failures via callback, never a throw). */
+  /** Last failed export, latched by `observeExports` until a later export succeeds (OTel reports
+   *  failures via callback, never a throw). */
   lastExportError(): string | null
 }
 
@@ -55,9 +56,11 @@ export function createOtlpExporter(cfg: {
 }
 
 /**
- * Wraps any SpanExporter so a FAILED ExportResult is latched in `box`. Also logged
- * (once per distinct message): OTel's default error handler goes to the no-op `diag`
- * logger, so without this a rejected export leaves no trace anywhere.
+ * Wraps any SpanExporter so a FAILED ExportResult is latched in `box` and a later
+ * successful export clears it (a transient outage must not stay on the health row
+ * forever). Failures are also logged (once per distinct consecutive message): OTel's
+ * default error handler goes to the no-op `diag` logger, so without this a rejected
+ * export leaves no trace anywhere.
  */
 export function observeExports(inner: SpanExporter, box: { last: string | null }): SpanExporter {
   return {
@@ -67,6 +70,8 @@ export function observeExports(inner: SpanExporter, box: { last: string | null }
           const msg = r.error?.message ?? 'export failed'
           if (msg !== box.last) console.error('[observability] OTLP export failed', r.error ?? msg)
           box.last = msg
+        } else {
+          box.last = null
         }
         cb(r)
       }),

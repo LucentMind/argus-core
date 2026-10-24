@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   SettingsSection,
   SettingRow,
@@ -86,6 +86,9 @@ function SecretInput({
 
 type ProviderCfg = Record<string, unknown> & { enabled: boolean; captureContent: boolean }
 
+/** How long Test connection waits for its health row before reporting "no response". */
+const TEST_TIMEOUT_MS = 10_000
+
 /**
  * One settings section per observability provider, rendered from the shared descriptor so the
  * page, the health rows and the exporter factory agree on a provider's fields. Aria-labels are
@@ -102,6 +105,8 @@ function ProviderSection({
   const [secretSet, setSecretSet] = useState<Record<string, boolean>>({})
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<HealthCheckResult | null>(null)
+  /** Bumped per click so a stale run's late outcome never overwrites a newer one. */
+  const runToken = useRef(0)
 
   useEffect(() => {
     let mounted = true
@@ -135,16 +140,31 @@ function ProviderSection({
   const rowId = `observability:${id}`
   function testConnection(): void {
     if (testing) return
+    const token = ++runToken.current
     setTesting(true)
     setTestResult(null)
-    const off = window.argus.health.onResult((r) => {
-      if (r.id === rowId) setTestResult(r)
-    })
-    void window.argus.health.run([rowId]).finally(() => {
-      setTesting(false)
+    let settled = false
+    // Exactly one outcome per click: this row's result, the run's own failure, or — when neither
+    // arrives in time — a visible "no response" failure instead of a silent button flip.
+    const finish = (r: HealthCheckResult): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(fallback)
       off()
+      if (runToken.current !== token) return
+      setTestResult(r)
+      setTesting(false)
+    }
+    const fail = (detail: string): void => finish({ id: rowId, label: d.label, ok: false, detail })
+    const off = window.argus.health.onResult((r) => {
+      if (r.id === rowId) finish(r)
     })
+    const fallback = setTimeout(() => fail('no response from the health check'), TEST_TIMEOUT_MS)
+    void window.argus.health
+      .run([rowId])
+      .catch((err: unknown) => fail(err instanceof Error ? err.message : String(err)))
   }
+  const exportError = testResult?.ok === true && testResult.detail.includes('last export error')
 
   return (
     <SettingsSection title={d.label}>
@@ -204,14 +224,21 @@ function ProviderSection({
       </SettingRow>
       <SettingRow
         label="Test connection"
-        description={`Verifies ${d.label} is reachable with this configuration.`}
+        description={
+          cfg.enabled
+            ? `Verifies ${d.label} is reachable with this configuration.`
+            : 'Enable the provider to test it.'
+        }
       >
-        <Btn variant="outline" disabled={testing} onClick={testConnection}>
+        <Btn variant="outline" disabled={testing || !cfg.enabled} onClick={testConnection}>
           {testing ? 'Testing…' : 'Test connection'}
         </Btn>
         {testResult &&
           (testResult.ok ? (
-            <Chip tone="review">ok</Chip>
+            // Reachable now, but the live sink latched a rejected export: say so, not a bare ok.
+            <Chip tone={exportError ? 'defect' : 'review'} title={testResult.detail}>
+              {exportError ? 'ok · export error' : 'ok'}
+            </Chip>
           ) : (
             <Chip tone="danger" title={testResult.detail}>
               fail
