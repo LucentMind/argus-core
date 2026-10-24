@@ -22,6 +22,9 @@ describe('startOtlpReceiver', () => {
                     traceId: 'ab'.repeat(16),
                     spanId: 'cd'.repeat(8),
                     parentSpanId: 'ef'.repeat(8),
+                    // OTLP/JSON carries fixed64 times as decimal strings (beyond 2^53).
+                    startTimeUnixNano: '1761300000123456789',
+                    endTimeUnixNano: '1761300000987654321',
                     attributes: [
                       { key: 'gen_ai.usage.input_tokens', value: { intValue: '10' } },
                       { key: 'argus.cost_usd', value: { doubleValue: 0.5 } },
@@ -55,6 +58,8 @@ describe('startOtlpReceiver', () => {
         traceId: 'ab'.repeat(16),
         spanId: 'cd'.repeat(8),
         parentSpanId: 'ef'.repeat(8),
+        startTimeUnixNano: '1761300000123456789',
+        endTimeUnixNano: '1761300000987654321',
         attributes: {
           'gen_ai.usage.input_tokens': 10,
           'argus.cost_usd': 0.5,
@@ -63,6 +68,8 @@ describe('startOtlpReceiver', () => {
         },
         resource: { 'service.name': 'argus' }
       })
+      // Kept as strings so BigInt comparisons stay exact at nanosecond precision.
+      expect(BigInt(span.startTimeUnixNano) < BigInt(span.endTimeUnixNano)).toBe(true)
       expect(span.events[0]).toMatchObject({
         name: 'gen_ai.evaluation.result',
         attributes: { 'gen_ai.evaluation.score.value': 1 }
