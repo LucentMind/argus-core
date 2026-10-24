@@ -39,7 +39,8 @@ import {
   migrateBypassDefault,
   migrateFavoritesRanking,
   migrateDefaultRepoToList,
-  migrateRelatedSearchSwitches
+  migrateRelatedSearchSwitches,
+  migrateObservabilityProvider
 } from './services/settingsMigrations'
 import { devToolsEnabled } from './services/prompts/gate'
 import { readDevToolsUnlocked, writeDevToolsUnlocked } from './services/devToolsUnlock'
@@ -838,6 +839,10 @@ function registerIpc(): void {
   // into the master `relatedSearchOnOpen` plus `relatedIncludeLocalCases`.
   migrateRelatedSearchSwitches(settingsService)
 
+  // One-time upgrade: fold the flat `observability.langfuse` block into
+  // `observability.providers.langfuse`.
+  migrateObservabilityProvider(settingsService)
+
   // Capture declared user env BEFORE anything mutates process.env, then let the
   // service export resolved values / prepend pathDirs for spawned children.
   const capturedBinaryEnv = Object.fromEntries(
@@ -922,7 +927,7 @@ function registerIpc(): void {
 
   // — observability: Langfuse exporter (off by default; needs enabled+host+publicKey+secret) —
   const buildExporter = (): void => {
-    const s = settingsService.get().observability?.langfuse
+    const s = settingsService.get().observability?.providers?.langfuse
     if (!s?.enabled || !s.host || !s.publicKey) {
       langfuseExporter = null
       return
@@ -4090,11 +4095,11 @@ function registerIpc(): void {
       }
     },
     langfuseConfigured: () => {
-      const s = settingsService.get().observability?.langfuse
+      const s = settingsService.get().observability?.providers?.langfuse
       return Boolean(s?.enabled && s.host && s.publicKey)
     },
     langfuseCheck: async () => {
-      const s = settingsService.get().observability?.langfuse
+      const s = settingsService.get().observability?.providers?.langfuse
       return probeLangfuseCredentials({
         host: s?.host ?? '',
         publicKey: s?.publicKey ?? '',

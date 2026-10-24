@@ -185,19 +185,42 @@ describe('SettingsService', () => {
     ).toBe('claude-sonnet-5')
   })
 
-  it('defaults observability to disabled, content off', () => {
+  it('defaults every observability provider to disabled, content off', () => {
     const s = defaultSettings()
-    expect(s.observability.langfuse.enabled).toBe(false)
-    expect(s.observability.langfuse.captureContent).toBe(false)
+    expect(s.observability.providers.langfuse).toEqual({
+      enabled: false,
+      host: '',
+      publicKey: '',
+      captureContent: false
+    })
+    expect(s.observability.providers.otlp).toEqual({
+      enabled: false,
+      endpoint: '',
+      protocol: 'http/protobuf',
+      captureContent: false
+    })
     expect(s.observability.dashboard.hiddenCards).toEqual([])
+    expect(s.migrations.observabilityProvider).toBe('')
   })
 
-  it('round-trips observability config', () => {
+  it('round-trips provider config and tolerates the legacy langfuse block', () => {
     const parsed = settingsSchema.parse({
-      observability: { langfuse: { enabled: true, host: 'https://lf', publicKey: 'pk' } }
+      observability: {
+        providers: {
+          otlp: { enabled: true, endpoint: 'http://collector:4318', protocol: 'http/json' }
+        },
+        langfuse: { enabled: true, host: 'https://lf', publicKey: 'pk' } // legacy, pre-migration
+      }
     })
-    expect(parsed.observability.langfuse.host).toBe('https://lf')
-    expect(parsed.observability.langfuse.enabled).toBe(true)
+    expect(parsed.observability.providers.otlp).toMatchObject({
+      enabled: true,
+      endpoint: 'http://collector:4318',
+      protocol: 'http/json'
+    })
+    expect(parsed.observability.providers.langfuse.enabled).toBe(false)
+    expect((parsed.observability as Record<string, unknown>).langfuse).toMatchObject({
+      host: 'https://lf'
+    })
   })
 
   it('defaults include a dormant onboarding block', () => {
