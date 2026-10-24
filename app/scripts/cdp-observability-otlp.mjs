@@ -25,7 +25,14 @@
  *      the case's latest session seed, the synthetic parent span id, the resource, and (a shape
  *      check only) no message/tool-content key on those spans; captureContent stripping itself
  *      is covered by the sink unit tests, since a fixture close emits no generation/tool spans.
- *   5. negative control: disable the provider through the settings file, wait for the app to
+ *   5. the same close's distill job: its `invoke_agent distill <slug>` root in the trace derived
+ *      from `argus-distill-job-<id>@<finished_at>` (job facts as `argus.*` attributes), ≥4 `stage <key>`
+ *      generation spans under it (usage + model, dossier before materialize), no fixture stage
+ *      text anywhere in the trace (captureContent off); then accept one staged proposal and
+ *      reject another as `duplicate` (no attribution override) → two `proposal.outcome`
+ *      evaluation events on that job trace (value, outcome, edited / reason + note, job id,
+ *      score id recomputed from the install id and the proposal file).
+ *   6. negative control: disable the provider through the settings file, wait for the app to
  *      report it AND for the rebuild's shutdown flush to land, then close a copy of fx-helped
  *      under another slug (same judged verdicts — the DB proves scores WOULD have been emitted)
  *      → no request reaches the receiver.
@@ -33,7 +40,7 @@
  * Exits 0 when every check passes, 1 when any fails, 2 on an abort (boot / port / identity /
  * settings / fake runner not active).
  */
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -408,6 +415,325 @@ const main = async () => {
       res['service.version'].length > 0 &&
       events.every((e) => e.attributes['argus.app.version'] === res['service.version']),
     res['service.version']
+  )
+
+  // ---- distill-job trace (spec 2026-10-24 distillation-health) ----
+  // One trace per finished distill job: an `invoke_agent distill <slug>` root (job facts as
+  // `argus.<camelCase>` attributes), one `chat <model>` generation per stage (named by
+  // `argus.span.name = 'stage <key>'`), parented to the root.
+  console.error(`\n--- ${fxOn.slug}: distill job trace ---`)
+  const job = jobsForDb(DB, fxOn.slug).find((j) => j.kind === 'case' && j.state === 'done')
+  check(`${fxOn.slug}: a done case job exists`, Boolean(job), jobsForDb(DB, fxOn.slug))
+  const jobId = job?.id ?? -1
+  // One trace per ATTEMPT: the seed carries the row's finished_at (a retry of the same row id is
+  // a new trace). Read it from the DB — the independent oracle — not from the span.
+  const finishedAt = withDb(
+    (db) => db.prepare(`SELECT finished_at FROM distill_jobs WHERE id = ?`).get(jobId)?.finished_at
+  )
+  check(`${fxOn.slug}: the done job has a finished_at`, typeof finishedAt === 'string', finishedAt)
+  const jobSeed = finishedAt
+    ? `argus-distill-job-${jobId}@${finishedAt}`
+    : `argus-distill-job-${jobId}`
+  const jobTrace = traceIdFor(jobSeed)
+  const rootName = `invoke_agent distill ${fxOn.slug}`
+  await waitFor(
+    'distill root span exported',
+    () => rx.spans().some((x) => x.traceId === jobTrace && x.name === rootName),
+    EXPORT_TIMEOUT_MS
+  ).catch(() => null)
+  const jobSpans = rx.spans().filter((x) => x.traceId === jobTrace)
+  const root = jobSpans.find((x) => x.name === rootName)
+  const ra = root?.attributes ?? {}
+  check(`${fxOn.slug}: root '${rootName}' in trace sha256(${jobSeed})[0:32]`, Boolean(root), {
+    want: jobTrace,
+    inTrace: jobSpans.map((x) => x.name)
+  })
+  check(
+    `${fxOn.slug}: the root hangs off the job seed's synthetic parent`,
+    Boolean(root) && root.parentSpanId === parentIdFor(jobSeed),
+    { got: root?.parentSpanId, want: parentIdFor(jobSeed) }
+  )
+  check(
+    `${fxOn.slug}: root carries argus.kind=case, argus.state=done, argus.pipeline=v3, argus.jobId=${jobId}`,
+    ra['argus.kind'] === 'case' &&
+      ra['argus.state'] === 'done' &&
+      ra['argus.pipeline'] === 'v3' &&
+      jobId > 0 &&
+      ra['argus.jobId'] === jobId,
+    ra
+  )
+  check(
+    `${fxOn.slug}: root carries argus.costUsd > 0 and argus.caseDomain=FXH`,
+    typeof ra['argus.costUsd'] === 'number' &&
+      ra['argus.costUsd'] > 0 &&
+      ra['argus.caseDomain'] === 'FXH',
+    { costUsd: ra['argus.costUsd'], caseDomain: ra['argus.caseDomain'] }
+  )
+  const stageName = (x) => x.attributes['argus.span.name']
+  const stageSpans = jobSpans.filter(
+    (x) => typeof stageName(x) === 'string' && stageName(x).startsWith('stage ')
+  )
+  check(
+    `${fxOn.slug}: ≥4 stage spans, every one parented to the root`,
+    Boolean(root) &&
+      stageSpans.length >= 4 &&
+      stageSpans.every((x) => x.parentSpanId === root.spanId),
+    stageSpans.map((x) => [stageName(x), x.parentSpanId])
+  )
+  check(
+    `${fxOn.slug}: every stage span carries numeric gen_ai.usage.input_tokens and a string gen_ai.request.model`,
+    stageSpans.length >= 4 &&
+      stageSpans.every(
+        (x) =>
+          typeof x.attributes['gen_ai.usage.input_tokens'] === 'number' &&
+          typeof x.attributes['gen_ai.request.model'] === 'string' &&
+          x.attributes['gen_ai.request.model'].length > 0
+      ),
+    stageSpans.map((x) => [
+      stageName(x),
+      x.attributes['gen_ai.usage.input_tokens'],
+      x.attributes['gen_ai.request.model']
+    ])
+  )
+  const dossierSpan = stageSpans.find((x) => stageName(x) === 'stage dossier')
+  const materializeSpan = stageSpans.find((x) => stageName(x).startsWith('stage materialize '))
+  const nanos = (v) => (/^\d+$/.test(String(v ?? '')) ? BigInt(v) : null)
+  // Independent oracle: the job row's own stages_json (read straight from the DB, not via the
+  // telemetry code). `reconstructTimes` makes dossier.end <= materialize.start true no matter what
+  // the sink does, so the ordering below is DERIVED. The load-bearing check is the per-stage
+  // duration: end - start on the wire must equal usage.durationMs * 1e6 from stages_json, which
+  // only holds if the sink honours the intent's startTime/endTime (a sink stamping wall-clock
+  // `now` would give ~0 or a wrong width). The fake runner gives agent stages (dossier) 100 ms and
+  // one-shot stages 10 ms, so the widths differ per stage and are not all zero.
+  const jobRow = withDb((db) =>
+    db.prepare(`SELECT stages_json, duration_ms FROM distill_jobs WHERE id=?`).get(jobId)
+  )
+  let stagesOracle = null
+  try {
+    stagesOracle = JSON.parse(jobRow?.stages_json ?? 'null')
+  } catch {
+    stagesOracle = null
+  }
+  const oracleDur = new Map()
+  if (stagesOracle && typeof stagesOracle === 'object') {
+    for (const k of ['dossier', 'summary', 'candidates', 'attribution'])
+      if (stagesOracle[k]) oracleDur.set(k, stagesOracle[k].usage?.durationMs ?? 0)
+    for (const m of Array.isArray(stagesOracle.materialize) ? stagesOracle.materialize : [])
+      oracleDur.set(`materialize ${m.type} ${m.target}`, m.usage?.durationMs ?? 0)
+  }
+  const durationRows = stageSpans.map((x) => {
+    const key = stageName(x).slice('stage '.length)
+    const s = nanos(x.startTimeUnixNano)
+    const e = nanos(x.endTimeUnixNano)
+    const want = oracleDur.has(key) ? BigInt(oracleDur.get(key)) * 1_000_000n : null
+    return { key, width: s !== null && e !== null ? e - s : null, want }
+  })
+  check(
+    `${fxOn.slug}: every stage span's end-start equals its stages_json usage.durationMs * 1e6 (sink honours intent times; widths ${[...new Set(durationRows.map((r) => String(r.want)))].join('/')} ns)`,
+    stageSpans.length >= 4 &&
+      oracleDur.size === stageSpans.length &&
+      durationRows.every((r) => r.want !== null && r.width === r.want) &&
+      new Set(durationRows.map((r) => r.want)).size >= 2,
+    durationRows.map((r) => [r.key, String(r.width), String(r.want)])
+  )
+  check(
+    `${fxOn.slug}: stage spans are ordered in time (dossier ends before materialize starts; derived from reconstructTimes)`,
+    Boolean(dossierSpan && materializeSpan) &&
+      nanos(dossierSpan.endTimeUnixNano) !== null &&
+      nanos(materializeSpan.startTimeUnixNano) !== null &&
+      nanos(dossierSpan.endTimeUnixNano) <= nanos(materializeSpan.startTimeUnixNano),
+    stageSpans.map((x) => [stageName(x), x.startTimeUnixNano, x.endTimeUnixNano])
+  )
+  // captureContent is OFF: no fixture stage text anywhere in this trace. The scan collects every
+  // string in the spans and descends into any string that is itself JSON (the sink JSON-encodes
+  // message content), so a quoted / escaped copy of the text is found too — a plain
+  // `JSON.stringify(spans).includes(marker)` would miss it (the markers contain `"` and `\n`).
+  //
+  // Two marker sets: the first 40 chars of each stage text (whole-text copies), plus SHORT interior
+  // fragments (every run of 3 consecutive words, 12-24 chars, letters/spaces/hyphens). The
+  // fragments exist because a parser error quotes only a few chars of its input (V8's JSON.parse:
+  // `Unexpected token '`'`, "```json\n{"... is not valid JSON), which a 40-char prefix never
+  // matches. NOTE: the ERROR-string redaction path itself (scrubError) is covered by
+  // distillTelemetry.test.ts; this fixture has no failing stage, so no `error` attribute is
+  // exercised here and the fragments mainly guard the other string-bearing attributes.
+  const stageTexts = Object.values(fxOn.stages)
+    .map((st) => st?.text)
+    .filter((t) => typeof t === 'string')
+  const prefixMarkers = stageTexts.filter((t) => t.length >= 40).map((t) => t.slice(0, 40))
+  const fragmentMarkers = (() => {
+    const out = new Set()
+    for (const t of stageTexts) {
+      const words = t.split(/\s+/).filter(Boolean)
+      for (let i = 0; i + 3 <= words.length; i++) {
+        const frag = words.slice(i, i + 3).join(' ')
+        if (frag.length >= 12 && frag.length <= 24 && /^[A-Za-z][A-Za-z -]*$/.test(frag))
+          out.add(frag)
+      }
+    }
+    return [...out]
+  })()
+  const rawMarkers = [...new Set([...prefixMarkers, ...fragmentMarkers])]
+  const stringsIn = (v, out = []) => {
+    if (typeof v === 'string') {
+      out.push(v)
+      if (/^\s*[[{]/.test(v)) {
+        try {
+          stringsIn(JSON.parse(v), out)
+        } catch {
+          // not JSON: the raw string is already collected
+        }
+      }
+    } else if (v && typeof v === 'object') for (const x of Object.values(v)) stringsIn(x, out)
+    return out
+  }
+  const leaks = (spansToScan, markers = rawMarkers) => {
+    const all = stringsIn(spansToScan)
+    return markers.filter((m) => all.some((x) => x.includes(m)))
+  }
+  // Scanner non-vacuity: a marker that is unique by construction, JSON-encoded the way the sink
+  // encodes captureContent-on output, is caught exactly once (and nothing else is).
+  const plantedMarker = `PLANTED-LEAK-${randomBytes(6).toString('hex')}`
+  const planted = [
+    {
+      events: [
+        {
+          attributes: {
+            'gen_ai.output.messages': JSON.stringify([
+              { role: 'assistant', parts: [{ type: 'text', content: `x ${plantedMarker} y` }] }
+            ])
+          }
+        }
+      ]
+    }
+  ]
+  const plantedHits = leaks(planted, [...rawMarkers, plantedMarker])
+  check(
+    `${fxOn.slug}: the raw-text scanner catches a planted unique marker exactly once (${prefixMarkers.length} prefix + ${fragmentMarkers.length} fragment markers)`,
+    prefixMarkers.length >= 4 &&
+      fragmentMarkers.length >= 4 &&
+      plantedHits.length === 1 &&
+      plantedHits[0] === plantedMarker,
+    { prefixes: prefixMarkers.length, fragments: fragmentMarkers.length, hits: plantedHits }
+  )
+  check(
+    `${fxOn.slug}: no stage raw text anywhere in the job trace (captureContent off)`,
+    jobSpans.length > stageSpans.length && stageSpans.length >= 4 && leaks(jobSpans).length === 0,
+    { scanned: jobSpans.length, leaked: leaks(jobSpans) }
+  )
+
+  // ---- proposal outcomes: proposal.outcome scores on the job trace ----
+  console.error(`\n--- ${fxOn.slug}: proposal outcomes ---`)
+  const pendingFor = async (slug) =>
+    ((await conn.evalJs(`window.argus.proposals.list()`))?.proposals ?? []).filter(
+      (p) => p.caseSlug === slug
+    )
+  const pending = await pendingFor(fxOn.slug)
+  check(
+    `${fxOn.slug}: ≥2 staged proposals to decide`,
+    pending.length >= 2,
+    pending.map((p) => `${p.type} ${p.target} (job ${p.jobId})`)
+  )
+  const toAccept = pending.find((p) => p.type === 'case-summary') ?? pending[0]
+  const toReject = pending.find((p) => p !== toAccept)
+  const REJECT_NOTE = 'gate: duplicate of the installed skill'
+  if (toAccept && toReject) {
+    await conn.evalJs(`window.argus.proposals.accept(${JSON.stringify(toAccept.file)})`)
+    // `duplicate` carries no attribution override (wrong/overfit do), so the attribution
+    // checks above and the negative control's verdict rows stay valid.
+    await conn.evalJs(
+      `window.argus.proposals.reject(${JSON.stringify(toReject.file)}, ${JSON.stringify({ tag: 'duplicate', note: REJECT_NOTE })})`
+    )
+  }
+  const stillPending = (await pendingFor(fxOn.slug)).map((p) => p.file)
+  check(
+    `${fxOn.slug}: both decisions landed (neither file is pending any more)`,
+    Boolean(toAccept && toReject) &&
+      !stillPending.includes(toAccept.file) &&
+      !stillPending.includes(toReject.file),
+    { accept: toAccept?.file, reject: toReject?.file, stillPending }
+  )
+  const outcomeEvents = () =>
+    rx
+      .spans()
+      .filter((x) => x.traceId === jobTrace)
+      .flatMap((x) =>
+        x.events
+          .filter(
+            (e) =>
+              e.name === 'gen_ai.evaluation.result' &&
+              e.attributes['gen_ai.evaluation.name'] === 'proposal.outcome'
+          )
+          .map((e) => ({ span: x, e }))
+      )
+  await waitFor(
+    'two proposal.outcome evaluation events',
+    () => outcomeEvents().length >= 2,
+    EXPORT_TIMEOUT_MS
+  ).catch(() => null)
+  const outcomes = outcomeEvents()
+  check(
+    `${fxOn.slug}: exactly two proposal.outcome events on the job trace`,
+    outcomes.length === 2,
+    outcomes.map(({ e }) => e.attributes)
+  )
+  check(
+    `${fxOn.slug}: the outcome spans are 'evaluation proposal.outcome' children of the job root`,
+    Boolean(root) &&
+      outcomes.length === 2 &&
+      outcomes.every(
+        ({ span }) =>
+          span.name === 'evaluation proposal.outcome' && span.parentSpanId === root.spanId
+      ),
+    outcomes.map(({ span }) => [span.name, span.parentSpanId])
+  )
+  const outcomeFor = (p) =>
+    p
+      ? outcomes.find(
+          ({ e }) =>
+            e.attributes['argus.proposal.target'] === p.target &&
+            e.attributes['argus.proposal.type'] === p.type
+        )?.e.attributes
+      : undefined
+  const acc = outcomeFor(toAccept)
+  const rej = outcomeFor(toReject)
+  check(
+    `${fxOn.slug}: accepted ${toAccept?.type} → value 1, outcome=accepted, edited=false`,
+    acc?.['gen_ai.evaluation.score.value'] === 1 &&
+      acc?.['argus.proposal.outcome'] === 'accepted' &&
+      acc?.['argus.proposal.edited'] === false,
+    acc
+  )
+  check(
+    `${fxOn.slug}: rejected ${toReject?.type} → value 0, outcome=rejected, reject_reason=duplicate, explanation = the note`,
+    rej?.['gen_ai.evaluation.score.value'] === 0 &&
+      rej?.['argus.proposal.outcome'] === 'rejected' &&
+      rej?.['argus.proposal.reject_reason'] === 'duplicate' &&
+      rej?.['gen_ai.evaluation.explanation'] === REJECT_NOTE,
+    rej
+  )
+  check(
+    `${fxOn.slug}: both outcomes carry argus.job.id=${jobId} and a 32-hex argus.score.id`,
+    outcomes.length === 2 &&
+      outcomes.every(
+        ({ e }) =>
+          e.attributes['argus.job.id'] === jobId &&
+          HEX32.test(String(e.attributes['argus.score.id'] ?? ''))
+      ),
+    outcomes.map(({ e }) => [e.attributes['argus.job.id'], e.attributes['argus.score.id']])
+  )
+  check(
+    `${fxOn.slug}: each argus.score.id = sha256(installId|proposal file|date)[0:32] (recomputed here)`,
+    Boolean(acc && rej && installId && toAccept.date && toReject.date) &&
+      acc['argus.score.id'] ===
+        sha(`${installId}|${toAccept.file}|${toAccept.date}`).slice(0, 32) &&
+      rej['argus.score.id'] === sha(`${installId}|${toReject.file}|${toReject.date}`).slice(0, 32),
+    { accept: acc?.['argus.score.id'], reject: rej?.['argus.score.id'], installId }
+  )
+  check(
+    `${fxOn.slug}: the two score ids differ (one per proposal file)`,
+    outcomes.length === 2 &&
+      new Set(outcomes.map(({ e }) => e.attributes['argus.score.id'])).size === 2,
+    outcomes.map(({ e }) => e.attributes['argus.score.id'])
   )
 
   // ---- negative control: a disabled provider exports nothing ----

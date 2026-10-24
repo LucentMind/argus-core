@@ -123,10 +123,18 @@ import {
   deleteProposal,
   rejectProposal,
   setProposalsChangedNotifier,
-  proposalCounts
+  proposalCounts,
+  isEditedAccept
 } from './services/proposals'
 import { identity } from './services/authorship'
-import type { RejectReason } from '../shared/proposals'
+import type { ProposalRecord, RejectReason } from '../shared/proposals'
+import {
+  jobIntents,
+  distillJobSeed,
+  proposalScoreIntent,
+  proposalOutcomeOf
+} from './services/observability/distillTelemetry'
+import { seedFor } from './services/observability/intent'
 import type {
   MemoryTopicsPayload,
   SkillsPayload,
@@ -365,7 +373,8 @@ import {
   DistillQueue,
   reconcileAndEnqueue,
   needsDistillRun,
-  routeCaseClose
+  routeCaseClose,
+  type JobDbRow
 } from './services/distill/queue'
 import { runAttributionOnly } from './services/distill/v3/attributionOnly'
 import { assembleDistillInput, buildReferencesIndex } from './services/distill/input'
@@ -1193,6 +1202,88 @@ function registerIpc(): void {
       console.error('[attribution] emission failed', err)
     }
   }
+  // Reused by the queue dep and the distill telemetry: the distill provider's model, per call
+  // (it can change between jobs).
+  const judgeModel = (): string => {
+    const r = resolveDistillProvider(settingsService.get())
+    return r.ok ? (r.model ?? 'default') : 'unconfigured'
+  }
+  // One trace per finished distill job (spec 2026-10-24 distillation-health). Resolved lazily
+  // like emitAttributions; never throws — it is called from the queue's terminal transition.
+  function emitDistillJob(row: JobDbRow): void {
+    if (!observationExporter) return
+    try {
+      installId ??= readOrCreateInstanceId(argusHome)
+      observationExporter.traceDistillJob(
+        jobIntents(row, {
+          installId,
+          appVersion: app.getVersion(),
+          judgeModel,
+          captureContent: observationExporter.opts.captureContent
+        })
+      )
+    } catch (err) {
+      console.error('[distill] telemetry emission failed', err)
+    }
+  }
+  // Proposal decisions as `proposal.outcome` scores. Attachment: a `job:`-stamped proposal whose
+  // row still exists FOR THE SAME CASE -> that job's trace; otherwise the case's latest session;
+  // none -> dropped. The job seed is per attempt (`distillJobSeed(id, finished_at)`), derived
+  // here from the row exactly as `jobIntents` derives it: a proposal only ever belongs to the
+  // row's latest attempt (a failed run stages nothing and a done job cannot be retried).
+  // Never throws — it is called from the proposal IPC handlers after the archive has landed.
+  function emitProposalOutcome(
+    p: ProposalRecord,
+    decision: 'accept' | 'reject',
+    opts: { edited?: boolean; reason?: RejectReason }
+  ): void {
+    if (!observationExporter) return
+    try {
+      installId ??= readOrCreateInstanceId(argusHome)
+      const jobId = p.jobId != null ? Number(p.jobId) : NaN
+      const jobRow = Number.isInteger(jobId)
+        ? (db.prepare(`SELECT finished_at, case_slug FROM distill_jobs WHERE id = ?`).get(jobId) as
+            { finished_at: string | null; case_slug: string } | undefined)
+        : undefined
+      // A row with this id for ANOTHER case (DB recreated while the proposals dir survived) is
+      // not the producing job: fall back to the session path rather than score an unrelated trace.
+      const jobExists = jobRow !== undefined && jobRow.case_slug === p.caseSlug
+      let seed: string
+      if (jobExists) seed = distillJobSeed(jobId, jobRow.finished_at)
+      else {
+        const sessionId = lastSessionIdForCase(db, p.caseSlug)
+        if (sessionId === null) {
+          console.debug(`[proposals] no job or session for ${p.file}; outcome not emitted`)
+          return
+        }
+        seed = seedFor(sessionId)
+      }
+      const note = opts.reason?.note
+        ?.split(/\r\n|\r|\n/)
+        .find((l) => l.trim())
+        ?.trim()
+        .slice(0, 200)
+      observationExporter.scoreProposal(
+        proposalScoreIntent(
+          {
+            file: p.file,
+            date: p.date,
+            type: p.type,
+            target: p.target,
+            caseSlug: p.caseSlug,
+            jobId: jobExists ? jobId : null,
+            outcome: proposalOutcomeOf(opts.edited === true, opts.reason, decision),
+            ...(opts.reason ? { rejectReason: opts.reason.tag } : {}),
+            ...(note ? { rejectNote: note } : {})
+          },
+          seed,
+          { installId, appVersion: app.getVersion() }
+        )
+      )
+    } catch (err) {
+      console.error('[proposals] outcome emission failed', err)
+    }
+  }
   const distillQueue = new DistillQueue({
     db,
     assembleInput: (slug, opts) => {
@@ -1244,11 +1335,9 @@ function registerIpc(): void {
         { onProgress }
       ),
     // Read per write: the distill provider/model can change between jobs.
-    judgeModel: () => {
-      const r = resolveDistillProvider(settingsService.get())
-      return r.ok ? (r.model ?? 'default') : 'unconfigured'
-    },
-    onAttributions: emitAttributions
+    judgeModel,
+    onAttributions: emitAttributions,
+    onJobFinished: emitDistillJob
   })
   distillQueue.recoverOnBoot()
   const onCaseClosed = (rec: CaseRecord, opts: CloseOptions): void => {
@@ -3752,12 +3841,20 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.proposalsAccept,
     async (_e, file: string, editedContent?: string, editedFiles?: Record<string, string>) => {
+      // Resolve identity FIRST, then read the record and accept with no await in between: the
+      // record the score describes is then the one acceptProposal's own listProposals sees in the
+      // same tick (an await between the two would let a re-distill rewrite the file under us).
+      // The score is emitted only after the accept succeeded (a throw from acceptProposal
+      // propagates and nothing is emitted).
+      const who = await identity()
+      const p = listProposals(argusHome).find((x) => x.file === file)
       const accepted = acceptProposal(argusHome, file, {
         db,
         editedContent,
         editedFiles,
-        identity: await identity()
+        identity: who
       })
+      if (p) emitProposalOutcome(p, 'accept', { edited: isEditedAccept(p.content, editedContent) })
       // A reference-edit proposal WRITES a reference — it is how an agent's durable knowledge
       // gets into the library — but this handler never signalled it, so both the Library list and
       // INDEX.md stayed as they were until something else happened to fire.
@@ -3780,6 +3877,7 @@ function registerIpc(): void {
       } catch (err) {
         console.error('[attribution] proposal-reject override failed', err)
       }
+      emitProposalOutcome(p, 'reject', { reason })
     }
     return { proposals: listProposals(argusHome) }
   })
