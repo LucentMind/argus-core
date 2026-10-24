@@ -44,22 +44,42 @@ function parseJson<T>(s: string | null): T | null | 'corrupt' {
   }
 }
 
-function stageFacts(r: StageRecord): Record<string, unknown> {
+const ERROR_MAX = 300
+
+/** Parser exceptions can quote the raw model text (`JSON.parse` echoes the start of its input),
+ *  so an error string is first-line-only, capped, and — with content capture off — has every
+ *  quoted segment replaced. */
+export function scrubError(msg: string, captureContent: boolean): string {
+  let out = String(msg).split(/\r?\n/)[0].slice(0, ERROR_MAX)
+  if (!captureContent) out = out.replace(/"[^"\n]*"/g, '"…"').replace(/'[^'\n]*'/g, '"…"')
+  return out
+}
+
+function scrubbed(e: unknown, captureContent: boolean): string | undefined {
+  return typeof e === 'string' && e ? scrubError(e, captureContent) : undefined
+}
+
+function stageFacts(r: StageRecord, captureContent: boolean): Record<string, unknown> {
   return defined({
     promptHash: r.promptHash,
     promptChars: r.promptChars,
     flags: r.flags,
-    error: r.error
+    error: scrubbed(r.error, captureContent)
   })
+}
+
+function isObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null
 }
 
 /** Ordered stage list: dossier → (summary ‖ candidates ‖ attribution) → materialize[] (sequential). */
 function orderedStages(s: PipelineStages): { key: string; rec: StageRecord; parallel: boolean }[] {
   const out: { key: string; rec: StageRecord; parallel: boolean }[] = []
-  if (s.dossier) out.push({ key: 'dossier', rec: s.dossier, parallel: false })
+  if (isObj(s.dossier)) out.push({ key: 'dossier', rec: s.dossier, parallel: false })
   for (const k of ['summary', 'candidates', 'attribution'] as const)
-    if (s[k]) out.push({ key: k, rec: s[k]!, parallel: true })
-  for (const m of s.materialize ?? [])
+    if (isObj(s[k])) out.push({ key: k, rec: s[k]!, parallel: true })
+  const mats: unknown[] = Array.isArray(s.materialize) ? s.materialize : []
+  for (const m of mats.filter(isObj) as unknown as NonNullable<PipelineStages['materialize']>)
     out.push({ key: `materialize ${m.type} ${m.target}`, rec: m, parallel: false })
   return out
 }
@@ -99,6 +119,7 @@ function reconstructTimes(
 function dropsByStage(drops: PreStageDrop[]): Record<string, Record<string, number>> {
   const out: Record<string, Record<string, number>> = {}
   for (const d of drops) {
+    if (!isObj(d)) continue
     const stage = d.stage ?? 'unknown'
     ;(out[stage] ??= {})[d.reason] = (out[stage][d.reason] ?? 0) + 1
   }
@@ -133,7 +154,7 @@ export function jobIntents(row: JobDbRow, ctx: DistillTelemetryCtx): Observation
       turnCount: row.turn_count,
       toolCallCount: row.tool_call_count,
       promptChars: row.prompt_chars,
-      error: row.error,
+      error: scrubbed(row.error, ctx.captureContent),
       installId: ctx.installId,
       appVersion: ctx.appVersion,
       caseDomain: snap.caseDomain,
@@ -141,7 +162,7 @@ export function jobIntents(row: JobDbRow, ctx: DistillTelemetryCtx): Observation
       createdAt: row.created_at,
       finishedAt: row.finished_at,
       stages: ordered.length
-        ? Object.fromEntries(ordered.map((s) => [s.key, stageFacts(s.rec)]))
+        ? Object.fromEntries(ordered.map((s) => [s.key, stageFacts(s.rec, ctx.captureContent)]))
         : undefined
     })
   }
@@ -171,13 +192,14 @@ export function jobIntents(row: JobDbRow, ctx: DistillTelemetryCtx): Observation
       ...(ctx.captureContent ? { output: s.rec.rawOutput } : {})
     }
     out.push(gen)
-    if (s.rec.error) {
+    const stageError = scrubbed(s.rec.error, ctx.captureContent)
+    if (stageError) {
       out.push({
         kind: 'event',
         seed,
         name: `stage ${s.key} error`,
         level: 'ERROR',
-        metadata: { message: s.rec.error }
+        metadata: { message: stageError }
       })
     }
   }
@@ -247,12 +269,18 @@ export function proposalScoreIntent(
   seed: string,
   ctx: Pick<DistillTelemetryCtx, 'installId' | 'appVersion'>
 ): ScoreIntent {
+  // Same rule `rejectProposal` applies to `reject_note`: first non-empty line, trimmed, 200 chars.
+  const note = p.rejectNote
+    ?.split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l)
+    ?.slice(0, 200)
   return {
     kind: 'score',
     seed,
     name: 'proposal.outcome',
     value: OUTCOME_VALUE[p.outcome],
-    ...(p.rejectNote ? { comment: p.rejectNote } : {}),
+    ...(note ? { comment: note } : {}),
     id: proposalScoreId(ctx.installId, p.file),
     metadata: {
       'argus.proposal.type': p.type,
