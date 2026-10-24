@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import type { ObservationIntent, TraceRootIntent } from './intent'
-import type { ObservationSink } from './sink'
+import type { ObservationIntent, TraceRootIntent } from '../../intent'
+import type { ObservationSink } from '../../sink'
 
 export interface SpanContextLike {
   traceId: string
@@ -66,7 +66,15 @@ export class LangfuseSink implements ObservationSink {
   private error: string | null = null
   private stopped = false
 
-  constructor(private api: TracingApi) {}
+  /**
+   * `captureContent` is the fan-out rule: the reducer runs with the union of every
+   * provider's flag, so each adapter strips `input`/`output` itself when its own
+   * flag is off.
+   */
+  constructor(
+    private api: TracingApi,
+    private opts: { captureContent: boolean } = { captureContent: true }
+  ) {}
 
   emit(intents: ObservationIntent[]): void {
     if (this.stopped) return
@@ -76,7 +84,7 @@ export class LangfuseSink implements ObservationSink {
   private track(p: Promise<void>): void {
     const wrapped = p.catch((err) => {
       this.error = err instanceof Error ? err.message : String(err)
-      // lastError() has no reader today (see langfuse.ts's docblock) — without this,
+      // lastError() has no reader today (see exporter.ts's docblock) — without this,
       // a runtime ingestion failure (rotated credentials, unreachable host, oversized
       // payload) produces zero signal anywhere. Keep it at least greppable.
       console.error('[observability] Langfuse sink failed to ingest', err)
@@ -188,8 +196,8 @@ export class LangfuseSink implements ObservationSink {
           model: intent.model,
           ...(intent.usage ? { usageDetails: intent.usage } : {}),
           ...(intent.costUsd != null ? { costDetails: { total: intent.costUsd } } : {}),
-          ...(intent.input != null ? { input: intent.input } : {}),
-          ...(intent.output != null ? { output: intent.output } : {})
+          ...(this.opts.captureContent && intent.input != null ? { input: intent.input } : {}),
+          ...(this.opts.captureContent && intent.output != null ? { output: intent.output } : {})
         },
         { ...common, asType: 'generation' }
       )
@@ -202,7 +210,7 @@ export class LangfuseSink implements ObservationSink {
         intent.name,
         {
           level: intent.isError ? 'ERROR' : 'DEFAULT',
-          ...(intent.output != null ? { output: intent.output } : {})
+          ...(this.opts.captureContent && intent.output != null ? { output: intent.output } : {})
         },
         { ...common, asType: 'tool' }
       )

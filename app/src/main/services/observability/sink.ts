@@ -9,4 +9,6 @@ export interface ObservationSink {
   emit(intents: ObservationIntent[]): void
   flush(): Promise<void>
   shutdown(): Promise<void>
+  /** Last ingestion error, for the health row. Optional: a sink may not track one. */
+  lastError?(): string | null
 }

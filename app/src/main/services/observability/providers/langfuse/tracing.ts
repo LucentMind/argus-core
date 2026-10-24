@@ -10,10 +10,10 @@ import {
   setLangfuseTracerProvider,
   getLangfuseTracerProvider
 } from '@langfuse/tracing'
-import type { ObservationHandle, StartOpts, TracingApi } from './langfuseSink'
+import type { ObservationHandle, StartOpts, TracingApi } from './sink'
 
 /**
- * The only file in the codebase that imports Langfuse or OpenTelemetry.
+ * The only file in this adapter that imports Langfuse or OpenTelemetry.
  *
  * Uses an isolated NodeTracerProvider via setLangfuseTracerProvider rather than
  * registering globally, so the rebuild-on-settings-change path can tear the

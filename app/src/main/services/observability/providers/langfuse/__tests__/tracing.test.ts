@@ -6,8 +6,8 @@ import {
   startObservation
 } from '@langfuse/tracing'
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions'
-import { createLangfuseTracing } from '../langfuseTracing'
-import { synthSpanId } from '../langfuseSink'
+import { createLangfuseTracing } from '../tracing'
+import { synthSpanId } from '../sink'
 
 /**
  * Regression coverage for the rebuild-ordering bug: a settings-change rebuild calls

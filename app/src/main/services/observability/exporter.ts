@@ -32,7 +32,7 @@ export function attributionScoreId(e: AssetAttributionEvent): string {
  * row runs an independent credential probe (`probeLangfuseCredentials`). Wiring
  * runtime failures into health is a deliberate open question, not an oversight.
  */
-export class LangfuseExporter {
+export class ObservationExporter {
   private state: ExporterState = initialState()
   private error: string | null = null
 

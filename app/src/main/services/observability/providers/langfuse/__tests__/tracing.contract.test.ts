@@ -6,7 +6,7 @@ import {
 } from '@opentelemetry/sdk-trace-node'
 import { setLangfuseTracerProvider, startObservation, createTraceId } from '@langfuse/tracing'
 import { LangfuseOtelSpanAttributes } from '@langfuse/core'
-import { synthSpanId } from '../langfuseSink'
+import { synthSpanId } from '../sink'
 
 /**
  * Exercises the real Langfuse tracing API against an in-memory OTel exporter,
