@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LangfuseSink, synthSpanId, type TracingApi, type ObservationHandle } from '../langfuseSink'
+import { LangfuseSink, synthSpanId, type TracingApi, type ObservationHandle } from '../sink'
 
 function fakeTracing(): {
   api: TracingApi
@@ -280,5 +280,29 @@ describe('LangfuseSink', () => {
     resolveIds()
     await expect(sink.flush()).resolves.toBeUndefined()
     expect(sink.lastError()).toContain('span failed')
+  })
+
+  it('strips input/output when constructed with captureContent=false (fan-out rule)', async () => {
+    const { api, calls, resolveIds } = fakeTracing()
+    const sink = new LangfuseSink(api, { captureContent: false })
+    sink.emit([
+      rootIntent,
+      {
+        kind: 'generation',
+        seed: 'argus-session-7',
+        name: 'turn',
+        model: 'm',
+        input: 'SECRET-IN',
+        output: 'SECRET-OUT'
+      }
+    ])
+    resolveIds()
+    await sink.flush()
+    const gen = calls.start.find((c) => (c as { name: string }).name === 'turn') as {
+      attrs: Record<string, unknown>
+    }
+    expect(gen.attrs.input).toBeUndefined()
+    expect(gen.attrs.output).toBeUndefined()
+    expect(JSON.stringify(calls)).not.toContain('SECRET')
   })
 })
