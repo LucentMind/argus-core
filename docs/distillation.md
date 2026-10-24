@@ -193,6 +193,13 @@ one it produced before. The operator's manual is `tools/distill-eval/README.md`.
 The file contains raw case data and nothing is redacted, because replay needs the real input.
 Treat it like the case itself.
 
+Every finished job is also one trace at the configured observability provider(s): a root with the
+job's outcome and cost, one generation per stage, and drop counters. Every accept / edit / reject
+in the inbox lands as a `proposal.outcome` score on that job's trace. Field analytics over many
+installs (failure rate by stage, cost per pipeline version, acceptance by reject reason) is done at
+the backend; see [observability.md](observability.md) for the exact names and what `captureContent`
+gates.
+
 ## 1.7 Which pipeline should I pick
 
 **v2 is the default and it is the honest recommendation today.** v3 is built, tested and live-
