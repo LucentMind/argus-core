@@ -20,11 +20,13 @@
 
 **Distillation-health events**
 
-- Every finished distill job (case, attribution-only, reject digest, dry run) is now one trace at
-  the configured observability provider(s): outcome, cost, prompt hash and per-stage usage/errors,
-  plus drop counters. Accepting, editing or rejecting a proposal emits a `proposal.outcome` score
-  on that job's trace (reject reason included). Nothing new leaves the machine unless a provider is
-  enabled; stage raw output is gated by the provider's content-capture switch.
+- Every finished distill job attempt (case, attribution-only, reject digest, dry run) is now one
+  trace at the configured observability provider(s): outcome, cost, prompt hash and per-stage
+  usage/errors, plus drop counters; a retry is a new trace. Accepting, editing or rejecting a
+  proposal emits a `proposal.outcome` score (reject reason included) on the trace of the job that
+  produced it, or on the case's latest session for a human-authored proposal. Nothing new leaves
+  the machine unless a provider is enabled; stage raw output is gated by the provider's
+  content-capture switch, and error strings are always cut at their first quote.
 
 ### Changed
 
