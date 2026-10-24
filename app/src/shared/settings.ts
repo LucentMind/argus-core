@@ -265,15 +265,28 @@ const hivemindSchema = z.looseObject({
   repo: z.string().default('')
 })
 
+const langfuseProviderSchema = z.looseObject({
+  enabled: z.boolean().default(false),
+  host: z.string().default(''),
+  publicKey: z.string().default(''),
+  captureContent: z.boolean().default(false)
+})
+const otlpProviderSchema = z.looseObject({
+  enabled: z.boolean().default(false),
+  endpoint: z.string().default(''),
+  protocol: z.enum(['http/protobuf', 'http/json']).default('http/protobuf'),
+  captureContent: z.boolean().default(false)
+})
+const observabilityProvidersSchema = z.looseObject({
+  langfuse: langfuseProviderSchema.default(() => langfuseProviderSchema.parse({})),
+  otlp: otlpProviderSchema.default(() => otlpProviderSchema.parse({}))
+})
+export type ObservabilityProvidersSettings = z.infer<typeof observabilityProvidersSchema>
+
+/** `langfuse` (flat, legacy) is deliberately NOT declared: `looseObject` keeps it in the parsed
+ *  value until `migrateObservabilityProvider` moves it under `providers` and nulls it. */
 const observabilitySchema = z.looseObject({
-  langfuse: z
-    .looseObject({
-      enabled: z.boolean().default(false),
-      host: z.string().default(''),
-      publicKey: z.string().default(''),
-      captureContent: z.boolean().default(false)
-    })
-    .default(() => ({ enabled: false, host: '', publicKey: '', captureContent: false })),
+  providers: observabilityProvidersSchema.default(() => observabilityProvidersSchema.parse({})),
   dashboard: z
     .looseObject({ hiddenCards: z.array(z.string()).default([]) })
     .default(() => ({ hiddenCards: [] }))
@@ -304,6 +317,9 @@ const migrationsSchema = z.looseObject({
   /** When `general.similarPastCasesEnabled` was split into `relatedSearchOnOpen` (new master)
    *  and `relatedIncludeLocalCases` (the old meaning). */
   relatedSearchSwitches: z.string().default(''),
+  /** When the flat `observability.langfuse` block was folded into
+   *  `observability.providers.langfuse` (provider-agnostic observability). */
+  observabilityProvider: z.string().default(''),
   /** When each instance's `agent.modelPreferences.*.favoriteModels` was rewritten into the
    *  order the PREVIOUS rule displayed it in, at the point that list started ranking itself
    *  instead of being an unordered set. Absent until every stored preference resolves offline —

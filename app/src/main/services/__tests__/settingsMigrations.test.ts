@@ -1,9 +1,15 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { SettingsService } from '../settings'
+import { settingsPath } from '../paths'
 import {
   migrateBypassDefault,
   migrateDefaultRepoToList,
   migrateRelatedSearchSwitches,
   migrateFavoritesRanking,
+  migrateObservabilityProvider,
   type MigratableSettings
 } from '../settingsMigrations'
 import {
@@ -294,5 +300,112 @@ describe('migrateFavoritesRanking', () => {
       'claude-opus-4-8'
     ])
     expect(s.get().migrations.favoritesRankByList).toBe('2026-08-01T00:00:00.000Z')
+  })
+})
+
+// ── migrateObservabilityProvider ────────────────────────────────────────────────────────────
+//
+// The flat `observability.langfuse` block moved to `observability.providers.langfuse`. The legacy
+// key is undeclared (a looseObject passthrough), so the migration must also REMOVE it — the last
+// test proves that against a real SettingsService and a reload from disk, not the fake.
+describe('migrateObservabilityProvider', () => {
+  const STAMP = '2026-10-24T00:00:00.000Z'
+  const at = (): Date => new Date(STAMP)
+  const legacyOf = (s: AppSettings): unknown =>
+    (s.observability as Record<string, unknown>).langfuse
+
+  it('moves a legacy enabled langfuse block into providers.langfuse and stamps', () => {
+    const svc = fakeSettings()
+    svc.patch({
+      observability: {
+        langfuse: { enabled: true, host: 'https://lf', publicKey: 'pk', captureContent: true }
+      }
+    })
+    migrateObservabilityProvider(svc, at)
+    const s = svc.get()
+    expect(s.observability.providers.langfuse).toEqual({
+      enabled: true,
+      host: 'https://lf',
+      publicKey: 'pk',
+      captureContent: true
+    })
+    expect(legacyOf(s)).toBeUndefined()
+    expect(s.migrations.observabilityProvider).toBe(STAMP)
+  })
+
+  it('a disabled legacy block migrates as disabled; an absent block only stamps', () => {
+    const svc = fakeSettings()
+    svc.patch({
+      observability: { langfuse: { enabled: false, host: 'https://lf', publicKey: 'pk' } }
+    })
+    migrateObservabilityProvider(svc, at)
+    expect(svc.get().observability.providers.langfuse).toMatchObject({
+      enabled: false,
+      host: 'https://lf'
+    })
+    const fresh = fakeSettings()
+    migrateObservabilityProvider(fresh, at)
+    expect(fresh.get().observability.providers.langfuse.enabled).toBe(false)
+    expect(fresh.get().migrations.observabilityProvider).toBe(STAMP)
+  })
+
+  it('runs once: a later legacy block is ignored', () => {
+    const svc = fakeSettings()
+    migrateObservabilityProvider(svc, at)
+    svc.patch({ observability: { langfuse: { enabled: true, host: 'https://late' } } })
+    migrateObservabilityProvider(svc)
+    expect(svc.get().observability.providers.langfuse.enabled).toBe(false)
+    expect(svc.get().migrations.observabilityProvider).toBe(STAMP)
+  })
+
+  it('a corrupt legacy block (non-object) only stamps', () => {
+    const svc = fakeSettings()
+    svc.patch({ observability: { langfuse: 'garbage' } })
+    migrateObservabilityProvider(svc, at)
+    expect(svc.get().observability.providers.langfuse.enabled).toBe(false)
+    expect(svc.get().migrations.observabilityProvider).toBe(STAMP)
+    expect(legacyOf(svc.get())).toBeUndefined()
+  })
+
+  describe('against a real SettingsService', () => {
+    let tmp = ''
+    let real: SettingsService | undefined
+    afterEach(() => {
+      real?.close()
+      real = undefined
+      fs.rmSync(tmp, { recursive: true, force: true })
+    })
+
+    it('removes the legacy key from the stored file, proven by a reload', () => {
+      tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-obsmig-'))
+      const home = path.join(tmp, 'home')
+      fs.mkdirSync(path.dirname(settingsPath(home)), { recursive: true })
+      fs.writeFileSync(
+        settingsPath(home),
+        JSON.stringify({
+          observability: {
+            langfuse: { enabled: true, host: 'https://lf', publicKey: 'pk', captureContent: true }
+          }
+        })
+      )
+      real = new SettingsService(home)
+      expect(legacyOf(real.get())).toBeDefined() // precondition: the legacy block loaded
+      migrateObservabilityProvider(real, at)
+      real.close()
+
+      const onDisk = JSON.parse(fs.readFileSync(settingsPath(home), 'utf8'))
+      expect(onDisk.observability.langfuse).toBeUndefined()
+
+      real = new SettingsService(home)
+      const s = real.get()
+      expect(legacyOf(s)).toBeUndefined()
+      expect(s.observability.providers.langfuse).toEqual({
+        enabled: true,
+        host: 'https://lf',
+        publicKey: 'pk',
+        captureContent: true
+      })
+      expect(s.migrations.observabilityProvider).toBe(STAMP)
+    })
   })
 })

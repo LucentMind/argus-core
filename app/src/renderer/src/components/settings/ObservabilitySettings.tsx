@@ -82,7 +82,10 @@ export function ObservabilitySettings({
    *  own entry point, now that the top bar no longer carries one directly. */
   onOpenDashboard?: () => void
 }): React.JSX.Element {
-  const { langfuse, dashboard } = payload.settings.observability
+  const {
+    providers: { langfuse },
+    dashboard
+  } = payload.settings.observability
   const [secretSet, setSecretSet] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<HealthCheckResult | null>(null)
@@ -96,7 +99,7 @@ export function ObservabilitySettings({
   }, [])
 
   function patchLangfuse(patch: Partial<typeof langfuse>): void {
-    void settingsStore.patch({ observability: { langfuse: patch } })
+    void settingsStore.patch({ observability: { providers: { langfuse: patch } } })
   }
 
   function commitSecret(plaintext: string): void {
