@@ -140,6 +140,7 @@ export interface JobDbRow {
   stages_json: string | null
   dry_run: number
   pipeline: string | null
+  prompt_hash: string | null
 }
 
 /** The columns `toRow` reads — `listAllRuns` selects exactly these plus its join columns, so one
