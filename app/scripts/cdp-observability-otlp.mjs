@@ -26,7 +26,7 @@
  *      check only) no message/tool-content key on those spans; captureContent stripping itself
  *      is covered by the sink unit tests, since a fixture close emits no generation/tool spans.
  *   5. the same close's distill job: its `invoke_agent distill <slug>` root in the trace derived
- *      from `argus-distill-job-<id>` (job facts as `argus.*` attributes), ≥4 `stage <key>`
+ *      from `argus-distill-job-<id>@<finished_at>` (job facts as `argus.*` attributes), ≥4 `stage <key>`
  *      generation spans under it (usage + model, dossier before materialize), no fixture stage
  *      text anywhere in the trace (captureContent off); then accept one staged proposal and
  *      reject another as `duplicate` (no attribution override) → two `proposal.outcome`
@@ -425,7 +425,15 @@ const main = async () => {
   const job = jobsForDb(DB, fxOn.slug).find((j) => j.kind === 'case' && j.state === 'done')
   check(`${fxOn.slug}: a done case job exists`, Boolean(job), jobsForDb(DB, fxOn.slug))
   const jobId = job?.id ?? -1
-  const jobSeed = `argus-distill-job-${jobId}`
+  // One trace per ATTEMPT: the seed carries the row's finished_at (a retry of the same row id is
+  // a new trace). Read it from the DB — the independent oracle — not from the span.
+  const finishedAt = withDb(
+    (db) => db.prepare(`SELECT finished_at FROM distill_jobs WHERE id = ?`).get(jobId)?.finished_at
+  )
+  check(`${fxOn.slug}: the done job has a finished_at`, typeof finishedAt === 'string', finishedAt)
+  const jobSeed = finishedAt
+    ? `argus-distill-job-${jobId}@${finishedAt}`
+    : `argus-distill-job-${jobId}`
   const jobTrace = traceIdFor(jobSeed)
   const rootName = `invoke_agent distill ${fxOn.slug}`
   await waitFor(
@@ -714,10 +722,11 @@ const main = async () => {
     outcomes.map(({ e }) => [e.attributes['argus.job.id'], e.attributes['argus.score.id']])
   )
   check(
-    `${fxOn.slug}: each argus.score.id = sha256(installId|proposal file)[0:32] (recomputed here)`,
-    Boolean(acc && rej && installId) &&
-      acc['argus.score.id'] === sha(`${installId}|${toAccept.file}`).slice(0, 32) &&
-      rej['argus.score.id'] === sha(`${installId}|${toReject.file}`).slice(0, 32),
+    `${fxOn.slug}: each argus.score.id = sha256(installId|proposal file|date)[0:32] (recomputed here)`,
+    Boolean(acc && rej && installId && toAccept.date && toReject.date) &&
+      acc['argus.score.id'] ===
+        sha(`${installId}|${toAccept.file}|${toAccept.date}`).slice(0, 32) &&
+      rej['argus.score.id'] === sha(`${installId}|${toReject.file}|${toReject.date}`).slice(0, 32),
     { accept: acc?.['argus.score.id'], reject: rej?.['argus.score.id'], installId }
   )
   check(
