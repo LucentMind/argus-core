@@ -34,3 +34,5 @@ export const ATTR_ARGUS_COST_USD = 'argus.cost_usd'
 export const ATTR_ARGUS_LEVEL = 'argus.level'
 export const ATTR_ARGUS_SCORE_ID = 'argus.score.id'
 export const ATTR_ARGUS_INSTALL_ID = 'argus.install.id'
+/** The intent's own name (`turn`, `stage <key>`); generation span NAMES stay `chat <model>`. */
+export const ATTR_ARGUS_SPAN_NAME = 'argus.span.name'
