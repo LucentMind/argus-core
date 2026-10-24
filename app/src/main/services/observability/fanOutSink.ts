@@ -1,8 +1,10 @@
 import type { ObservationIntent } from './intent'
 import type { ObservationSink } from './sink'
 
-/** Forwards every intent to every enabled adapter. One child failing never starves another;
- *  each child's last error is latched for its own health row (spec §4.2 / §5). */
+/** Forwards every intent to every enabled adapter. One child failing never starves another
+ *  (spec §4.2 / §5). A child's throw/rejection is latched here only for `childErrors()` /
+ *  `lastError()` callers (today only tests — nothing in production reads it); the per-provider
+ *  health rows do NOT read this latch, they read each child sink's own `lastError()` directly. */
 export class FanOutSink implements ObservationSink {
   private errors: (string | null)[]
   private stopped = false

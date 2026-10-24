@@ -344,11 +344,12 @@ import { ObservationExporter } from './services/observability/exporter'
 import type { ObservationSink } from './services/observability/sink'
 import {
   buildObservationExporter,
-  mergeProbeWithLastError
+  checkObservabilityProvider
 } from './services/observability/buildExporter'
 import { OBSERVABILITY_PROVIDERS } from './services/observability/providers'
 import {
   OBSERVABILITY_PROVIDER_IDS,
+  isObservabilitySecret,
   type ObservabilityProviderId
 } from '../shared/observabilityProviders'
 import { usageStats, ensureTrackingStarted } from './services/observability/usage'
@@ -964,6 +965,14 @@ function registerIpc(): void {
     }
   }
   buildExporter()
+  /** Shut the live exporter down and build a fresh one from current settings + secrets. Sinks read
+   *  their config and secrets once, at construction, so every input change must come through here:
+   *  the settings subscriber and the observability secret handlers both call it. */
+  const rebuildExporter = (): void => {
+    const old = observationExporter
+    void old?.shutdown()
+    buildExporter()
+  }
 
   const connectorRegistry = new ConnectorRegistry(argusHome)
   // Late-bound: diagnostics was constructed above, before this registry existed.
@@ -1160,8 +1169,8 @@ function registerIpc(): void {
       }))
   })
   // Vendor-neutral attribution emission (spec §4.9): verdict rows → `asset.contribution` scores
-  // on the case's latest session trace. Resolved lazily so an unconfigured Langfuse costs no disk
-  // write at boot; never throws — it is called from the queue, the reject IPC and a tool handler.
+  // on the case's latest session trace. Resolved lazily so an install with no enabled provider
+  // pays no disk write at boot; never throws — it is called from the queue, the reject IPC and a tool handler.
   function emitAttributions(rows: AttributionRow[]): void {
     if (!observationExporter || rows.length === 0) return
     try {
@@ -1383,9 +1392,7 @@ function registerIpc(): void {
     authCache.invalidate()
     // Editing a provider's config (CLI path, credentials) invalidates its probe too.
     providerStatusService?.onSettingsChanged()
-    const old = observationExporter
-    void old?.shutdown()
-    buildExporter()
+    rebuildExporter()
     broadcast(IPC.settingsChanged, settingsService.payload())
   })
 
@@ -4063,10 +4070,14 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.secretsSet, (_e, name: string, value: string) => {
     secretStore.set(name, value) // throws when safeStorage is unavailable → renderer surfaces the message
+    // A sink reads its secret once, at construction: without a rebuild, a header/key saved after
+    // the provider was enabled would not reach the exporter until restart.
+    if (isObservabilitySecret(name)) rebuildExporter()
   })
   ipcMain.handle(IPC.secretsHas, (_e, name: string) => secretStore.has(name))
   ipcMain.handle(IPC.secretsDelete, (_e, name: string) => {
     secretStore.delete(name)
+    if (isObservabilitySecret(name)) rebuildExporter()
   })
 
   // — health —
@@ -4115,22 +4126,17 @@ function registerIpc(): void {
       }
     },
     observabilityProviders: () => observabilityRows,
-    observabilityCheck: async (id) => {
-      const cfg = (settingsService.get().observability?.providers?.[id] ?? {}) as Record<
-        string,
-        unknown
-      >
-      // The sink could not even be constructed (e.g. malformed endpoint): say why, don't probe.
-      const buildError = observabilityErrors[id]
-      if (buildError) return { ok: false, detail: buildError }
-      try {
-        const r = await OBSERVABILITY_PROVIDERS[id].probe(cfg, (n) => secretStore.resolve(n))
-        return mergeProbeWithLastError(r, observabilitySinks[id]?.lastError?.())
-      } catch (err) {
-        // Probes construct exporters too, so a hand-edited setting can make them throw.
-        return { ok: false, detail: err instanceof Error ? err.message : String(err) }
-      }
-    }
+    observabilityCheck: (id) =>
+      // Build error → "not configured: missing <field>" → probe (+ latched export error).
+      checkObservabilityProvider(
+        OBSERVABILITY_PROVIDERS[id],
+        (settingsService.get().observability?.providers?.[id] ?? {}) as Record<string, unknown>,
+        (n) => secretStore.resolve(n),
+        {
+          buildError: observabilityErrors[id],
+          lastError: () => observabilitySinks[id]?.lastError?.()
+        }
+      )
   })
 
   ipcMain.handle(IPC.healthList, () => healthService.rows())

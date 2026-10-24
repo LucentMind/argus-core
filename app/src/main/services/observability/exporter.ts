@@ -28,7 +28,7 @@ export function attributionScoreId(e: AssetAttributionEvent): string {
  * Note that path is largely inert: real sinks never throw synchronously — they swallow
  * failures into their own `lastError?()` — so this class's `lastError()` is not populated by a
  * real sink failure, and no caller reads it. Per-provider health rows instead merge each
- * provider's probe with the live sink's own `lastError?.()` (see `index.ts` `observabilityCheck`).
+ * provider's probe with the live sink's own `lastError?.()` (see `checkObservabilityProvider`).
  * `sink` and `opts` are readonly-public so the factory test can assert wiring without reaching
  * into privates.
  */

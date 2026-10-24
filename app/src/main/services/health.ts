@@ -24,7 +24,7 @@ export interface HealthDeps {
   atlassianCheck: () => Promise<{ ok: boolean; detail: string }>
   refsyncConfigured: () => boolean
   confluenceCheck: () => Promise<{ ok: boolean; detail: string }>
-  /** Enabled + complete observability providers: one health row each (id 'observability:<id>'). */
+  /** Enabled observability providers (complete or not): one health row each (id 'observability:<id>'). */
   observabilityProviders: () => Array<{ id: ObservabilityProviderId; label: string }>
   observabilityCheck: (id: ObservabilityProviderId) => Promise<{ ok: boolean; detail: string }>
 }

@@ -89,6 +89,12 @@ export function secretName(id: ObservabilityProviderId, key: string): string {
   return `observability/${id}/${key}`
 }
 
+/** True for any secret a provider's sink reads (`secretName(<id>, <key>)`): saving or deleting one
+ *  must rebuild the exporter, since sinks read their secrets once, at construction. */
+export function isObservabilitySecret(name: string): boolean {
+  return name.startsWith('observability/')
+}
+
 export function isProviderId(v: unknown): v is ObservabilityProviderId {
   return typeof v === 'string' && (OBSERVABILITY_PROVIDER_IDS as readonly string[]).includes(v)
 }

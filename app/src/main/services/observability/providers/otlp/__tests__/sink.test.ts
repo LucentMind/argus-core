@@ -249,6 +249,35 @@ describe('OtlpSink', () => {
     expect(sink.lastError()).toBe('second failure')
   })
 
+  it('a later successful export clears lastExportError (a transient failure does not stick)', async () => {
+    const box = { last: null as string | null }
+    let fail = true
+    const flaky = observeExports(
+      {
+        export: (_s, cb) =>
+          cb(
+            fail
+              ? { code: ExportResultCode.FAILED, error: new Error('503 down') }
+              : { code: ExportResultCode.SUCCESS }
+          ),
+        shutdown: async () => {},
+        forceFlush: async () => {}
+      },
+      box
+    )
+    const sink = new OtlpSink(
+      createOtlpTracingWith(new SimpleSpanProcessor(flaky), { 'service.name': 'argus' }, box),
+      { captureContent: true }
+    )
+    sink.emit([CONTRACT_SCRIPT[1]])
+    await sink.flush()
+    expect(sink.lastError()).toBe('503 down')
+    fail = false
+    sink.emit([CONTRACT_SCRIPT[1]])
+    await sink.flush()
+    expect(sink.lastError()).toBeNull()
+  })
+
   it('traceIdFromSeed is 32 lowercase hex, deterministic, never all zeros, and equals the Langfuse derivation', async () => {
     expect(traceIdFromSeed('x')).toMatch(/^[0-9a-f]{32}$/)
     expect(traceIdFromSeed('x')).toBe(traceIdFromSeed('x'))

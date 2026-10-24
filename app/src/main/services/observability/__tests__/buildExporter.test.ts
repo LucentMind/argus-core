@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   buildObservationExporter,
+  checkObservabilityProvider,
   mergeProbeWithLastError,
   type BuiltObservability
 } from '../buildExporter'
@@ -43,14 +44,29 @@ describe('buildObservationExporter', () => {
     expect(r.enabled).toEqual([])
   })
 
-  it('enabled but incomplete (no secret) → null exporter', () => {
+  it('enabled but incomplete (no secret) → null exporter, but still a health row', () => {
     const s = withProviders({
       langfuse: { enabled: true, host: 'https://lf', publicKey: 'pk', captureContent: false }
     })
     const r = build(s, () => null, ctx)
     expect(r.exporter).toBeNull()
     expect(r.enabled).toEqual([])
+    // The row is what lets Test connection say "not configured: missing secret-key".
+    expect(r.rows).toEqual([{ id: 'langfuse', label: 'Langfuse' }])
+  })
+
+  it('a disabled provider gets no row even when complete', () => {
+    const s = withProviders({
+      otlp: {
+        enabled: false,
+        endpoint: 'http://c:4318',
+        protocol: 'http/protobuf',
+        captureContent: false
+      }
+    })
+    const r = build(s, () => null, ctx)
     expect(r.rows).toEqual([])
+    expect(r.enabled).toEqual([])
   })
 
   it('one complete provider → exporter over that provider’s sink', () => {
@@ -132,15 +148,63 @@ describe('buildObservationExporter', () => {
     expect(err).toHaveBeenCalledTimes(1)
   })
 
-  it('complete + incomplete → only the complete one is in enabled AND rows', () => {
+  it('complete + incomplete → only the complete one has a sink; both have rows', () => {
     const s = withProviders({
       langfuse: { enabled: true, host: 'https://lf', publicKey: 'pk', captureContent: false },
       otlp: { enabled: true, endpoint: '', protocol: 'http/protobuf', captureContent: false }
     })
     const r = build(s, (n) => (n === 'observability/langfuse/secret-key' ? 'sk' : null), ctx)
     expect(r.enabled.map((e) => e.id)).toEqual(['langfuse'])
-    expect(r.rows.map((e) => e.id)).toEqual(['langfuse'])
+    expect(r.rows.map((e) => e.id)).toEqual(['langfuse', 'otlp'])
+    expect(r.sinks.otlp).toBeUndefined()
     expect(r.errors).toEqual({})
+  })
+})
+
+describe('checkObservabilityProvider', () => {
+  const okProbe = vi.fn(async () => ({ ok: true, detail: 'reachable' }))
+  const provider = (
+    missing: string | null,
+    probe: Parameters<typeof checkObservabilityProvider>[0]['probe'] = okProbe
+  ): Parameters<typeof checkObservabilityProvider>[0] => ({
+    missing: () => missing,
+    probe
+  })
+  afterEach(() => okProbe.mockClear())
+
+  it('a build error wins and nothing is probed', async () => {
+    const r = await checkObservabilityProvider(provider(null), {}, () => null, {
+      buildError: 'Invalid URL'
+    })
+    expect(r).toEqual({ ok: false, detail: 'Invalid URL' })
+    expect(okProbe).not.toHaveBeenCalled()
+  })
+
+  it('an incomplete provider fails with the missing field and is not probed', async () => {
+    const r = await checkObservabilityProvider(provider('secret-key'), {}, () => null, {})
+    expect(r).toEqual({ ok: false, detail: 'not configured: missing secret-key' })
+    expect(okProbe).not.toHaveBeenCalled()
+  })
+
+  it('a complete provider is probed and the latched export error is merged', async () => {
+    const r = await checkObservabilityProvider(provider(null), {}, () => null, {
+      lastError: () => 'HTTP 401'
+    })
+    expect(r).toEqual({ ok: true, detail: 'reachable · last export error: HTTP 401' })
+    expect(okProbe).toHaveBeenCalledTimes(1)
+  })
+
+  it('a throwing probe becomes a failed result', async () => {
+    const r = await checkObservabilityProvider(
+      provider(
+        null,
+        vi.fn(async () => Promise.reject(new Error('boom')))
+      ),
+      {},
+      () => null,
+      {}
+    )
+    expect(r).toEqual({ ok: false, detail: 'boom' })
   })
 })
 

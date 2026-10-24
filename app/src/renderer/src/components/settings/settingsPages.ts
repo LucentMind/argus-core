@@ -125,7 +125,8 @@ export const PAGES = [
     group: 'System',
     enabled: true,
     Icon: Gauge,
-    blurb: 'Langfuse tracing setup, what content it captures, and which dashboard cards show.'
+    blurb:
+      'Trace export to Langfuse or any OTLP backend, what content it captures, and dashboard cards.'
   },
   {
     id: 'prompts',
