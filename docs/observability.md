@@ -36,8 +36,8 @@ spans. The switch is per provider.
 
 Settings → Observability shows one section per provider, generated from the descriptors in
 `app/src/shared/observabilityProviders.ts`. Each section has an **Enable** toggle, the provider's
-fields, a **Capture prompt and completion content** switch (with a privacy warning) and a **Test
-connection** button.
+fields, a **Capture content** switch (with a privacy warning) and a **Test connection** button
+(disabled until the provider is enabled).
 
 | Provider | Fields | Secret (encrypted store) |
 |---|---|---|
@@ -49,16 +49,29 @@ Secrets never live in `settings.json`; the stored settings are under
 
 A provider is **enabled and complete** when its toggle is on and every required field and secret
 is present (Langfuse: host, public key, secret key; OTLP: endpoint). Only such a provider gets a
-sink and a health row named `observability:<id>`; an enabled-but-incomplete provider gets neither.
-If a complete provider's sink cannot be built (for example a malformed URL), its row is shown
-anyway and its detail is the constructor error. A passing probe appends the live sink's last
-export error, so a green connection that is still failing to ingest says so.
+sink. Every **enabled** provider, complete or not, gets a health row named `observability:<id>`
+(this row is what **Test connection** runs), and the check reports, in order:
+
+- the sink could not be built (for example a malformed URL) → fail, the constructor error;
+- a required field or secret is missing → fail, `not configured: missing <field>` (no probe);
+- otherwise the provider's probe. A passing probe appends the live sink's last export error
+  (`… · last export error: …`; the settings chip then reads **ok · export error**), so a green
+  connection that is still failing to ingest says so. For OTLP a later successful export clears
+  that error.
+
+Settings and secrets are read when the sink is built, so saving a field, toggling a switch, or
+saving/deleting a provider secret rebuilds the exporter immediately — no restart needed.
 
 **Several providers at once.** Every intent is forwarded to every enabled sink (`FanOutSink`);
 one failing adapter never starves another, and flush/shutdown settle independently. The event
 reducer runs with `captureContent` = OR over the enabled providers, and each adapter strips
 input, output and tool results itself when its own flag is off — so enabling content capture for
 one backend does not leak it to another.
+
+**Do not point two providers at the same Langfuse project.** Enabling the Langfuse provider *and*
+the OTLP provider aimed at that same project's OTLP endpoint sends everything twice: both adapters
+derive the same trace id, so one trace shows two roots and every generation, tool call and score
+in duplicate. Use one or the other per project.
 
 **Upgrading.** The old `observability.langfuse` block is moved once, on first start, to
 `observability.providers.langfuse` (stamp `migrations.observabilityProvider`; the legacy key is
@@ -72,8 +85,9 @@ connection** calls `GET <host>/api/public/projects` with HTTP Basic auth. Unlike
 unauthenticated `/api/public/health`, this fails on bad keys or the wrong regional host.
 
 Scores use deterministic ids: the first 32 hex of `sha256(install id | case | asset kind | asset
-name)` for `asset.contribution`. An override or a redistill therefore **upserts** the same score
-instead of adding a contradicting second one.
+name)` for `asset.contribution`. The id is identical across adapters (OTLP carries it as
+`argus.score.id`). Langfuse **upserts** by id, so an override or a redistill replaces the score
+instead of adding a contradicting second one. OTLP has no upsert — see *Re-emitted scores* below.
 
 ## OpenTelemetry (OTLP/HTTP)
 
@@ -111,14 +125,21 @@ emitted, and every span, root included, is exported on the next flush.
 | `generation` | Child span `chat <model>`, kind `CLIENT`, from the intent's start to end | `gen_ai.operation.name=chat`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `argus.cost_usd`. Only with `captureContent`: span events `gen_ai.input.messages` / `gen_ai.output.messages` carrying the text as a JSON message list. |
 | `tool` | Child span `execute_tool <name>`, from start to end | `gen_ai.operation.name=execute_tool`, `gen_ai.tool.name`; `isError` sets span status `ERROR`; only with `captureContent`: `gen_ai.tool.call.result`. |
 | `event` | Zero-length child span `event <name>` carrying a span event named `<name>` | `argus.level` (`DEFAULT` or `ERROR`) plus the intent's metadata as attributes. |
-| `score` | Zero-length child span `evaluation <name>` (`gen_ai.operation.name=evaluation`) carrying the span event `gen_ai.evaluation.result` | `gen_ai.evaluation.name`, `gen_ai.evaluation.score.value`, `gen_ai.evaluation.explanation` (the comment), the intent's metadata verbatim (so `argus.*` keys survive), and `argus.score.id` when the intent has a deterministic id (the same id Langfuse uses). |
+| `score` | Zero-length child span `evaluation <name>` (`gen_ai.operation.name=evaluation`) carrying the span event `gen_ai.evaluation.result` | `gen_ai.evaluation.name`, `gen_ai.evaluation.score.value`, `gen_ai.evaluation.explanation` (the comment), the intent's metadata verbatim (so `argus.*` keys survive), and `argus.score.id` when the intent has a deterministic id (the same id Langfuse uses; a re-emit is a new span with the same id — deduplicate on it). |
+
+**Re-emitted scores.** An override or a redistill emits the `asset.contribution` score again with
+the same `argus.score.id`. Unlike Langfuse, an OTLP backend cannot upsert: it receives a **new**
+`evaluation asset.contribution` span every time. OTLP consumers must deduplicate on
+`argus.score.id` (latest span wins) to get one verdict per case and asset.
 
 **Trace identity.** The trace id is `sha256(seed)` truncated to 32 hex, the same derivation the
 Langfuse sink uses. The root is started under a synthetic parent `{trace id, synthetic span id}`
 derived from the seed, ended immediately, and only its span context is cached. A child, event or
 score arriving with no cached root (for example after an app restart, for a session whose root
 was exported in an earlier run) attaches to that same synthetic parent: it lands in the right
-trace and nothing creates a placeholder root.
+trace and nothing creates a placeholder root. The synthetic parent itself is never exported, so
+every exported root carries a `parentSpanId` that no span has; some trace UIs (Tempo, Jaeger)
+flag such traces as "root span not received". That is expected, not data loss.
 
 **Test connection.** OTLP has no credential endpoint, so the probe is a real export: one
 `argus.probe` span through a throw-away exporter, with a 5 s timeout. Success reports
@@ -154,7 +175,8 @@ needs a change.
 - Adapter contract suites: `providers/langfuse/__tests__/sink.contract.test.ts` and
   `providers/otlp/__tests__/sink.contract.test.ts`.
 - `app/src/main/services/observability/__tests__/buildExporter.test.ts` — none / incomplete /
-  one / several providers, fan-out wiring, a throwing factory, and the probe-plus-last-error merge.
+  one / several providers, fan-out wiring, a throwing factory, the probe-plus-last-error merge,
+  and the health-check order (build error → missing field → probe).
 
 To inspect the wire format by hand, run the receiver from `app/scripts/lib/otlpReceiver.mjs`,
 set the OTLP provider's endpoint to it with protocol `http/json`, and use **Test connection**.

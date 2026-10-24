@@ -59,7 +59,7 @@ export const PROVIDER_DESCRIPTORS: Record<ObservabilityProviderId, ProviderDescr
     id: 'otlp',
     label: 'OpenTelemetry (OTLP/HTTP)',
     description:
-      'Send traces in the OpenTelemetry GenAI conventions to any OTLP/HTTP endpoint — Datadog, Grafana, a collector, or Langfuse’s OTLP endpoint.',
+      'Send traces in the OpenTelemetry GenAI conventions to any OTLP/HTTP collector (OpenTelemetry Collector, Grafana, Langfuse’s OTLP endpoint; Datadog via its Agent/Collector).',
     fields: [
       {
         key: 'endpoint',

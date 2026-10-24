@@ -10,9 +10,11 @@
 
 - Observability is now provider-based. Settings → Observability shows one section per
   provider — Langfuse (unchanged) and a new **OpenTelemetry (OTLP/HTTP)** exporter that
-  speaks the GenAI semantic conventions and works with Datadog, Grafana, any collector, or
-  Langfuse's OTLP endpoint. Several providers can be enabled at once; each has its own
-  content-capture switch, secret and health row ("Test connection").
+  speaks the GenAI semantic conventions and works with any OTLP/HTTP collector (OpenTelemetry
+  Collector, Grafana, Langfuse's OTLP endpoint; Datadog via its Agent/Collector). Several
+  providers can be enabled at once; each has its own content-capture switch, secret and health
+  row ("Test connection"). OTLP backends cannot upsert scores: deduplicate re-emitted
+  `asset.contribution` scores on `argus.score.id`.
 - Adapter contract tests and a credential-free live gate (`npm run gate:observability-otlp`)
   run in CI against a local OTLP receiver.
 
