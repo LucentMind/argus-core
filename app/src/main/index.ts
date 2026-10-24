@@ -342,7 +342,10 @@ import {
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
 import { ObservationExporter } from './services/observability/exporter'
 import type { ObservationSink } from './services/observability/sink'
-import { buildObservationExporter } from './services/observability/buildExporter'
+import {
+  buildObservationExporter,
+  mergeProbeWithLastError
+} from './services/observability/buildExporter'
 import { OBSERVABILITY_PROVIDERS } from './services/observability/providers'
 import {
   OBSERVABILITY_PROVIDER_IDS,
@@ -933,21 +936,32 @@ function registerIpc(): void {
   // The install id is created lazily (an unconfigured install costs no disk write at boot); it is
   // declared here so both the exporter factory and the attribution/export paths below share it.
   let installId: string | null = null
-  let observabilityEnabled: { id: ObservabilityProviderId; label: string }[] = []
+  let observabilityRows: { id: ObservabilityProviderId; label: string }[] = []
+  let observabilityErrors: Partial<Record<ObservabilityProviderId, string>> = {}
   let observabilitySinks: Partial<Record<ObservabilityProviderId, ObservationSink>> = {}
   const buildExporter = (): void => {
-    const s = settingsService.get()
-    const anyEnabled = OBSERVABILITY_PROVIDER_IDS.some(
-      (id) => (s.observability?.providers?.[id] as { enabled?: boolean } | undefined)?.enabled
-    )
-    if (anyEnabled) installId ??= readOrCreateInstanceId(argusHome)
-    const built = buildObservationExporter(s, (n) => secretStore.resolve(n), {
-      installId: installId ?? '',
-      appVersion: app.getVersion()
-    })
-    observationExporter = built.exporter
-    observabilityEnabled = built.enabled
-    observabilitySinks = built.sinks
+    try {
+      const s = settingsService.get()
+      const anyEnabled = OBSERVABILITY_PROVIDER_IDS.some(
+        (id) => (s.observability?.providers?.[id] as { enabled?: boolean } | undefined)?.enabled
+      )
+      if (anyEnabled) installId ??= readOrCreateInstanceId(argusHome)
+      const built = buildObservationExporter(s, (n) => secretStore.resolve(n), {
+        installId: installId ?? '',
+        appVersion: app.getVersion()
+      })
+      observationExporter = built.exporter
+      observabilityRows = built.rows
+      observabilityErrors = built.errors
+      observabilitySinks = built.sinks
+    } catch (err) {
+      // Never break boot or the settings subscriber over observability: run without export.
+      console.error('[observability] exporter not built', err)
+      observationExporter = null
+      observabilityRows = []
+      observabilityErrors = {}
+      observabilitySinks = {}
+    }
   }
   buildExporter()
 
@@ -4100,19 +4114,22 @@ function registerIpc(): void {
         return { ok: false, detail: (err as Error).message }
       }
     },
-    observabilityProviders: () => observabilityEnabled,
+    observabilityProviders: () => observabilityRows,
     observabilityCheck: async (id) => {
       const cfg = (settingsService.get().observability?.providers?.[id] ?? {}) as Record<
         string,
         unknown
       >
-      const r = await OBSERVABILITY_PROVIDERS[id].probe(cfg, (n) => secretStore.resolve(n))
-      // A passing probe says the endpoint is reachable now; the live sink may still have latched
-      // an ingestion failure (rejected export) — surface it rather than a bare green row.
-      const latched = observabilitySinks[id]?.lastError?.()
-      return r.ok && latched
-        ? { ok: true, detail: `${r.detail} · last export error: ${latched}` }
-        : r
+      // The sink could not even be constructed (e.g. malformed endpoint): say why, don't probe.
+      const buildError = observabilityErrors[id]
+      if (buildError) return { ok: false, detail: buildError }
+      try {
+        const r = await OBSERVABILITY_PROVIDERS[id].probe(cfg, (n) => secretStore.resolve(n))
+        return mergeProbeWithLastError(r, observabilitySinks[id]?.lastError?.())
+      } catch (err) {
+        // Probes construct exporters too, so a hand-edited setting can make them throw.
+        return { ok: false, detail: err instanceof Error ? err.message : String(err) }
+      }
     }
   })
 
