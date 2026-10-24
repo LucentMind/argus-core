@@ -1,12 +1,23 @@
 import { useEffect, useState } from 'react'
-import { SettingsSection, SettingRow, Switch, DraftInput, FIELD } from './settingsLayout'
+import {
+  SettingsSection,
+  SettingRow,
+  Switch,
+  DraftInput,
+  SelectField,
+  FIELD
+} from './settingsLayout'
 import { Btn, Chip } from '../ui'
 import { settingsStore } from '../../lib/settingsStore'
 import { alert } from '../../lib/confirmStore'
 import type { SettingsPayload } from '../../../../shared/settings'
 import type { HealthCheckResult } from '../../../../shared/health'
-
-const SECRET_NAME = 'observability/langfuse/secret-key'
+import {
+  OBSERVABILITY_PROVIDER_IDS,
+  PROVIDER_DESCRIPTORS,
+  secretName,
+  type ObservabilityProviderId
+} from '../../../../shared/observabilityProviders'
 
 /**
  * Ids match the StatCards currently rendered by ObservabilityView (Task 5) by
@@ -35,7 +46,7 @@ export const DASHBOARD_CARDS = [
 ] as const
 
 /**
- * Password input for the Langfuse secret key. Like the AnnotatedForm secret
+ * Password input for a provider secret (Langfuse secret key, OTLP authorization header). Like the AnnotatedForm secret
  * field, the draft starts empty and is cleared on commit/Escape so plaintext
  * never lingers in renderer state — only the placeholder signals set/not-set.
  */
@@ -73,6 +84,144 @@ function SecretInput({
   )
 }
 
+type ProviderCfg = Record<string, unknown> & { enabled: boolean; captureContent: boolean }
+
+/**
+ * One settings section per observability provider, rendered from the shared descriptor so the
+ * page, the health rows and the exporter factory agree on a provider's fields. Aria-labels are
+ * `Enable <label>`, `<label> <field label>` and `Capture content · <label>`.
+ */
+function ProviderSection({
+  id,
+  cfg
+}: {
+  id: ObservabilityProviderId
+  cfg: ProviderCfg
+}): React.JSX.Element {
+  const d = PROVIDER_DESCRIPTORS[id]
+  const [secretSet, setSecretSet] = useState<Record<string, boolean>>({})
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<HealthCheckResult | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    // The descriptor is a module constant keyed by `id`, so `id` is the only real dependency.
+    const keys = PROVIDER_DESCRIPTORS[id].fields
+      .filter((f) => f.kind === 'secret')
+      .map((f) => f.key)
+    void Promise.all(
+      keys.map((key) =>
+        window.argus.secrets.has(secretName(id, key)).then((v) => [key, v] as const)
+      )
+    ).then((pairs) => {
+      if (mounted) setSecretSet(Object.fromEntries(pairs))
+    })
+    return () => {
+      mounted = false
+    }
+  }, [id])
+
+  function patch(p: Record<string, unknown>): void {
+    void settingsStore.patch({ observability: { providers: { [id]: p } } })
+  }
+
+  function commitSecret(key: string, plaintext: string): void {
+    void window.argus.secrets
+      .set(secretName(id, key), plaintext)
+      .then(() => setSecretSet((s) => ({ ...s, [key]: true })))
+      .catch((err: Error) => void alert(`secret not saved: ${err.message}`))
+  }
+
+  const rowId = `observability:${id}`
+  function testConnection(): void {
+    if (testing) return
+    setTesting(true)
+    setTestResult(null)
+    const off = window.argus.health.onResult((r) => {
+      if (r.id === rowId) setTestResult(r)
+    })
+    void window.argus.health.run([rowId]).finally(() => {
+      setTesting(false)
+      off()
+    })
+  }
+
+  return (
+    <SettingsSection title={d.label}>
+      <SettingRow label={`Enable ${d.label}`} description={d.description}>
+        <Switch
+          checked={cfg.enabled}
+          onChange={(v) => patch({ enabled: v })}
+          aria-label={`Enable ${d.label}`}
+        />
+      </SettingRow>
+      {d.fields.map((f) => {
+        const label = `${d.label} ${f.label}`
+        if (f.kind === 'secret')
+          return (
+            <SettingRow key={f.key} label={f.label} isDefault={!secretSet[f.key]}>
+              <SecretInput
+                aria-label={label}
+                placeholder={secretSet[f.key] ? '•••• (set)' : (f.placeholder ?? '')}
+                onCommit={(v) => commitSecret(f.key, v)}
+              />
+            </SettingRow>
+          )
+        if (f.kind === 'select') {
+          const options = f.options ?? []
+          return (
+            <SettingRow key={f.key} label={f.label} isDefault={cfg[f.key] === options[0]}>
+              <SelectField
+                aria-label={label}
+                value={String(cfg[f.key] ?? options[0] ?? '')}
+                options={options}
+                onChange={(v) => patch({ [f.key]: v })}
+              />
+            </SettingRow>
+          )
+        }
+        return (
+          <SettingRow key={f.key} label={f.label} isDefault={cfg[f.key] === ''}>
+            <DraftInput
+              aria-label={label}
+              className={`${FIELD} w-72${f.mono ? ' font-mono' : ''}`}
+              placeholder={f.placeholder}
+              value={String(cfg[f.key] ?? '')}
+              onCommit={(v) => patch({ [f.key]: v.trim() })}
+            />
+          </SettingRow>
+        )
+      })}
+      <SettingRow
+        label="Capture content"
+        description={`Sends prompts, responses, and tool inputs/outputs — including confidential trace and ticket content — to ${d.label}. Off by default.`}
+      >
+        <Switch
+          checked={cfg.captureContent}
+          onChange={(v) => patch({ captureContent: v })}
+          aria-label={`Capture content · ${d.label}`}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Test connection"
+        description={`Verifies ${d.label} is reachable with this configuration.`}
+      >
+        <Btn variant="outline" disabled={testing} onClick={testConnection}>
+          {testing ? 'Testing…' : 'Test connection'}
+        </Btn>
+        {testResult &&
+          (testResult.ok ? (
+            <Chip tone="review">ok</Chip>
+          ) : (
+            <Chip tone="danger" title={testResult.detail}>
+              fail
+            </Chip>
+          ))}
+      </SettingRow>
+    </SettingsSection>
+  )
+}
+
 export function ObservabilitySettings({
   payload,
   onOpenDashboard
@@ -82,51 +231,13 @@ export function ObservabilitySettings({
    *  own entry point, now that the top bar no longer carries one directly. */
   onOpenDashboard?: () => void
 }): React.JSX.Element {
-  const {
-    providers: { langfuse },
-    dashboard
-  } = payload.settings.observability
-  const [secretSet, setSecretSet] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<HealthCheckResult | null>(null)
-
-  useEffect(() => {
-    let mounted = true
-    void window.argus.secrets.has(SECRET_NAME).then((v) => mounted && setSecretSet(v))
-    return () => {
-      mounted = false
-    }
-  }, [])
-
-  function patchLangfuse(patch: Partial<typeof langfuse>): void {
-    void settingsStore.patch({ observability: { providers: { langfuse: patch } } })
-  }
-
-  function commitSecret(plaintext: string): void {
-    void window.argus.secrets
-      .set(SECRET_NAME, plaintext)
-      .then(() => setSecretSet(true))
-      .catch((err: Error) => void alert(`secret not saved: ${err.message}`))
-  }
+  const { providers, dashboard } = payload.settings.observability
 
   function toggleCard(id: string, hidden: boolean): void {
     const next = hidden
       ? [...dashboard.hiddenCards, id]
       : dashboard.hiddenCards.filter((c) => c !== id)
     void settingsStore.patch({ observability: { dashboard: { hiddenCards: next } } })
-  }
-
-  function testConnection(): void {
-    if (testing) return
-    setTesting(true)
-    setTestResult(null)
-    const off = window.argus.health.onResult((r) => {
-      if (r.id === 'langfuse') setTestResult(r)
-    })
-    void window.argus.health.run(['langfuse']).finally(() => {
-      setTesting(false)
-      off()
-    })
   }
 
   return (
@@ -140,72 +251,9 @@ export function ObservabilitySettings({
         </SettingRow>
       </SettingsSection>
 
-      <SettingsSection title="Langfuse">
-        <SettingRow
-          label="Enable Langfuse"
-          description="Send agent traces, cost, and latency data to a Langfuse instance."
-        >
-          <Switch
-            checked={langfuse.enabled}
-            onChange={(v) => patchLangfuse({ enabled: v })}
-            aria-label="Enable Langfuse"
-          />
-        </SettingRow>
-        <SettingRow label="Host URL" isDefault={langfuse.host === ''}>
-          <DraftInput
-            aria-label="Langfuse host URL"
-            className={`${FIELD} w-72 font-mono`}
-            placeholder="https://cloud.langfuse.com"
-            value={langfuse.host}
-            onCommit={(v) => patchLangfuse({ host: v.trim() })}
-          />
-        </SettingRow>
-        <SettingRow label="Public key" isDefault={langfuse.publicKey === ''}>
-          <DraftInput
-            aria-label="Langfuse public key"
-            className={`${FIELD} w-56 font-mono`}
-            placeholder="pk-lf-…"
-            value={langfuse.publicKey}
-            onCommit={(v) => patchLangfuse({ publicKey: v.trim() })}
-          />
-        </SettingRow>
-        <SettingRow label="Secret key" isDefault={!secretSet}>
-          <SecretInput
-            aria-label="Langfuse secret key"
-            placeholder={secretSet ? '•••• (set)' : 'sk-lf-…'}
-            onCommit={commitSecret}
-          />
-        </SettingRow>
-        <SettingRow
-          label="Test connection"
-          description="Verifies the host and keys can reach your Langfuse instance."
-        >
-          <Btn variant="outline" disabled={testing} onClick={testConnection}>
-            {testing ? 'Testing…' : 'Test connection'}
-          </Btn>
-          {testResult &&
-            (testResult.ok ? (
-              <Chip tone="review">ok</Chip>
-            ) : (
-              <Chip tone="danger" title={testResult.detail}>
-                fail
-              </Chip>
-            ))}
-        </SettingRow>
-      </SettingsSection>
-
-      <SettingsSection title="Content capture">
-        <SettingRow
-          label="Capture content"
-          description="Sends prompts, responses, and tool inputs/outputs — including confidential trace and ticket content — to your Langfuse instance."
-        >
-          <Switch
-            checked={langfuse.captureContent}
-            onChange={(v) => patchLangfuse({ captureContent: v })}
-            aria-label="Capture content"
-          />
-        </SettingRow>
-      </SettingsSection>
+      {OBSERVABILITY_PROVIDER_IDS.map((id) => (
+        <ProviderSection key={id} id={id} cfg={providers[id] as ProviderCfg} />
+      ))}
 
       <SettingsSection title="Dashboard cards">
         {DASHBOARD_CARDS.map((c) => {
