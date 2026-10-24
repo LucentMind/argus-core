@@ -3,7 +3,7 @@ import type { AgentEvent } from '../../../shared/agent-events'
 import type { FindingRow } from '../../../shared/observability'
 import type { AssetAttributionEvent } from '../../../shared/attribution'
 import { seedFor } from './intent'
-import type { ObservationIntent } from './intent'
+import type { ObservationIntent, ScoreIntent } from './intent'
 import { initialState, reduce, type ExporterState } from './reducer'
 import type { ObservationSink } from './sink'
 
@@ -99,6 +99,18 @@ export class ObservationExporter {
       })
     }
     if (intents.length > 0) this.push(intents)
+  }
+
+  /** One trace per finished distill job (spec 2026-10-24 distillation-health). The intents come
+   *  pre-built from `distillTelemetry.jobIntents`; this is the seam, not the builder. */
+  traceDistillJob(intents: ObservationIntent[]): void {
+    this.push(intents)
+  }
+
+  /** A proposal decision as a `proposal.outcome` score (deterministic id -> Langfuse upserts). */
+  scoreProposal(intent: ScoreIntent): void {
+    if (intent.kind !== 'score') return
+    this.push([intent])
   }
 
   private push(intents: ObservationIntent[]): void {
