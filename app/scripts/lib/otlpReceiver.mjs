@@ -6,8 +6,10 @@
 // into a plain object. Any other body — `application/x-protobuf` from a mis-set protocol, or JSON
 // that does not parse — is still answered 200 and COUNTED (`requests()` and `undecoded()`), never
 // decoded, so a wrong wire format shows up as "requests arrived but no spans decoded" instead of
-// an exporter retrying into a hang. Every request is answered `200 {}` (an empty
-// ExportTraceServiceResponse: no partial success).
+// an exporter retrying into a hang. Only `POST /v1/traces` is decoded and answered `200 {}` (an
+// empty ExportTraceServiceResponse: no partial success); a POST to any other path is answered 404
+// and counted in `wrongPath()`, so a regression in the exporter's URL (a dropped or doubled
+// `/v1/traces`) fails the gate instead of being silently accepted.
 import http from 'node:http'
 import zlib from 'node:zlib'
 
@@ -62,16 +64,26 @@ export function flattenTraces(body) {
  * Start the receiver on 127.0.0.1:`port` (0 = any free port). Resolves once listening.
  * `url` is the endpoint base (the app appends `/v1/traces`); `spans()` every decoded span so
  * far, `requests()` every POST received, `undecoded()` the requests that carried no decodable
- * OTLP/JSON, `close()` stops it.
+ * OTLP/JSON, `wrongPath()` the POSTs to a path other than /v1/traces (answered 404, not
+ * decoded; `lastWrongPath()` is the latest offending path), `close()` stops it.
  */
 export function startOtlpReceiver({ port = 0 } = {}) {
   const spans = []
   let requests = 0
   let undecoded = 0
+  let wrongPath = 0
+  let lastWrongPath = null
   const server = http.createServer((req, res) => {
     const chunks = []
     req.on('data', (c) => chunks.push(c))
     req.on('end', () => {
+      if (req.method === 'POST' && (req.url ?? '').split('?')[0] !== '/v1/traces') {
+        wrongPath++
+        lastWrongPath = req.url ?? ''
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end('{}')
+        return
+      }
       if (req.method === 'POST') {
         requests++
         let raw = Buffer.concat(chunks)
@@ -98,6 +110,8 @@ export function startOtlpReceiver({ port = 0 } = {}) {
         spans: () => [...spans],
         requests: () => requests,
         undecoded: () => undecoded,
+        wrongPath: () => wrongPath,
+        lastWrongPath: () => lastWrongPath,
         close: () =>
           new Promise((r) => {
             server.closeAllConnections?.()
