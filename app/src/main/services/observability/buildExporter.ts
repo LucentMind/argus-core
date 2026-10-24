@@ -12,7 +12,27 @@ export interface BuiltObservability {
   exporter: ObservationExporter | null
   /** Providers that are enabled AND complete — one health row each. */
   enabled: { id: ObservabilityProviderId; label: string }[]
+  /** Every provider that is enabled AND complete — one health row each — whether or not its sink
+   *  could be built (a `createSink` that threw still gets a row, so the user sees why it is dead).
+   *  A superset of `enabled`. */
+  rows: { id: ObservabilityProviderId; label: string }[]
+  /** Why a complete provider's sink could not be built (the `createSink` error message). */
+  errors: Partial<Record<ObservabilityProviderId, string>>
   sinks: Partial<Record<ObservabilityProviderId, ObservationSink>>
+}
+
+/** The unknown keys last warned about; a rebuild with the same set stays quiet. */
+let lastWarnedUnknown = ''
+
+/** A passing probe says the endpoint is reachable now; the live sink may still have latched an
+ *  ingestion failure (rejected export) — surface it rather than a bare green row. */
+export function mergeProbeWithLastError(
+  probe: { ok: boolean; detail: string },
+  lastError: string | null | undefined
+): { ok: boolean; detail: string } {
+  return probe.ok && lastError
+    ? { ok: true, detail: `${probe.detail} · last export error: ${lastError}` }
+    : probe
 }
 
 /**
@@ -34,11 +54,17 @@ export function buildObservationExporter(
   const unknown = Object.keys(providers).filter(
     (k) => !(OBSERVABILITY_PROVIDER_IDS as readonly string[]).includes(k)
   )
-  if (unknown.length > 0) {
-    console.warn(`[observability] ignoring unknown provider settings: ${unknown.join(', ')}`)
+  const unknownKey = unknown.join(', ')
+  if (unknownKey !== lastWarnedUnknown) {
+    lastWarnedUnknown = unknownKey
+    if (unknown.length > 0) {
+      console.warn(`[observability] ignoring unknown provider settings: ${unknownKey}`)
+    }
   }
 
   const enabled: BuiltObservability['enabled'] = []
+  const rows: BuiltObservability['rows'] = []
+  const errors: BuiltObservability['errors'] = {}
   const sinks: BuiltObservability['sinks'] = {}
   let captureContent = false
   for (const id of OBSERVABILITY_PROVIDER_IDS) {
@@ -46,11 +72,23 @@ export function buildObservationExporter(
     if (!cfg?.enabled) continue
     const provider = OBSERVABILITY_PROVIDERS[id]
     const cc = cfg.captureContent === true
-    const sink = provider.createSink(cfg, secret, {
-      captureContent: cc,
-      installId: ctx.installId,
-      appVersion: ctx.appVersion
-    })
+    if (provider.missing(cfg, secret) === null) {
+      rows.push({ id, label: provider.descriptor.label })
+    }
+    let sink: ObservationSink | null
+    try {
+      sink = provider.createSink(cfg, secret, {
+        captureContent: cc,
+        installId: ctx.installId,
+        appVersion: ctx.appVersion
+      })
+    } catch (err) {
+      // A hand-edited setting (malformed URL) makes the exporter constructors throw. Never let that
+      // escape: it would skip the settings broadcast / starve the other providers.
+      console.error(`[observability] ${id} sink not built`, err)
+      errors[id] = err instanceof Error ? err.message : String(err)
+      continue
+    }
     if (!sink) continue
     sinks[id] = sink
     enabled.push({ id, label: provider.descriptor.label })
@@ -64,5 +102,5 @@ export function buildObservationExporter(
       : new ObservationExporter(list.length === 1 ? list[0] : new FanOutSink(list), {
           captureContent
         })
-  return { exporter, enabled, sinks }
+  return { exporter, enabled, rows, errors, sinks }
 }
