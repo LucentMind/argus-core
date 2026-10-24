@@ -340,10 +340,10 @@ import {
   type UnifiedSearchResult
 } from '../shared/types'
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
-import { LangfuseExporter } from './services/observability/langfuse'
-import { LangfuseSink } from './services/observability/langfuseSink'
-import { createLangfuseTracing } from './services/observability/langfuseTracing'
-import { probeLangfuseCredentials } from './services/observability/langfuseProbe'
+import { ObservationExporter } from './services/observability/exporter'
+import { LangfuseSink } from './services/observability/providers/langfuse/sink'
+import { createLangfuseTracing } from './services/observability/providers/langfuse/tracing'
+import { probeLangfuseCredentials } from './services/observability/providers/langfuse/probe'
 import { usageStats, ensureTrackingStarted } from './services/observability/usage'
 import {
   listFindings,
@@ -432,7 +432,7 @@ import type { RoutinesPayload, RoutineTemplate } from '../shared/routines'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
-let langfuseExporter: LangfuseExporter | null = null
+let observationExporter: ObservationExporter | null = null
 let mainWindow: BrowserWindow | null = null
 let editorWindowService: EditorWindowService | null = null
 // Module-scope for the same reason as draftStore below: registerIpc() constructs it, but
@@ -929,16 +929,18 @@ function registerIpc(): void {
   const buildExporter = (): void => {
     const s = settingsService.get().observability?.providers?.langfuse
     if (!s?.enabled || !s.host || !s.publicKey) {
-      langfuseExporter = null
+      observationExporter = null
       return
     }
     const secretKey = secretStore.resolve('observability/langfuse/secret-key')
     if (!secretKey) {
-      langfuseExporter = null
+      observationExporter = null
       return
     }
-    langfuseExporter = new LangfuseExporter(
-      new LangfuseSink(createLangfuseTracing({ host: s.host, publicKey: s.publicKey, secretKey })),
+    observationExporter = new ObservationExporter(
+      new LangfuseSink(createLangfuseTracing({ host: s.host, publicKey: s.publicKey, secretKey }), {
+        captureContent: s.captureContent
+      }),
       { captureContent: s.captureContent }
     )
   }
@@ -1143,7 +1145,7 @@ function registerIpc(): void {
   // write at boot; never throws — it is called from the queue, the reject IPC and a tool handler.
   let installId: string | null = null
   function emitAttributions(rows: AttributionRow[]): void {
-    if (!langfuseExporter || rows.length === 0) return
+    if (!observationExporter || rows.length === 0) return
     try {
       installId ??= readOrCreateInstanceId(argusHome)
       const appVersion = app.getVersion()
@@ -1155,7 +1157,7 @@ function registerIpc(): void {
           console.debug(`[attribution] no session for case ${slug}; not emitting`)
           continue
         }
-        langfuseExporter.scoreAttributions(
+        observationExporter.scoreAttributions(
           sessionId,
           group.map((r) => toAttributionEvent(r, { installId: installId!, appVersion }))
         )
@@ -1363,7 +1365,7 @@ function registerIpc(): void {
     authCache.invalidate()
     // Editing a provider's config (CLI path, credentials) invalidates its probe too.
     providerStatusService?.onSettingsChanged()
-    const old = langfuseExporter
+    const old = observationExporter
     void old?.shutdown()
     buildExporter()
     broadcast(IPC.settingsChanged, settingsService.payload())
@@ -2051,7 +2053,7 @@ function registerIpc(): void {
           { sessionId: e.sessionId, effectivePermissionMode: e.payload.effectivePermissionMode }
         )
       }
-      langfuseExporter?.handle(e)
+      observationExporter?.handle(e)
       broadcast(IPC.agentEventChannel, e)
     },
     agentAccess: () => agentAccessStore.get(),
@@ -2809,7 +2811,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.findingsList, (_e, caseSlug: string) => listFindings(db, argusHome, caseSlug))
   ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState) => {
     const row = reviewFinding(db, id, state)
-    langfuseExporter?.scoreFinding(row)
+    observationExporter?.scoreFinding(row)
     return row
   })
   ipcMain.handle(IPC.findingsClear, (_e, caseSlug: string, mode?: ModeId) => {
@@ -4562,7 +4564,7 @@ app.on('before-quit', (event) => {
   // shutdown() (not flush()) — it also calls provider.shutdown(), which was never
   // reached on the quit path before. Race it against a hard timeout: a quit hang
   // is worse than losing telemetry, so a hung network call must never block quit.
-  const shutdown = langfuseExporter?.shutdown() ?? Promise.resolve()
+  const shutdown = observationExporter?.shutdown() ?? Promise.resolve()
   const timeout = new Promise<void>((resolve) => {
     const t = setTimeout(resolve, 3000)
     t.unref?.()

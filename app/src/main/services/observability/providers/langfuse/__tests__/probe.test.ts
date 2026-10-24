@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { probeLangfuseCredentials } from '../langfuseProbe'
+import { probeLangfuseCredentials } from '../probe'
 
 const creds = { host: 'https://cloud.langfuse.com', publicKey: 'pk-lf-x', secretKey: 'sk-lf-x' }
 
