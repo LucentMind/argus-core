@@ -11,9 +11,13 @@ import type {
   TraceRootIntent
 } from './intent'
 
-/** Stable per-job seed: one trace per distill job, re-derivable from the row id alone. */
-export function distillJobSeed(jobId: number): string {
-  return `argus-distill-job-${jobId}`
+/** Per-ATTEMPT seed: one trace per terminal attempt of a distill job. `retry()` re-runs the SAME
+ *  row id, and both sinks cache a root per seed (a second root for a known seed is dropped and its
+ *  children attach to the first), so the seed carries the attempt's `finished_at` — a retry is a
+ *  new trace. Re-derivable from the row: `argus-distill-job-<id>@<finished_at>`, or the plain
+ *  `argus-distill-job-<id>` for a row with no `finished_at`. */
+export function distillJobSeed(jobId: number, finishedAt: string | null): string {
+  return finishedAt ? `argus-distill-job-${jobId}@${finishedAt}` : `argus-distill-job-${jobId}`
 }
 
 export interface DistillTelemetryCtx {
@@ -46,25 +50,31 @@ function parseJson<T>(s: string | null): T | null | 'corrupt' {
 
 const ERROR_MAX = 300
 
-/** Parser exceptions can quote the raw model text (`JSON.parse` echoes the start of its input),
- *  so an error string is first-line-only, capped, and — with content capture off — has every
- *  quoted segment replaced. */
-export function scrubError(msg: string, captureContent: boolean): string {
-  let out = String(msg).split(/\r?\n/)[0].slice(0, ERROR_MAX)
-  if (!captureContent) out = out.replace(/"[^"\n]*"/g, '"…"').replace(/'[^'\n]*'/g, '"…"')
-  return out
+const QUOTE = /["'`]/
+
+/** Parser exceptions can quote the raw model text (`JSON.parse` echoes the start of its input,
+ *  and that text can itself contain quotes, so pairing quotes cannot find where it ends). An error
+ *  string is therefore first-line-only, cut at its FIRST quote character of any kind (`"`, `'`,
+ *  `` ` ``) with `…` appended, then capped at 300 chars. Unconditional: error strings ride in
+ *  metadata, which no adapter strips, and the exporter-level `captureContent` is the OR over the
+ *  enabled providers — so it is never a reason to send them unredacted. */
+export function scrubError(msg: string): string {
+  let out = String(msg).split(/\r?\n/)[0]
+  const q = out.search(QUOTE)
+  if (q >= 0) out = `${out.slice(0, q)}…`
+  return out.slice(0, ERROR_MAX)
 }
 
-function scrubbed(e: unknown, captureContent: boolean): string | undefined {
-  return typeof e === 'string' && e ? scrubError(e, captureContent) : undefined
+function scrubbed(e: unknown): string | undefined {
+  return typeof e === 'string' && e ? scrubError(e) : undefined
 }
 
-function stageFacts(r: StageRecord, captureContent: boolean): Record<string, unknown> {
+function stageFacts(r: StageRecord): Record<string, unknown> {
   return defined({
     promptHash: r.promptHash,
     promptChars: r.promptChars,
     flags: r.flags,
-    error: scrubbed(r.error, captureContent)
+    error: scrubbed(r.error)
   })
 }
 
@@ -127,7 +137,7 @@ function dropsByStage(drops: PreStageDrop[]): Record<string, Record<string, numb
 }
 
 export function jobIntents(row: JobDbRow, ctx: DistillTelemetryCtx): ObservationIntent[] {
-  const seed = distillJobSeed(row.id)
+  const seed = distillJobSeed(row.id, row.finished_at)
   const out: ObservationIntent[] = []
   const snapshot = parseJson<{ caseDomain?: string; caseOutcome?: string }>(row.input_snapshot)
   const snap = snapshot && snapshot !== 'corrupt' ? snapshot : {}
@@ -154,7 +164,7 @@ export function jobIntents(row: JobDbRow, ctx: DistillTelemetryCtx): Observation
       turnCount: row.turn_count,
       toolCallCount: row.tool_call_count,
       promptChars: row.prompt_chars,
-      error: scrubbed(row.error, ctx.captureContent),
+      error: scrubbed(row.error),
       installId: ctx.installId,
       appVersion: ctx.appVersion,
       caseDomain: snap.caseDomain,
@@ -162,7 +172,7 @@ export function jobIntents(row: JobDbRow, ctx: DistillTelemetryCtx): Observation
       createdAt: row.created_at,
       finishedAt: row.finished_at,
       stages: ordered.length
-        ? Object.fromEntries(ordered.map((s) => [s.key, stageFacts(s.rec, ctx.captureContent)]))
+        ? Object.fromEntries(ordered.map((s) => [s.key, stageFacts(s.rec)]))
         : undefined
     })
   }
@@ -192,7 +202,7 @@ export function jobIntents(row: JobDbRow, ctx: DistillTelemetryCtx): Observation
       ...(ctx.captureContent ? { output: s.rec.rawOutput } : {})
     }
     out.push(gen)
-    const stageError = scrubbed(s.rec.error, ctx.captureContent)
+    const stageError = scrubbed(s.rec.error)
     if (stageError) {
       out.push({
         kind: 'event',
@@ -236,8 +246,15 @@ export function jobIntents(row: JobDbRow, ctx: DistillTelemetryCtx): Observation
   return out
 }
 
-export function proposalScoreId(installId: string, proposalFile: string): string {
-  return createHash('sha256').update(`${installId}|${proposalFile}`).digest('hex').slice(0, 32)
+/** One id per proposal WRITE: file names are reused once a proposal is archived (`writeProposal`
+ *  only checks the pending dir), so the record's `date` (millisecond ISO, stamped once per write)
+ *  is part of the key — a re-distill that reuses the name is a new score, not an overwrite.
+ *  First 32 hex of `sha256(installId|file|date)`. */
+export function proposalScoreId(installId: string, proposalFile: string, date: string): string {
+  return createHash('sha256')
+    .update(`${installId}|${proposalFile}|${date}`)
+    .digest('hex')
+    .slice(0, 32)
 }
 
 export type ProposalOutcome = 'accepted' | 'edited' | 'rejected'
@@ -253,6 +270,8 @@ export function proposalOutcomeOf(
 
 export interface ProposalDecision {
   file: string
+  /** The proposal record's `date` — part of the score id (see `proposalScoreId`). */
+  date: string
   type: ProposalType
   target: string
   caseSlug: string
@@ -281,7 +300,7 @@ export function proposalScoreIntent(
     name: 'proposal.outcome',
     value: OUTCOME_VALUE[p.outcome],
     ...(note ? { comment: note } : {}),
-    id: proposalScoreId(ctx.installId, p.file),
+    id: proposalScoreId(ctx.installId, p.file, p.date),
     metadata: {
       'argus.proposal.type': p.type,
       'argus.proposal.target': p.target,
