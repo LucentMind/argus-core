@@ -156,7 +156,10 @@ the same `argus.score.id`. Unlike Langfuse, an OTLP backend cannot upsert: it re
 `argus.score.id` (latest span wins) to get one verdict per case and asset.
 
 **Trace identity.** The trace id is `sha256(seed)` truncated to 32 hex, the same derivation the
-Langfuse sink uses. The root is started under a synthetic parent `{trace id, synthetic span id}`
+Langfuse sink uses. A session's seed is `argus-session-<session id>@<install id>` and a distill
+job's is `argus-distill-job-<id>@<finished_at>`: both are install-scoped, because session and job
+row ids start at 1 in every Argus home and a backend shared by several installs would otherwise
+merge every install's session N into one trace. The root is started under a synthetic parent `{trace id, synthetic span id}`
 derived from the seed, ended immediately, and only its span context is cached. A child, event or
 score arriving with no cached root (for example after an app restart, for a session whose root
 was exported in an earlier run) attaches to that same synthetic parent: it lands in the right

@@ -100,6 +100,7 @@ describe('buildObservationExporter', () => {
     expect(r.enabled.map((e) => e.id)).toEqual(['langfuse', 'otlp'])
     expect(r.exporter!.sink).toBeInstanceOf(FanOutSink)
     expect(r.exporter!.opts.captureContent).toBe(true)
+    expect(r.exporter!.opts.installId).toBe(ctx.installId) // the session seed is install-scoped
   })
 
   it('unknown keys under providers are ignored with one warning', () => {

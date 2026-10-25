@@ -1256,7 +1256,7 @@ function registerIpc(): void {
           console.debug(`[proposals] no job or session for ${p.file}; outcome not emitted`)
           return
         }
-        seed = seedFor(sessionId)
+        seed = seedFor(installId, sessionId)
       }
       const note = opts.reason?.note
         ?.split(/\r\n|\r|\n/)

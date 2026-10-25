@@ -38,6 +38,13 @@
 
 ### Fixed
 
+- Session traces from different installs merged into one trace on a shared observability
+  backend: the trace seed was the bare session row id, which every Argus home numbers from 1
+  (seen live on a shared Langfuse project — a July session and a smoke session under one trace
+  id, 2161 h of "latency", scores attached to another install's work). Session seeds now carry
+  the install id (`argus-session-<id>@<install id>`), the same `<id>@<qualifier>` shape as
+  distill-job seeds. A session that already had a trace under the old seed starts a new trace
+  after the upgrade.
 - Dropdown menus opened over their own trigger instead of beneath it; the panel now sits
   directly under the button.
 - Submenus in the title bar closed while the pointer was still moving across them: a 1px
