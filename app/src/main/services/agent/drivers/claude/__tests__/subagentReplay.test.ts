@@ -53,7 +53,10 @@ function replay(fixture: string): {
   const intents: ObservationIntent[] = []
   for (const ev of events) {
     const stamped = { ...ev, ts: new Date(Date.UTC(2026, 6, 19, 0, 0, tick++)).toISOString() }
-    const [next, produced] = reduce(state, stamped as AgentEvent, { captureContent: false })
+    const [next, produced] = reduce(state, stamped as AgentEvent, {
+      captureContent: false,
+      installId: 'inst-A'
+    })
     state = next
     intents.push(...produced)
   }

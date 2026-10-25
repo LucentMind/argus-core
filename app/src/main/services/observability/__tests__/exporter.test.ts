@@ -20,6 +20,9 @@ function fakeSink(): { sink: ObservationSink; seen: ObservationIntent[] } {
   }
 }
 
+const INSTALL = 'inst-A'
+const OPTS = { captureContent: false, installId: INSTALL }
+
 const base = {
   eventId: 'e',
   caseId: 1,
@@ -35,13 +38,15 @@ const started = (): AgentEvent =>
 describe('ObservationExporter', () => {
   it('forwards reducer intents to the sink', () => {
     const { sink, seen } = fakeSink()
-    new ObservationExporter(sink, { captureContent: false }).handle(started())
-    expect(seen).toEqual([expect.objectContaining({ kind: 'trace-root', seed: 'argus-session-7' })])
+    new ObservationExporter(sink, OPTS).handle(started())
+    expect(seen).toEqual([
+      expect.objectContaining({ kind: 'trace-root', seed: seedFor(INSTALL, 7) })
+    ])
   })
 
   it('scoreAttributions pushes one asset.contribution score per non-silent event with metadata', () => {
     const { sink, seen } = fakeSink()
-    const x = new ObservationExporter(sink, { captureContent: false })
+    const x = new ObservationExporter(sink, OPTS)
     const ev = (
       label: 'helped' | 'misled' | 'silent',
       value: 1 | -1 | null
@@ -65,7 +70,7 @@ describe('ObservationExporter', () => {
     expect(seen).toEqual([
       expect.objectContaining({
         kind: 'score',
-        seed: seedFor(42),
+        seed: seedFor(INSTALL, 42),
         name: 'asset.contribution',
         value: 1,
         comment: 'why',
@@ -85,7 +90,7 @@ describe('ObservationExporter', () => {
 
   it('gives each (install, case, kind, name) a deterministic score id so re-emission upserts (A6)', () => {
     const { sink, seen } = fakeSink()
-    const x = new ObservationExporter(sink, { captureContent: false })
+    const x = new ObservationExporter(sink, OPTS)
     const ev = (name: string, value: 1 | -1): AssetAttributionEvent => ({
       'gen_ai.evaluation.name': 'asset.contribution' as const,
       'gen_ai.evaluation.score.value': value,
@@ -113,16 +118,16 @@ describe('ObservationExporter', () => {
 
   it('emits a finding_accepted score for a reviewed finding', () => {
     const { sink, seen } = fakeSink()
-    const ex = new ObservationExporter(sink, { captureContent: false })
+    const ex = new ObservationExporter(sink, OPTS)
     ex.scoreFinding({ sessionId: 7, reviewState: 'accepted' } as FindingRow)
     expect(seen).toEqual([
-      { kind: 'score', seed: 'argus-session-7', name: 'finding_accepted', value: 1 }
+      { kind: 'score', seed: seedFor(INSTALL, 7), name: 'finding_accepted', value: 1 }
     ])
   })
 
   it('ignores pending findings and findings with no session', () => {
     const { sink, seen } = fakeSink()
-    const ex = new ObservationExporter(sink, { captureContent: false })
+    const ex = new ObservationExporter(sink, OPTS)
     ex.scoreFinding({ sessionId: 7, reviewState: 'pending' } as FindingRow)
     ex.scoreFinding({ sessionId: null, reviewState: 'accepted' } as FindingRow)
     ex.scoreFinding(null)
@@ -137,14 +142,14 @@ describe('ObservationExporter', () => {
       flush: async () => {},
       shutdown: async () => {}
     }
-    const ex = new ObservationExporter(sink, { captureContent: false })
+    const ex = new ObservationExporter(sink, OPTS)
     expect(() => ex.handle(started())).not.toThrow()
     expect(ex.lastError()).toContain('down')
   })
 
   it('does not report a reducer bug as a connector fault', () => {
     const { sink } = fakeSink()
-    const ex = new ObservationExporter(sink, { captureContent: false })
+    const ex = new ObservationExporter(sink, OPTS)
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     // sessionId is required by the reducer; a malformed event must not poison lastError.
     expect(() => ex.handle({ ...base, type: 'session.started' } as AgentEvent)).not.toThrow()
@@ -154,7 +159,7 @@ describe('ObservationExporter', () => {
 
   it('traceDistillJob forwards the intents verbatim; scoreProposal pushes one score', () => {
     const { sink, seen } = fakeSink()
-    const x = new ObservationExporter(sink, { captureContent: false })
+    const x = new ObservationExporter(sink, OPTS)
     const intents: ObservationIntent[] = [
       {
         kind: 'trace-root',
@@ -180,7 +185,7 @@ describe('ObservationExporter', () => {
 
   it('traceDistillJob with an empty list emits nothing; a throwing sink is latched, not thrown', () => {
     const { sink, seen } = fakeSink()
-    const x = new ObservationExporter(sink, { captureContent: false })
+    const x = new ObservationExporter(sink, OPTS)
     x.traceDistillJob([])
     expect(seen).toEqual([])
     const bad = new ObservationExporter(
@@ -190,7 +195,7 @@ describe('ObservationExporter', () => {
           throw new Error('down')
         }
       },
-      { captureContent: false }
+      OPTS
     )
     expect(() => bad.traceDistillJob([{ kind: 'event', seed: 's', name: 'e' }])).not.toThrow()
     expect(bad.lastError()).toBe('down')

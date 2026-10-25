@@ -16,6 +16,8 @@ export interface ExporterState {
 
 export interface ReduceOpts {
   captureContent: boolean
+  /** `config/instance-id.json`; scopes every session seed (see `seedFor`). */
+  installId: string
 }
 
 export function initialState(): ExporterState {
@@ -49,7 +51,7 @@ export function reduce(
   opts: ReduceOpts
 ): [ExporterState, ObservationIntent[]] {
   const intents: ObservationIntent[] = []
-  const seed = seedFor(e.sessionId)
+  const seed = seedFor(opts.installId, e.sessionId)
 
   switch (e.type) {
     case 'session.started': {

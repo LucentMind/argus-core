@@ -2,17 +2,20 @@ import { describe, it, expect } from 'vitest'
 import { initialState, reduce, type ExporterState } from '../reducer'
 import type { ObservationIntent } from '../intent'
 import type { AgentEvent } from '../../../../shared/agent-events'
+import { seedFor } from '../intent'
 
 const T0 = '2026-07-19T10:00:00.000Z'
 const T1 = '2026-07-19T10:00:05.000Z'
 const T2 = '2026-07-19T10:00:07.000Z'
 
 const base = { eventId: 'e', caseId: 1, caseSlug: 'auth-bug', sessionId: 7, turnId: 3, ts: T0 }
+const INSTALL = 'inst-A'
+const SEED = seedFor(INSTALL, 7)
 
 /** Drives a sequence through the reducer, returning every intent produced. */
 function run(
   events: AgentEvent[],
-  opts = { captureContent: false },
+  opts = { captureContent: false, installId: INSTALL },
   state: ExporterState = initialState()
 ): ObservationIntent[] {
   const out: ObservationIntent[] = []
@@ -53,7 +56,7 @@ describe('reduce', () => {
     expect(intents).toEqual([
       {
         kind: 'trace-root',
-        seed: 'argus-session-7',
+        seed: SEED,
         name: 'auth-bug · session 7',
         caseSlug: 'auth-bug',
         metadata: { caseSlug: 'auth-bug', caseId: 1 }
@@ -65,7 +68,7 @@ describe('reduce', () => {
     const intents = run([started(), turnStarted('hi'), turnCompleted()])
     expect(intents).toContainEqual({
       kind: 'generation',
-      seed: 'argus-session-7',
+      seed: SEED,
       name: 'turn',
       model: 'claude-opus-4-8',
       startTime: Date.parse(T0),
@@ -88,7 +91,7 @@ describe('reduce', () => {
         { ...base, type: 'assistant.message', payload: { text: 'reply text' } } as AgentEvent,
         turnCompleted()
       ],
-      { captureContent: true }
+      { captureContent: true, installId: INSTALL }
     )
     const gen = intents.find((i) => i.kind === 'generation')
     expect(gen).toMatchObject({ input: 'secret log line', output: 'reply text' })
@@ -98,7 +101,7 @@ describe('reduce', () => {
     const intents = run([started(), turnStarted('x'), turnCompleted('error')])
     expect(intents).toContainEqual({
       kind: 'score',
-      seed: 'argus-session-7',
+      seed: SEED,
       name: 'turn_error',
       value: 1
     })
@@ -122,7 +125,7 @@ describe('reduce', () => {
     ])
     expect(intents).toContainEqual({
       kind: 'tool',
-      seed: 'argus-session-7',
+      seed: SEED,
       name: 'read_file',
       startTime: Date.parse(T0),
       endTime: Date.parse(T2),
@@ -135,13 +138,13 @@ describe('reduce', () => {
       ({ ...base, type: 'request.resolved', payload: { requestId: 'r', decision } }) as AgentEvent
     expect(run([started(), mk('allow')])).toContainEqual({
       kind: 'score',
-      seed: 'argus-session-7',
+      seed: SEED,
       name: 'hitl_approved',
       value: 1
     })
     expect(run([started(), mk('deny')])).toContainEqual({
       kind: 'score',
-      seed: 'argus-session-7',
+      seed: SEED,
       name: 'hitl_approved',
       value: 0
     })
@@ -173,20 +176,20 @@ describe('reduce', () => {
 
   it('emits a resume marker rather than a second trace-root', () => {
     const s = initialState()
-    run([started()], { captureContent: false }, s)
+    run([started()], { captureContent: false, installId: INSTALL }, s)
     // Passing the same `s` into both run() calls is deliberate, not a copy-paste
     // slip: reduce() mutates state in place (see its docblock), so this threads
     // the session state from the first run into the second the way index.ts's
     // real long-lived state does across events.
-    const second = run([started({}, true)], { captureContent: false }, s)
-    expect(second).toEqual([{ kind: 'event', seed: 'argus-session-7', name: 'session resumed' }])
+    const second = run([started({}, true)], { captureContent: false, installId: INSTALL }, s)
+    expect(second).toEqual([{ kind: 'event', seed: SEED, name: 'session resumed' }])
   })
 
   it('creates session state on a resume with no prior state (restarted app)', () => {
     const s = initialState()
     const intents = run(
       [started({}, true), turnStarted('x'), turnCompleted()],
-      { captureContent: false },
+      { captureContent: false, installId: INSTALL },
       s
     )
     expect(intents).toContainEqual(
@@ -202,7 +205,7 @@ describe('reduce', () => {
     ])
     expect(intents).toContainEqual({
       kind: 'event',
-      seed: 'argus-session-7',
+      seed: SEED,
       name: 'session error',
       level: 'ERROR',
       metadata: { message: 'backend died' }
@@ -222,7 +225,8 @@ describe('reduce', () => {
     // finishes initialising. Every existing test above builds the reverse
     // (session-first) order because it reads more naturally.
     const [state] = reduce(initialState(), turnStarted('summarize the readme in evidence', T0), {
-      captureContent: true
+      captureContent: true,
+      installId: INSTALL
     })
     const entry = state.sessions.get(7)
     expect(entry?.userText).toBe('summarize the readme in evidence')
@@ -242,7 +246,7 @@ describe('reduce', () => {
         } as AgentEvent,
         turnCompleted('success', T2)
       ],
-      { captureContent: true }
+      { captureContent: true, installId: INSTALL }
     )
     const gen = intents.find((i) => i.kind === 'generation')
     // Input must not be silently dropped just because the session didn't exist
@@ -259,8 +263,14 @@ describe('reduce', () => {
     // preserve text/timing state that turn.started already populated. Replacing
     // the whole entry via freshSessionState is exactly how the prompt gets
     // thrown away a second time.
-    const [s1] = reduce(initialState(), turnStarted('secret prompt', T0), { captureContent: true })
-    const [s2, intents] = reduce(s1, started({ ts: T1 }), { captureContent: true })
+    const [s1] = reduce(initialState(), turnStarted('secret prompt', T0), {
+      captureContent: true,
+      installId: INSTALL
+    })
+    const [s2, intents] = reduce(s1, started({ ts: T1 }), {
+      captureContent: true,
+      installId: INSTALL
+    })
 
     const entry = s2.sessions.get(7)
     expect(entry?.userText).toBe('secret prompt')
@@ -268,7 +278,7 @@ describe('reduce', () => {
     expect(entry?.model).toBe('claude-opus-4-8')
     expect(intents).toContainEqual({
       kind: 'trace-root',
-      seed: 'argus-session-7',
+      seed: SEED,
       name: 'auth-bug · session 7',
       caseSlug: 'auth-bug',
       metadata: { caseSlug: 'auth-bug', caseId: 1 }
