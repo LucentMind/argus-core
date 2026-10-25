@@ -125,7 +125,8 @@ export function buildObservationExporter(
     list.length === 0
       ? null
       : new ObservationExporter(list.length === 1 ? list[0] : new FanOutSink(list), {
-          captureContent
+          captureContent,
+          installId: ctx.installId
         })
   return { exporter, enabled, rows, errors, sinks }
 }

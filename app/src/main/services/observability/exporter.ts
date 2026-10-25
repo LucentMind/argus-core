@@ -38,7 +38,7 @@ export class ObservationExporter {
 
   constructor(
     readonly sink: ObservationSink,
-    readonly opts: { captureContent: boolean }
+    readonly opts: { captureContent: boolean; installId: string }
   ) {}
 
   handle(e: AgentEvent): void {
@@ -60,7 +60,7 @@ export class ObservationExporter {
     this.push([
       {
         kind: 'score',
-        seed: seedFor(row.sessionId),
+        seed: seedFor(this.opts.installId, row.sessionId),
         name: 'finding_accepted',
         value: row.reviewState === 'accepted' ? 1 : 0
       }
@@ -88,7 +88,7 @@ export class ObservationExporter {
       void _label
       intents.push({
         kind: 'score',
-        seed: seedFor(sessionId),
+        seed: seedFor(this.opts.installId, sessionId),
         // One score per (install, case, asset): an override or a redistill re-emits the SAME id,
         // which Langfuse upserts — without it every re-emit added a second, contradicting score.
         id: attributionScoreId(e),

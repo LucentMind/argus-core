@@ -101,7 +101,14 @@ const settle = (slug) => settleDb(DB, slug, true, SETTLE_TIMEOUT_MS)
  *  synthSpanId), restated so the gate checks the wire against the spec, not against itself. */
 const sha = (s) => createHash('sha256').update(s).digest('hex')
 const nonZero = (hex) => (/^0+$/.test(hex) ? `1${hex.slice(1)}` : hex)
-const seedFor = (sessionId) => `argus-session-${sessionId}`
+/** Session seeds are install-scoped (intent.ts seedFor): `argus-session-<id>@<install id>`. */
+const readInstallId = () => {
+  const installFile = path.join(HOME, 'config', 'instance-id.json')
+  return fs.existsSync(installFile)
+    ? JSON.parse(fs.readFileSync(installFile, 'utf8')).instanceId
+    : null
+}
+const seedFor = (installId, sessionId) => `argus-session-${sessionId}@${installId}`
 const traceIdFor = (seed) => nonZero(sha(seed).slice(0, 32))
 const parentIdFor = (seed) => nonZero(sha(seed).slice(0, 16))
 
@@ -381,7 +388,8 @@ const main = async () => {
     all.length > 0 && all.every((x) => HEX32.test(x.traceId) && !/^0+$/.test(x.traceId)),
     all.filter((x) => !HEX32.test(x.traceId)).map((x) => x.traceId)
   )
-  const seed = seedFor(sessionOn)
+  const installIdForSeed = readInstallId()
+  const seed = seedFor(installIdForSeed, sessionOn)
   const traces = [...new Set(spans.map((x) => x.traceId))]
   check(`${fxOn.slug}: all evaluation spans share one trace id`, traces.length === 1, traces)
   check(
@@ -396,10 +404,7 @@ const main = async () => {
   )
 
   const res = spans[0]?.resource ?? {}
-  const installFile = path.join(HOME, 'config', 'instance-id.json')
-  const installId = fs.existsSync(installFile)
-    ? JSON.parse(fs.readFileSync(installFile, 'utf8')).instanceId
-    : null
+  const installId = readInstallId()
   check("resource['service.name'] === 'argus'", res['service.name'] === 'argus', res)
   check(
     "resource['argus.install.id'] is a 36-char UUID and THIS home's instance id",
