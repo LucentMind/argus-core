@@ -372,8 +372,14 @@ const clickButtonText = (conn, text) =>
 // ---------- Langfuse read-back ----------
 /** Poll spacing for the scores read-back. Langfuse Cloud counts `GET /api/public/v3/scores`
  *  against the shared per-organization "General API" bucket (30 req/min on the Hobby tier, fixed
- *  windows); 15s keeps a 90s poll under that budget even with a few pages per poll. */
+ *  windows); 15s keeps the whole poll under that budget even with a few pages per poll. */
 const SCORES_POLL_MS = 15_000
+
+/** How long the read-back keeps polling before recording whatever it last saw. Langfuse states that
+ *  every public read API other than v2 observations/metrics "may have data delays of several
+ *  minutes" (the `_deprecation` body of the retired `/api/public/scores`, seen live 2026-10-25), so
+ *  the old 90s budget would make a correct export look like a failure. 20 polls at 15s. */
+const SCORES_DEADLINE_MS = 5 * 60_000
 
 /** Clock-skew margin added to the exclusive `toTimestamp` upper bound so a score stamped a few
  *  seconds "in the future" by the Langfuse server is still inside the window. */
@@ -398,7 +404,7 @@ async function langfuseScoreCount() {
   const auth = Buffer.from(`${lf.publicKey}:${secret}`).toString('base64')
   const fixtureSlugs = new Set(FIXTURES.map((f) => f.slug))
   const base = lf.host.replace(/\/+$/, '')
-  const deadline = Date.now() + 90_000
+  const deadline = Date.now() + SCORES_DEADLINE_MS
   let last = 0
   while (Date.now() < deadline) {
     try {
