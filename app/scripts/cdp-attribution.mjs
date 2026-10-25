@@ -26,12 +26,14 @@
  *   1. ARGUS_HOME=<scratch> npx electron-vite dev -- --remote-debugging-port=9250
  *   2. ARGUS_HOME=<scratch> CDP_PORT=9250 node scripts/cdp-attribution.mjs
  *
- * Optional: LANGFUSE_SECRET_KEY (with Langfuse enabled + host + publicKey in the scratch home's
- * settings) lets the gate read the `asset.contribution` scores back from the Langfuse API. Without
+ * Optional: LANGFUSE_SECRET_KEY (with Langfuse enabled + host + publicKey under
+ * `observability.providers.langfuse` in the scratch home's settings) lets the gate read the
+ * `asset.contribution` scores back through `GET /api/public/v3/scores` (the only score read that
+ * outlives the 2026-11-16 Langfuse Cloud sunset of `/api/public/scores` and `/v2/scores`). Without
  * a configured Langfuse it prints `langfuse: not configured, skipped` and records NO assertion; a
  * trailing `langfuse: skipped` line just before the tally makes that visible. The read-back is
- * scoped to this gate's run (`fromTimestamp` = gate start, and the fixture slugs in the score
- * metadata), so scores from an earlier run can never satisfy it.
+ * scoped to this gate's run (a `fromTimestamp`..`toTimestamp` window from gate start to now, and
+ * the fixture slugs in the score metadata), so scores from an earlier run can never satisfy it.
  *
  * Spend: three real runs (~$2.6 each for the two full pipelines, less for the lite one). The gate
  * aborts with exit 2 BEFORE closing case 3 if cases 1+2 together cost more than $8 — after the
@@ -95,10 +97,14 @@ function forceSettings() {
   return file
 }
 
+/** The Langfuse provider block, or null when Langfuse is off / unconfigured. Settings live under
+ *  `observability.providers.langfuse` since the provider seam (#238); the flat
+ *  `observability.langfuse` block is the pre-#238 layout, which `migrateObservabilityProvider`
+ *  moves on boot — a home the app has not booted yet may still carry it, so it stays as a fallback. */
 function readLangfuseConfig() {
   try {
     const cur = JSON.parse(fs.readFileSync(path.join(HOME, 'config', 'settings.json'), 'utf8'))
-    const lf = cur.observability?.langfuse
+    const lf = cur.observability?.providers?.langfuse ?? cur.observability?.langfuse
     if (lf?.enabled && lf.host && lf.publicKey) return lf
   } catch {
     /* none */
@@ -364,6 +370,15 @@ const clickButtonText = (conn, text) =>
   })()`)
 
 // ---------- Langfuse read-back ----------
+/** Poll spacing for the scores read-back. Langfuse Cloud counts `GET /api/public/v3/scores`
+ *  against the shared per-organization "General API" bucket (30 req/min on the Hobby tier, fixed
+ *  windows); 15s keeps a 90s poll under that budget even with a few pages per poll. */
+const SCORES_POLL_MS = 15_000
+
+/** Clock-skew margin added to the exclusive `toTimestamp` upper bound so a score stamped a few
+ *  seconds "in the future" by the Langfuse server is still inside the window. */
+const SCORES_WINDOW_SKEW_MS = 5 * 60_000
+
 /** Returns the number of THIS run's asset.contribution scores, or `{ skipped: reason }`. Scoped
  *  twice so a previous run's scores can never satisfy it: the API query starts at the gate's own
  *  start time, and a score only counts when its metadata names one of the fixture slugs. */
@@ -382,26 +397,72 @@ async function langfuseScoreCount() {
   }
   const auth = Buffer.from(`${lf.publicKey}:${secret}`).toString('base64')
   const fixtureSlugs = new Set(FIXTURES.map((f) => f.slug))
-  const url = `${lf.host.replace(/\/+$/, '')}/api/public/scores?name=asset.contribution&limit=100&fromTimestamp=${encodeURIComponent(GATE_START_ISO)}`
+  const base = lf.host.replace(/\/+$/, '')
   const deadline = Date.now() + 90_000
   let last = 0
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(url, { headers: { Authorization: `Basic ${auth}` } })
-      if (res.ok) {
-        const body = await res.json()
-        const data = Array.isArray(body.data) ? body.data : []
-        last = data.filter((sc) => fixtureSlugs.has(sc?.metadata?.['argus.case.slug'])).length
-        if (last > 0) return last
+      const result = await fetchScoresV3(base, auth, fixtureSlugs)
+      if (result.retryAfterMs != null) {
+        console.error(
+          `langfuse: scores API rate-limited (429), retrying in ${result.retryAfterMs}ms`
+        )
+        await sleep(result.retryAfterMs)
+        continue
+      }
+      if (result.status != null) {
+        console.error(`langfuse: scores API answered ${result.status}`)
       } else {
-        console.error(`langfuse: scores API answered ${res.status}`)
+        last = result.count
+        if (last > 0) return last
       }
     } catch (e) {
       console.error(`langfuse: scores API unreachable (${String(e)})`)
     }
-    await sleep(5000) // ingestion lags the export
+    await sleep(SCORES_POLL_MS) // ingestion lags the export
   }
   return last
+}
+
+/**
+ * One read of this gate's `asset.contribution` scores through `GET /api/public/v3/scores`,
+ * following `meta.cursor` until the last page. Returns `{ count }` on success, `{ status }` on a
+ * non-429 error, `{ retryAfterMs }` on 429 (honouring `Retry-After`, in seconds, when present).
+ *
+ * v3 is the only score read that survives the 2026-11-16 Langfuse Cloud sunset: `/api/public/scores`
+ * and `/api/public/v2/scores` are both deprecated (404 on Langfuse v4). Differences from the old
+ * call that matter here: `metadata` is only returned with `fields=details`; `limit` is capped at 100
+ * (400 above); pagination is `cursor`, not `page`; `fromTimestamp` is an inclusive and
+ * `toTimestamp` an exclusive bound on the score timestamp, and every request is time-windowed.
+ */
+async function fetchScoresV3(base, auth, fixtureSlugs) {
+  const toIso = new Date(Date.now() + SCORES_WINDOW_SKEW_MS).toISOString()
+  let cursor = null
+  let count = 0
+  for (let page = 0; page < 20; page++) {
+    const params = new URLSearchParams({
+      name: 'asset.contribution',
+      fields: 'details',
+      limit: '100',
+      fromTimestamp: GATE_START_ISO,
+      toTimestamp: toIso
+    })
+    if (cursor) params.set('cursor', cursor)
+    const res = await fetch(`${base}/api/public/v3/scores?${params}`, {
+      headers: { Authorization: `Basic ${auth}` }
+    })
+    if (res.status === 429) {
+      const header = Number(res.headers.get('retry-after'))
+      return { retryAfterMs: Number.isFinite(header) && header > 0 ? header * 1000 : 30_000 }
+    }
+    if (!res.ok) return { status: res.status }
+    const body = await res.json()
+    const data = Array.isArray(body.data) ? body.data : []
+    count += data.filter((sc) => fixtureSlugs.has(sc?.metadata?.['argus.case.slug'])).length
+    cursor = typeof body.meta?.cursor === 'string' && body.meta.cursor ? body.meta.cursor : null
+    if (!cursor) break
+  }
+  return { count }
 }
 
 // ---------- CDP drive ----------
