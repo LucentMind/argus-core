@@ -20,6 +20,7 @@ import { CitedText } from './CitedText'
 import { uiStore } from '../lib/uiStore'
 import { MessageView } from './MessageView'
 import { ToolCallCard } from './ToolCallCard'
+import { InlineFinding } from './InlineFinding'
 import { Composer } from './Composer'
 import { ApprovalCard } from './ApprovalCard'
 import { QuestionCard } from './QuestionCard'
@@ -586,6 +587,19 @@ export function ChatPane({
           <span className="shrink-0">{item.text}</span>
           <span className="h-px flex-1 bg-hair" aria-hidden />
         </div>
+      )
+    }
+    // A recorded finding is content, not plumbing: it renders even with tool cards hidden.
+    if (item.name === 'mcp__argus__append_finding') {
+      return (
+        <InlineFinding
+          key={item.toolCallId}
+          item={item}
+          slug={slug}
+          sessionId={sessionId}
+          onCite={onCite}
+          hidden={!showToolCalls}
+        />
       )
     }
     if (!showToolCalls) return null
