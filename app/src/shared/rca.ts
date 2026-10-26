@@ -107,6 +107,9 @@ export interface CaseRcaInput {
     reviewReason?: string | null
     /** Who rejected it. 'agent' means the agent withdrew its own finding. */
     reviewActor?: 'agent' | 'human' | null
+    /** The human's reject tag and note (spec 2026-10-25); absent on inputs built before. */
+    rejectTag?: 'wrong' | 'not-useful' | 'other' | null
+    rejectNote?: string | null
     role: string | null
   }[]
   evidence: { relPath: string; artifactType: string; size: number }[]

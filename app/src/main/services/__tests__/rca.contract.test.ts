@@ -76,6 +76,19 @@ describe('buildCaseRcaPrompt', () => {
     expect(p).toContain('[finding 7]')
   })
 
+  it('renders a human-rejected finding with its reject tag and note', () => {
+    const input = minimalInput()
+    input.findings[0] = {
+      ...input.findings[0],
+      reviewState: 'rejected',
+      reviewActor: 'human',
+      rejectTag: 'wrong',
+      rejectNote: 'old build'
+    }
+    const p = buildCaseRcaPrompt(input, DEFAULT_RCA_TEMPLATE)
+    expect(p).toContain('[rejected · wrong: old build')
+  })
+
   it('labels the case-meta tracker line "jira" for a Jira-bound case', () => {
     const input = minimalInput()
     input.caseMeta.ticketProvider = 'jira'

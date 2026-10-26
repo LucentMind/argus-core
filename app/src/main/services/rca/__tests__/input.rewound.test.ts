@@ -29,3 +29,21 @@ describe('rca input and rewound turns', () => {
     expect(all).not.toContain(TAIL_TEXT)
   })
 })
+
+describe('rca input and the human reject tag', () => {
+  it('assembleRcaInput projects rejectTag and rejectNote onto the finding', () => {
+    const id = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, summary, review_state, created_at, review_actor, reject_tag, reject_note)
+           VALUES (?, NULL, 'Tagged', 'rejected', 'x', 'human', 'wrong', 'old build')`
+        )
+        .run(caseId).lastInsertRowid
+    )
+    const input = assembleRcaInput(db, tmp, SLUG)
+    expect(input.findings.find((f) => f.id === id)).toMatchObject({
+      rejectTag: 'wrong',
+      rejectNote: 'old build'
+    })
+  })
+})
