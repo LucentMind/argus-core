@@ -14,6 +14,7 @@ const SCANNED = [
   'app/src/main/services/agent/skillIndex.ts',
   'app/src/main/services/agent/referenceIndex.ts',
   'app/src/main/services/agent/session.ts',
+  'app/src/main/services/agent/reviewDelta.ts',
   'app/src/main/services/agent/nativeTools.ts',
   'app/src/main/services/agent/risk.ts',
   'app/src/main/services/memory.ts',
