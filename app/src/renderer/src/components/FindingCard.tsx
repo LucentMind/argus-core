@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
 import type { ReviewSeverity } from '../../../shared/reviewLayers'
+import { FINDING_REJECT_LABELS } from '../../../shared/observability'
 import type { FindingRole, FindingRow } from '../../../shared/observability'
 import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
@@ -73,7 +74,9 @@ export function FindingCard({
   onReview,
   onAction,
   onCite,
-  onDelete
+  onDelete,
+  onWhy,
+  footer
 }: {
   finding: FindingRow
   slug: string
@@ -90,6 +93,10 @@ export function FindingCard({
   onAction: (action: 'comment' | 'apply') => void
   onCite: (cite: CiteTarget) => void
   onDelete: (id: number) => void
+  /** Opens the reject-reason strip for this card (investigation mode only). */
+  onWhy?: () => void
+  /** Rendered as the card's last child — the reject strip when this card is being labelled. */
+  footer?: React.ReactNode
 }): React.JSX.Element {
   const accepted = f.reviewState === 'accepted'
   const rejected = f.reviewState === 'rejected'
@@ -143,6 +150,37 @@ export function FindingCard({
             )}
           </>
         )}
+        {/* The human's label (spec 2026-10-25 §4.4), in the slot the agent chip uses — the two are
+            exclusive on the actor. A tagged reject shows the label and the note; an untagged one
+            offers a ghost `why?`. Either click reopens the strip, so a label can be added or changed
+            later without re-rejecting. Investigation only: review cards have Post/Apply, not thumbs. */}
+        {rejected &&
+          f.reviewActor !== 'agent' &&
+          f.mode === 'investigation' &&
+          (f.rejectTag ? (
+            <>
+              <button
+                type="button"
+                aria-label="Change reject reason"
+                className="shrink-0 rounded-r1 border border-danger/35 px-1 text-[10px] whitespace-nowrap text-mute hover:text-ink"
+                onClick={onWhy}
+              >
+                {FINDING_REJECT_LABELS[f.rejectTag]}
+              </button>
+              {f.rejectNote && (
+                <span className="min-w-0 text-[10px] leading-snug text-mute">{f.rejectNote}</span>
+              )}
+            </>
+          ) : (
+            <button
+              type="button"
+              aria-label="Add reject reason"
+              className="shrink-0 rounded-r1 px-1 text-[10px] text-faint hover:text-ink"
+              onClick={onWhy}
+            >
+              why?
+            </button>
+          ))}
         {selectable && (
           <input
             type="checkbox"
@@ -301,6 +339,7 @@ export function FindingCard({
           />
         </div>
       )}
+      {footer}
     </li>
   )
 }
