@@ -120,7 +120,8 @@ import type {
   FindingRow,
   RetractResult,
   ReviewState,
-  UsageStatsPayload
+  UsageStatsPayload,
+  FindingRejectReason
 } from '../shared/observability'
 import type {
   PacksListPayload,
@@ -1166,8 +1167,11 @@ const argus = {
   },
   findings: {
     list: (slug: string): Promise<FindingRow[]> => invoke(IPC.findingsList, slug),
-    review: (id: number, state: ReviewState): Promise<FindingRow | null> =>
-      invoke(IPC.findingsReview, id, state),
+    review: (
+      id: number,
+      state: ReviewState,
+      reason?: FindingRejectReason
+    ): Promise<FindingRow | null> => invoke(IPC.findingsReview, id, state, reason),
     clear: (caseSlug: string, mode?: ModeId): Promise<{ cleared: number }> =>
       invoke(IPC.findingsClear, caseSlug, mode),
     delete: (id: number): Promise<{ deleted: true }> => invoke(IPC.findingsDelete, id)
