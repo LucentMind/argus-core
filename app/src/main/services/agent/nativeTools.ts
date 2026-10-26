@@ -68,6 +68,7 @@ import { saveItemSuggestion } from '../routines/runItems'
 import type { TriageSuggestion } from '../../../shared/routines'
 import type { WatermarkTarget } from '../../../shared/watermark'
 import type { AttributionRow } from '../../../shared/attribution'
+import type { FindingRow } from '../../../shared/observability'
 import {
   runToolScript,
   PTC_FOREGROUND_MAX_CALLS,
@@ -112,6 +113,9 @@ export interface NativeToolDeps {
   /** Fired with the attribution rows a `retract_finding` call implicitly overrode (spec §4.7),
    *  so the vendor-neutral `asset.contribution` score can be re-emitted. Absent in tests. */
   emitAttributions?: (rows: AttributionRow[]) => void
+  /** Fired with the finding row after the agent's own `retract_finding` changed it, so the
+   *  outcome score and anything else that watches reviews sees agent retractions too. */
+  onFindingReviewed?: (row: FindingRow) => void
   /** Fired after workspace_checkout materializes/switches a case worktree, so the
    *  renderer can refresh repo chips + repo snippet caches without a case switch. */
   onWorktreeChanged?: (caseSlug: string) => void
@@ -808,7 +812,8 @@ export function argusToolHandlers(
         throw new Error(wf(wdeps, 'review_write.unknown-finding'))
       }
       const res = retractFinding(db, findingId, reason, {
-        onOverride: (row) => deps.emitAttributions?.([row])
+        onOverride: (row) => deps.emitAttributions?.([row]),
+        onRetracted: (row) => deps.onFindingReviewed?.(row)
       })
       if (!res.ok) {
         throw new Error(

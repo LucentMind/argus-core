@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { describe, it, expect, vi } from 'vitest'
-import { ObservationExporter } from '../exporter'
+import { ObservationExporter, findingScoreId } from '../exporter'
 import { seedFor } from '../intent'
 import type { ObservationSink } from '../sink'
-import type { ObservationIntent } from '../intent'
+import type { ObservationIntent, ScoreIntent } from '../intent'
 import type { AgentEvent } from '../../../../shared/agent-events'
 import type { AssetAttributionEvent } from '../../../../shared/attribution'
 import type { FindingRow } from '../../../../shared/observability'
@@ -116,20 +116,96 @@ describe('ObservationExporter', () => {
     expect(ids[2]).not.toBe(ids[0])
   })
 
-  it('emits a finding_accepted score for a reviewed finding', () => {
+  it('emits a finding_accepted score with a deterministic id and the label metadata', () => {
     const { sink, seen } = fakeSink()
     const ex = new ObservationExporter(sink, OPTS)
-    ex.scoreFinding({ sessionId: 7, reviewState: 'accepted' } as FindingRow)
+    ex.scoreFinding(
+      {
+        id: 42,
+        sessionId: 7,
+        reviewState: 'rejected',
+        reviewActor: 'human',
+        rejectTag: 'wrong',
+        rejectNote: 'old build',
+        mode: 'investigation',
+        role: null
+      } as FindingRow,
+      { caseSlug: 'NAV-1' }
+    )
     expect(seen).toEqual([
-      { kind: 'score', seed: seedFor(INSTALL, 7), name: 'finding_accepted', value: 1 }
+      {
+        kind: 'score',
+        seed: seedFor(INSTALL, 7),
+        id: findingScoreId(INSTALL, 42),
+        name: 'finding_accepted',
+        value: 0,
+        metadata: {
+          findingId: 42,
+          caseSlug: 'NAV-1',
+          mode: 'investigation',
+          role: null,
+          actor: 'human',
+          tag: 'wrong',
+          installId: INSTALL
+        }
+      }
     ])
+  })
+
+  it('the id is stable across re-reviews of the same finding and differs per install', () => {
+    expect(findingScoreId('i1', 42)).toBe(findingScoreId('i1', 42))
+    expect(findingScoreId('i1', 42)).not.toBe(findingScoreId('i2', 42))
+    expect(findingScoreId('i1', 42)).toMatch(/^[0-9a-f]{32}$/)
+  })
+
+  it('sends the note (or the agent reason) as the comment only when content capture is on', () => {
+    const off = fakeSink()
+    new ObservationExporter(off.sink, { ...OPTS, captureContent: false }).scoreFinding({
+      id: 1,
+      sessionId: 7,
+      reviewState: 'rejected',
+      reviewActor: 'human',
+      rejectTag: 'other',
+      rejectNote: 'secret',
+      mode: 'investigation',
+      role: null
+    } as FindingRow)
+    expect(off.seen[0]).not.toHaveProperty('comment')
+    const on = fakeSink()
+    const ex = new ObservationExporter(on.sink, { ...OPTS, captureContent: true })
+    ex.scoreFinding({
+      id: 1,
+      sessionId: 7,
+      reviewState: 'rejected',
+      reviewActor: 'human',
+      rejectTag: 'other',
+      rejectNote: 'secret',
+      mode: 'investigation',
+      role: null
+    } as FindingRow)
+    ex.scoreFinding({
+      id: 2,
+      sessionId: 7,
+      reviewState: 'rejected',
+      reviewActor: 'agent',
+      reviewReason: 'guard elsewhere',
+      rejectTag: null,
+      rejectNote: null,
+      mode: 'investigation',
+      role: null
+    } as FindingRow)
+    expect(on.seen.map((s) => (s as { comment?: string }).comment)).toEqual([
+      'secret',
+      'guard elsewhere'
+    ])
+    expect((on.seen[1] as ScoreIntent).metadata?.actor).toBe('agent')
   })
 
   it('ignores pending findings and findings with no session', () => {
     const { sink, seen } = fakeSink()
     const ex = new ObservationExporter(sink, OPTS)
-    ex.scoreFinding({ sessionId: 7, reviewState: 'pending' } as FindingRow)
-    ex.scoreFinding({ sessionId: null, reviewState: 'accepted' } as FindingRow)
+    ex.scoreFinding({ id: 1, sessionId: 7, reviewState: 'pending' } as FindingRow)
+    ex.scoreFinding({ id: 2, sessionId: null, reviewState: 'accepted' } as FindingRow)
     ex.scoreFinding(null)
     expect(seen).toEqual([])
   })
