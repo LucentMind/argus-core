@@ -17,7 +17,7 @@ Per agent session, one trace:
 | Event | `session error` (level ERROR) | Carries the error message. |
 | Score | `hitl_approved` (1 / 0) | A permission request was allowed / denied. |
 | Score | `turn_error` (1) | A turn ended in error. |
-| Score | `finding_accepted` (1 / 0) | A finding was accepted / rejected on review (pending findings are not scored). |
+| Score | `finding_accepted` (1 / 0) | A finding was accepted (1) or rejected (0) on review, by the human or by the agent withdrawing its own finding. One score per finding — id `sha256(installId|finding|findingId)[:32]`, so a re-review upserts. Metadata: `findingId`, `caseSlug`, `mode`, `role`, `actor` (`human` / `agent`), `tag` (`wrong` / `not-useful` / `other` / null), `installId`. The comment (the human note, or the agent's reason) is sent only with `captureContent`. Pending findings are not scored. |
 | Score | `asset.contribution` (1 / 0 / −1) | Distillation's per-asset verdict: did a skill, reference or memory help or mislead a case. Silent verdicts are not scored. |
 
 Per distill job ATTEMPT (case job, attribution-only job, reject-digest job, dry run), one trace
