@@ -115,6 +115,8 @@ describe('assembleDistillInput', () => {
         reviewState: 'accepted',
         reviewReason: null,
         reviewActor: null,
+        rejectTag: null,
+        rejectNote: null,
         role: null,
         body: expect.stringContaining('Clock resync.')
       }
@@ -130,6 +132,24 @@ describe('assembleDistillInput', () => {
     expect(input.alreadyCaptured.proposals).toEqual([
       { type: 'reference-edit', target: 'dlt-cmds', title: 'Cmds', state: 'rejected' }
     ])
+  })
+
+  it('projects the human reject tag and note into the snapshot', () => {
+    const caseId = (db.prepare(`SELECT id FROM cases WHERE slug='case-a'`).get() as { id: number })
+      .id
+    const id = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, summary, review_state, created_at, review_actor, reject_tag, reject_note)
+           VALUES (?, NULL, 'Tagged', 'rejected', 'x', 'human', 'wrong', 'old build')`
+        )
+        .run(caseId).lastInsertRowid
+    )
+    const input = assembleDistillInput(db, home, 'case-a')
+    expect(input.findings.find((f) => f.id === id)).toMatchObject({
+      rejectTag: 'wrong',
+      rejectNote: 'old build'
+    })
   })
 
   it('lists a human-authored pending proposal as already captured, but never a job-stamped one', () => {

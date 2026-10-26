@@ -241,6 +241,8 @@ export function assembleDistillInput(
         reviewState: f.reviewState,
         reviewReason: f.reviewReason,
         reviewActor: f.reviewActor,
+        rejectTag: f.rejectTag,
+        rejectNote: f.rejectNote,
         role: f.role,
         body: f.body ?? ''
       })),
