@@ -5,7 +5,8 @@ import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
 import { uiStore } from '../lib/uiStore'
-import type { FindingRow, ReviewState } from '../../../shared/observability'
+import { findingsStore } from '../lib/findingsStore'
+import type { FindingRow } from '../../../shared/observability'
 import { REVIEW_LAYERS, REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { ReviewLayerId } from '../../../shared/reviewLayers'
 import type { ModeId } from '../../../shared/modes'
@@ -31,7 +32,10 @@ export function FindingsPane({
    *  report is built from investigation findings, and review mode has no such concept. */
   onOpenRca?: () => void
 }): React.JSX.Element {
-  const [findings, setFindings] = useState<FindingRow[]>([])
+  const { rows: findings, loaded } = useSyncExternalStore(
+    (cb) => findingsStore.subscribe(cb),
+    () => findingsStore.get(slug)
+  )
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [clearError, setClearError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -40,7 +44,6 @@ export function FindingsPane({
   const [actingId, setActingId] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [worktreeHead, setWorktreeHead] = useState<string | null>(null)
-  const [loaded, setLoaded] = useState(false)
   const [rcaBump, setRcaBump] = useState(0)
   const showSkeleton = usePendingDisplay(!loaded)
   const ui = useSyncExternalStore(
@@ -58,27 +61,12 @@ export function FindingsPane({
     () => reposStore.get(slug)
   ).names
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoaded(false)
-    void window.argus.findings.list(slug).then(
-      (rows) => {
-        setFindings(rows)
-        setLoaded(true)
-      },
-      (err) => {
-        // `loaded` on rejection too, so a failed fetch does not leave the pane skeletal forever.
-        // The findings are deliberately NOT cleared: a rejected fetch has not established that
-        // there are none, and a `bump`-triggered refetch that fails would otherwise wipe findings
-        // already on screen and replace them with "No findings yet." — the exact false claim this
-        // task exists to remove. (Cross-case leak of those stale findings is prevented by the
-        // `key={slug}` at the CaseWorkspace call site, not by anything here.)
-        console.warn(`[findings] list failed for ${slug}: ${(err as Error).message}`)
-        setLoaded(true)
-      }
-    )
-    // Loaded once per findingsBump (not per finding) — the stale check compares every row's
-    // recorded head_sha against this one shared value. Deliberately NOT part of `loaded`:
-    // it drives a staleness badge and must not hold the whole pane.
+    // The store keeps the last-known rows on a failed refetch (see findingsStore.load), so a
+    // `bump`-triggered reload never blanks findings already on screen. The bump is kept beside
+    // wireFindingsStore's own event wiring so this pane refetches in tests that drive
+    // agentStore directly. Loaded once per findingsBump (not per finding) — the stale check
+    // compares every row's recorded head_sha against this one shared value.
+    void findingsStore.load(slug)
     void window.argus.review.worktreeHead(slug).then(setWorktreeHead)
   }, [slug, sessionId, bump, rcaBump])
 
@@ -94,19 +82,10 @@ export function FindingsPane({
     return unsub
   }, [slug])
 
-  // Toggle semantics: clicking the active thumb returns the finding to pending.
+  // Toggle semantics (clicking the active thumb returns the finding to pending) and the
+  // merge onto the existing row (reviewFinding's row carries no `body`) live in the store.
   async function setReview(id: number, next: 'accepted' | 'rejected'): Promise<void> {
-    const cur = findings.find((f) => f.id === id)?.reviewState
-    const state: ReviewState = cur === next ? 'pending' : next
-    const row = await window.argus.findings.review(id, state)
-    // Merge onto the existing local finding rather than replacing it wholesale: the row
-    // reviewFinding returns comes straight from the findings table, with no `body` (only
-    // listFindings joins findings.md to attach one). A wholesale replace would silently drop
-    // the body from every finding the instant it's reviewed. Server-authoritative fields
-    // (reviewState/reviewActor/reviewReason/reviewedAt) still win via the spread order — a
-    // human review also changes reviewActor/reviewReason (e.g. overwriting an agent
-    // retraction), and this keeps that while preserving body and anything else local-only.
-    if (row) setFindings((prev) => prev.map((f) => (f.id === id ? { ...f, ...row } : f)))
+    await findingsStore.review(slug, id, next)
   }
 
   /**
@@ -172,7 +151,7 @@ export function FindingsPane({
     } catch (err) {
       setClearError((err as Error).message)
     } finally {
-      await window.argus.findings.list(slug).then(setFindings)
+      await findingsStore.load(slug)
     }
   }
 
@@ -192,8 +171,7 @@ export function FindingsPane({
     if (!ok) return
     setDeleteError(null)
     try {
-      await window.argus.findings.delete(id)
-      setFindings((prev) => prev.filter((x) => x.id !== id))
+      await findingsStore.remove(slug, id)
     } catch (err) {
       setDeleteError((err as Error).message)
     }
