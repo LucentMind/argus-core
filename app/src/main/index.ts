@@ -366,7 +366,8 @@ import {
   reviewFinding,
   clearFindings,
   deleteFinding,
-  retractFinding
+  retractFinding,
+  parseFindingRejectReason
 } from './services/findings'
 import type { FindingRow, MetricsQuery, RetractResult, ReviewState } from '../shared/observability'
 import {
@@ -2933,9 +2934,15 @@ function registerIpc(): void {
     })
   )
   ipcMain.handle(IPC.findingsList, (_e, caseSlug: string) => listFindings(db, argusHome, caseSlug))
-  ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState) => {
-    const row = reviewFinding(db, id, state)
-    observationExporter?.scoreFinding(row)
+  ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState, reason?: unknown) => {
+    // IPC arguments are untrusted: validate BEFORE the write so a malformed reason leaves the
+    // finding in its previous state (spec 2026-10-25 §4.3). parseFindingRejectReason throws.
+    if (!Number.isInteger(id)) throw new Error('findings:review: id must be an integer')
+    const parsed = parseFindingRejectReason(reason)
+    const row = reviewFinding(db, id, state, parsed, {
+      onOverride: (r) => emitAttributions([r])
+    })
+    if (row) onFindingReviewed(row)
     return row
   })
   ipcMain.handle(IPC.findingsClear, (_e, caseSlug: string, mode?: ModeId) => {
