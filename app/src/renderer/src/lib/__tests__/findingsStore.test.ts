@@ -1,0 +1,97 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { findingsStore, wireFindingsStore } from '../findingsStore'
+import type { FindingRow } from '../../../../shared/observability'
+
+const row = (over: Partial<FindingRow>): FindingRow =>
+  ({
+    id: 1,
+    caseId: 1,
+    sessionId: 1,
+    summary: 's',
+    reviewState: 'pending',
+    mode: 'investigation',
+    body: 'b',
+    ...over
+  }) as FindingRow
+
+let list: ReturnType<typeof vi.fn>
+let review: ReturnType<typeof vi.fn>
+let del: ReturnType<typeof vi.fn>
+let onEvent: ReturnType<typeof vi.fn>
+
+beforeEach(() => {
+  findingsStore.clearForTests()
+  list = vi.fn()
+  review = vi.fn()
+  del = vi.fn().mockResolvedValue({ deleted: true })
+  onEvent = vi.fn(() => () => {})
+  window.argus = {
+    findings: { list, review, delete: del },
+    agent: { onEvent }
+  } as never
+})
+
+describe('findingsStore', () => {
+  it('loads rows per slug and reports loaded', async () => {
+    list.mockResolvedValue([row({ id: 1 })])
+    expect(findingsStore.get('c1')).toEqual({ rows: [], loaded: false, error: null })
+    await findingsStore.load('c1')
+    expect(findingsStore.get('c1').rows.map((r) => r.id)).toEqual([1])
+    expect(findingsStore.get('c1').loaded).toBe(true)
+    expect(findingsStore.get('c2').rows).toEqual([])
+  })
+
+  it('keeps the last-known rows when a refetch fails, and records the error', async () => {
+    list.mockResolvedValueOnce([row({ id: 1 })]).mockRejectedValueOnce(new Error('boom'))
+    await findingsStore.load('c1')
+    await findingsStore.load('c1')
+    expect(findingsStore.get('c1').rows).toHaveLength(1)
+    expect(findingsStore.get('c1').loaded).toBe(true)
+    expect(findingsStore.get('c1').error).toBe('boom')
+  })
+
+  it('review toggles the active state back to pending, merges the row and keeps the body', async () => {
+    list.mockResolvedValue([row({ id: 1, reviewState: 'accepted' })])
+    await findingsStore.load('c1')
+    review.mockResolvedValue({ id: 1, reviewState: 'pending', reviewActor: null })
+    await findingsStore.review('c1', 1, 'accepted')
+    expect(review).toHaveBeenCalledWith(1, 'pending', undefined)
+    expect(findingsStore.get('c1').rows[0]).toMatchObject({ reviewState: 'pending', body: 'b' })
+  })
+
+  it('review with a reason never toggles: same state, reason forwarded', async () => {
+    list.mockResolvedValue([row({ id: 1, reviewState: 'rejected' })])
+    await findingsStore.load('c1')
+    review.mockResolvedValue({ id: 1, reviewState: 'rejected', rejectTag: 'wrong' })
+    await findingsStore.review('c1', 1, 'rejected', { tag: 'wrong' })
+    expect(review).toHaveBeenCalledWith(1, 'rejected', { tag: 'wrong' })
+    expect(findingsStore.get('c1').rows[0].rejectTag).toBe('wrong')
+  })
+
+  it('remove deletes through IPC and drops the row', async () => {
+    list.mockResolvedValue([row({ id: 1 }), row({ id: 2 })])
+    await findingsStore.load('c1')
+    await findingsStore.remove('c1', 1)
+    expect(del).toHaveBeenCalledWith(1)
+    expect(findingsStore.get('c1').rows.map((r) => r.id)).toEqual([2])
+  })
+
+  it('notifies subscribers on every change', async () => {
+    const cb = vi.fn()
+    findingsStore.subscribe(cb)
+    list.mockResolvedValue([])
+    await findingsStore.load('c1')
+    expect(cb).toHaveBeenCalled()
+  })
+
+  it('wireFindingsStore reloads the case on finding events', async () => {
+    list.mockResolvedValue([row({ id: 7 })])
+    wireFindingsStore()
+    const handler = onEvent.mock.calls[0][0] as (e: unknown) => void
+    handler({ type: 'case.finding.added', caseSlug: 'c9', sessionId: 1, payload: { markdown: '' } })
+    await vi.waitFor(() => expect(findingsStore.get('c9').rows.map((r) => r.id)).toEqual([7]))
+    handler({ type: 'content.delta', caseSlug: 'c9', sessionId: 1, payload: { text: '' } })
+    expect(list).toHaveBeenCalledTimes(1)
+  })
+})
