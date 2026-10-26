@@ -22,6 +22,7 @@ import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { notice } from '../lib/noticeStore'
 import { reposStore } from '../lib/reposStore'
+import { findingsStore, wireFindingsStore } from '../lib/findingsStore'
 import { sessionsStore } from '../lib/sessionsStore'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { panelKeyStr } from '../../../shared/panels'
@@ -197,6 +198,7 @@ export function CaseWorkspace({
 
   useEffect(() => {
     wireAgentStore()
+    wireFindingsStore()
     // guard against a fast A→B slug switch applying A's late-resolving result
     // after B's effect has already taken over
     let stale = false
@@ -265,6 +267,7 @@ export function CaseWorkspace({
 
   useEffect(() => {
     void reposStore.load(slug)
+    void findingsStore.load(slug)
   }, [slug])
 
   async function openInPanel(evidenceId: number, packId: string, windowId: string): Promise<void> {
