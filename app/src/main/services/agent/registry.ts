@@ -121,6 +121,7 @@ export interface AgentServiceDeps {
   onCaseClosed?: NativeToolDeps['onCaseClosed']
   /** Re-emits attribution rows a `retract_finding` call implicitly overrode. */
   emitAttributions?: NativeToolDeps['emitAttributions']
+  onFindingReviewed?: NativeToolDeps['onFindingReviewed']
   /** Fired after workspace_checkout materializes/switches a case worktree. */
   onWorktreeChanged?: (caseSlug: string) => void
   /** Dispatch a panel command to a case's open panel (3b-2); AgentService binds caseSlug per session. */
@@ -393,6 +394,7 @@ export class AgentService {
         : undefined,
       onCaseClosed: this.deps.onCaseClosed,
       emitAttributions: this.deps.emitAttributions,
+      onFindingReviewed: this.deps.onFindingReviewed,
       onWorktreeChanged: this.deps.onWorktreeChanged,
       defectCorpus: this.deps.defectCorpus,
       processLabels: this.deps.processLabels,

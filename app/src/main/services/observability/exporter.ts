@@ -17,6 +17,12 @@ export function attributionScoreId(e: AssetAttributionEvent): string {
     .slice(0, 32)
 }
 
+/** Deterministic 32-hex score id for one finding's review: a re-review (or a toggle back and
+ *  forth) upserts the same score instead of stacking a contradicting one per click. */
+export function findingScoreId(installId: string, findingId: number): string {
+  return createHash('sha256').update(`${installId}|finding|${findingId}`).digest('hex').slice(0, 32)
+}
+
 /**
  * Holds reducer state and forwards the resulting intents to a sink.
  *
@@ -55,14 +61,33 @@ export class ObservationExporter {
     this.push(intents)
   }
 
-  scoreFinding(row: FindingRow | null): void {
+  /**
+   * One `finding_accepted` score per finding (spec 2026-10-25 §4.7): 1 for accepted, 0 for a
+   * human reject or an agent retraction. Pending emits nothing — with a deterministic id a reset
+   * to pending leaves the last 1/0 in the sink until the next review upserts it, which is fine
+   * because the dataset reads the local table, not the sink. The comment is content and is
+   * gated on `captureContent`; the metadata is the label the eval dataset trains on.
+   */
+  scoreFinding(row: FindingRow | null, ctx: { caseSlug?: string } = {}): void {
     if (!row || row.sessionId == null || row.reviewState === 'pending') return
+    const comment = row.reviewActor === 'agent' ? row.reviewReason : row.rejectNote
     this.push([
       {
         kind: 'score',
         seed: seedFor(this.opts.installId, row.sessionId),
+        id: findingScoreId(this.opts.installId, row.id),
         name: 'finding_accepted',
-        value: row.reviewState === 'accepted' ? 1 : 0
+        value: row.reviewState === 'accepted' ? 1 : 0,
+        metadata: {
+          findingId: row.id,
+          ...(ctx.caseSlug ? { caseSlug: ctx.caseSlug } : {}),
+          mode: row.mode,
+          role: row.role,
+          actor: row.reviewActor,
+          tag: row.rejectTag,
+          installId: this.opts.installId
+        },
+        ...(this.opts.captureContent && comment ? { comment } : {})
       }
     ])
   }

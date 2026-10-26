@@ -368,7 +368,7 @@ import {
   deleteFinding,
   retractFinding
 } from './services/findings'
-import type { MetricsQuery, RetractResult, ReviewState } from '../shared/observability'
+import type { FindingRow, MetricsQuery, RetractResult, ReviewState } from '../shared/observability'
 import {
   DistillQueue,
   reconcileAndEnqueue,
@@ -1201,6 +1201,15 @@ function registerIpc(): void {
     } catch (err) {
       console.error('[attribution] emission failed', err)
     }
+  }
+  /** The case slug a finding row belongs to (FindingRow carries caseId only). */
+  function caseSlugById(caseId: number): string | undefined {
+    return (
+      db.prepare(`SELECT slug FROM cases WHERE id = ?`).get(caseId) as { slug: string } | undefined
+    )?.slug
+  }
+  function onFindingReviewed(row: FindingRow): void {
+    observationExporter?.scoreFinding(row, { caseSlug: caseSlugById(row.caseId) })
   }
   // Reused by the queue dep and the distill telemetry: the distill provider's model, per call
   // (it can change between jobs).
@@ -2190,6 +2199,7 @@ function registerIpc(): void {
     panelCommandDecls: () => flattenPanelCommands(packRegistry.windowDecls()),
     onCaseClosed,
     emitAttributions,
+    onFindingReviewed,
     onWorktreeChanged: (slug) => broadcast(IPC.workspacesChanged, slug),
     defectCorpus,
     processLabels: defaultProcessLabels,
@@ -4066,7 +4076,10 @@ function registerIpc(): void {
     assertDevTools(devTools)
     if (!Number.isInteger(id) || typeof reason !== 'string' || !reason.trim())
       throw new Error('dev-findings:retract: id must be an integer and reason a non-empty string')
-    return retractFinding(db, id, reason, { onOverride: (row) => emitAttributions([row]) })
+    return retractFinding(db, id, reason, {
+      onOverride: (row) => emitAttributions([row]),
+      onRetracted: onFindingReviewed
+    })
   })
 
   // — settings —

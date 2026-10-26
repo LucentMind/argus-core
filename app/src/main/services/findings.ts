@@ -248,7 +248,13 @@ export function retractFinding(
   db: DatabaseSync,
   id: number,
   reason: string,
-  opts: { actor?: 'agent' | 'human'; onOverride?: (row: AttributionRow) => void } = {}
+  opts: {
+    actor?: 'agent' | 'human'
+    onOverride?: (row: AttributionRow) => void
+    /** Fired with the updated row only when the retraction actually changed it (never for a
+     *  finding a human already rejected). The tool handler and the dev IPC score it. */
+    onRetracted?: (row: FindingRow) => void
+  } = {}
 ): RetractResult {
   const cur = db.prepare(`SELECT review_state, review_actor FROM findings WHERE id = ?`).get(id) as
     { review_state: string; review_actor: string | null } | undefined
@@ -270,10 +276,13 @@ export function retractFinding(
       console.error('[attribution] retraction override failed', err)
     }
   }
-  const row = db
-    .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
-    .get(id) as unknown as Raw
-  return { ok: true, row: toRow(row), changed: !humanRejected }
+  const row = toRow(
+    db
+      .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
+      .get(id) as unknown as Raw
+  )
+  if (!humanRejected) opts.onRetracted?.(row)
+  return { ok: true, row, changed: !humanRejected }
 }
 
 /** findings.md minus the marker segments for `ids` — mode-scoped clear must leave the other

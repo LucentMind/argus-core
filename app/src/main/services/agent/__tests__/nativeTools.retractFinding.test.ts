@@ -221,3 +221,15 @@ it('list_findings shows the human reject tag so the agent sees why it was turned
   const out = await h.list_findings({})
   expect(out).toContain(`#${id} · rejected · wrong: log is from the old build · Race in parser`)
 })
+
+it('retract_finding reports the retracted row through onFindingReviewed', async () => {
+  const s = sessionFor(caseId, 'investigation')
+  const reviewed: Array<{ id: number; reviewActor: string | null }> = []
+  const h = handlersFor(s, 'CASE-A', caseId, {
+    onFindingReviewed: (row) => reviewed.push({ id: row.id, reviewActor: row.reviewActor })
+  })
+  await h.append_finding({ title: 'Race in parser', markdown: 'r' })
+  const id = listFindings(db, home, 'CASE-A')[0].id
+  await h.retract_finding({ finding_id: id, reason: 'wrong file' })
+  expect(reviewed).toEqual([{ id, reviewActor: 'agent' }])
+})
