@@ -1,6 +1,7 @@
 import { MODES } from '../../../shared/modes'
 import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
 import { REVIEW_RUN_PROMPTS } from '../agent/reviewRun'
+import { REVIEW_DELTA_PROMPTS } from '../agent/reviewDelta'
 import { REVIEW_ACTION_PROMPTS } from '../agent/reviewActions'
 import { CI_TRIAGE_PROMPTS } from '../agent/ciTriage'
 import { NEUTRAL_PERSONA, DIAGRAM_FRAGMENT, CONTRIBUTE_BACK_NUDGE } from '../agent/persona'
@@ -241,6 +242,14 @@ const TOOL_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(TOOL_FEEDBACK, {
   category: 'tool-feedback',
   source: 'app/src/main/services/agent/nativeTools.ts',
   reaches: NATIVE_TOOL_DRIVERS
+})
+
+/** The note a session prefixes to its next driver send after the user reviewed findings. */
+const REVIEW_DELTA_ENTRIES: PromptEntry[] = specEntries(REVIEW_DELTA_PROMPTS, {
+  prefix: 'turn.review-delta',
+  category: 'session-context',
+  source: 'app/src/main/services/agent/reviewDelta.ts',
+  reaches: 'all'
 })
 
 const REVIEW_WRITE_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(REVIEW_WRITE_FEEDBACK, {
@@ -508,6 +517,7 @@ export const PROMPT_ENTRIES: readonly PromptEntry[] = [
   ...SESSION_ENTRIES,
   ...TOOL_ENTRIES,
   ...TOOL_FEEDBACK_ENTRIES,
+  ...REVIEW_DELTA_ENTRIES,
   ...REVIEW_WRITE_FEEDBACK_ENTRIES,
   ...CI_LOG_FEEDBACK_ENTRIES,
   ...MEMORY_FEEDBACK_ENTRIES,
