@@ -100,7 +100,7 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
   },
   {
     text: 'memory/${topic}.md updated',
-    why: 'Reports what a write did and is dominated by runtime data (topic, byte count, whether an index entry was added) — reword it and there is nothing left to say. Contrast tool-feedback.append_finding.ok, which IS registered: "finding appended" is a fixed sentence with no interpolation, so wording is the whole of it and worth being able to change.'
+    why: 'Reports what a write did and is dominated by runtime data (topic, byte count, whether an index entry was added) — reword it and there is nothing left to say. Contrast tool-feedback.append_finding.ok, which IS registered: "finding appended as #{id}" is a sentence whose wording is the whole of it (the id is the only runtime datum), so wording is worth being able to change.'
   },
   {
     text: 'is not available in this session',
