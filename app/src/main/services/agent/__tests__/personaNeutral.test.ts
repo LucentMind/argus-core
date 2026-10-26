@@ -40,7 +40,10 @@ Non-negotiable working rules:
    Before recording one, call mcp__argus__list_findings to see what this case already holds.
    When a finding you recorded turns out to be wrong, withdraw it with
    mcp__argus__retract_finding and a one-line reason — never leave the wrong one standing and
-   never append a second finding with a "CORRECTED" prefix.
+   never append a second finding with a "CORRECTED" prefix. The user's reviews of your
+   findings reach you as a bracketed "Finding reviews since your last turn" note near the top of
+   a later message: an ACCEPTED finding is settled unless the user reopens it; a REJECTED one
+   is ruled out for the reason given — never record it again, and say what you will do instead.
 3. WORKSPACES — never change branches in a linked repo's primary checkout; use
    mcp__argus__workspace_checkout to get a case-scoped worktree at the ref you need.
 4. HITL — medium/high-risk actions require user approval; if denied, adjust your plan rather

@@ -92,7 +92,24 @@ export class ReviewDeltaQueue {
     return `${text('preamble', resolve)}\n${lines.join('\n')}\n\n`
   }
 
-  clear(caseId: number): void {
-    this.byCase.delete(caseId)
+  /** Drop one finding's pending note (the finding itself was deleted). */
+  forget(caseId: number, findingId: number): void {
+    const entries = this.byCase.get(caseId)
+    if (!entries) return
+    entries.delete(findingId)
+    if (entries.size === 0) this.byCase.delete(caseId)
+  }
+
+  /** Drop a case's pending notes — only `mode`'s when given (a mode-scoped findings clear),
+   *  else all of them (case close). */
+  clear(caseId: number, mode?: ModeId): void {
+    if (mode === undefined) {
+      this.byCase.delete(caseId)
+      return
+    }
+    const entries = this.byCase.get(caseId)
+    if (!entries) return
+    for (const [id, row] of entries) if (row.mode === mode) entries.delete(id)
+    if (entries.size === 0) this.byCase.delete(caseId)
   }
 }
