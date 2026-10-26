@@ -645,6 +645,17 @@ export function openDb(file: string): DatabaseSync {
   if (!findingCols.some((c) => c.name === 'review_actor')) {
     db.exec(`ALTER TABLE findings ADD COLUMN review_actor TEXT`)
   }
+  // Human reject reasons (spec 2026-10-25). `reject_tag` is one of FINDING_REJECT_TAGS and
+  // `reject_note` its optional one-line note. Both are HUMAN-only and NULL on every accepted,
+  // pending and agent-retracted row, and on every human reject written before this column
+  // existed (unlabelled). `review_reason` stays the agent's: a column whose meaning flips on
+  // `review_actor` is the two-representations shape that has bitten before.
+  if (!findingCols.some((c) => c.name === 'reject_tag')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN reject_tag TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'reject_note')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN reject_note TEXT`)
+  }
   const turnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
   if (!turnCols.some((c) => c.name === 'model')) {
     db.exec(`ALTER TABLE turns ADD COLUMN model TEXT`)
