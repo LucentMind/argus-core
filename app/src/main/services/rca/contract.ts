@@ -32,7 +32,9 @@ Rules:
    carry that finding's id in findingId; use null only for claims no finding covers.
 2. Exactly one rootCause. If the evidence does not support a confident root cause, say so
    in the statement and set findingId null — do not invent certainty.
-3. ruledOut entries must say WHY each hypothesis was ruled out.
+3. ruledOut entries must say WHY each hypothesis was ruled out. A finding tagged
+   [rejected · <tag>: <note>] was rejected by the human for that reason — it belongs under
+   ruledOut with the note as the why, never under rootCause or contributing.
 4. duplicates: list finding pairs that state the same fact; ofFindingId is the one kept.
 5. sections: return one entry for EVERY id listed under "Report sections" below — no more are
    required, none may be omitted. Write each section's body to its own instruction. Cite

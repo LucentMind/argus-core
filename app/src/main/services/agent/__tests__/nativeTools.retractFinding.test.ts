@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { argusToolHandlers, type NativeToolDeps } from '../nativeTools'
-import { listFindings } from '../../findings'
+import { listFindings, reviewFinding } from '../../findings'
 import { writeAttributions } from '../../distill/attributions'
 import type { AttributionRow } from '../../../../shared/attribution'
 import type { Detection } from '../../packs/detection'
@@ -210,4 +210,14 @@ it('retract_finding hands an implicit attribution override to deps.emitAttributi
     assetName: 'nav/limits.md',
     overrideSource: 'finding-retraction'
   })
+})
+
+it('list_findings shows the human reject tag so the agent sees why it was turned down', async () => {
+  const s = sessionFor(caseId, 'investigation')
+  const h = handlersFor(s)
+  await h.append_finding({ title: 'Race in parser', markdown: 'r' })
+  const id = listFindings(db, home, 'CASE-A')[0].id
+  reviewFinding(db, id, 'rejected', { tag: 'wrong', note: 'log is from the old build' })
+  const out = await h.list_findings({})
+  expect(out).toContain(`#${id} · rejected · wrong: log is from the old build · Race in parser`)
 })
