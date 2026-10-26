@@ -6,12 +6,13 @@ import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
 import { uiStore } from '../lib/uiStore'
 import { findingsStore } from '../lib/findingsStore'
-import type { FindingRow } from '../../../shared/observability'
+import type { FindingRejectReason, FindingRow } from '../../../shared/observability'
 import { REVIEW_LAYERS, REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { ReviewLayerId } from '../../../shared/reviewLayers'
 import type { ModeId } from '../../../shared/modes'
 import type { CiteTarget } from '../lib/citations'
 import { FindingCard } from './FindingCard'
+import { FindingRejectStrip } from './FindingRejectStrip'
 import { IconBtn, SectionLabel, SkeletonRows } from './ui'
 
 export function FindingsPane({
@@ -42,6 +43,7 @@ export function FindingsPane({
   const [layerFilter, setLayerFilter] = useState<ReviewLayerId | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actingId, setActingId] = useState<number | null>(null)
+  const [rejectingId, setRejectingId] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [worktreeHead, setWorktreeHead] = useState<string | null>(null)
   const [rcaBump, setRcaBump] = useState(0)
@@ -84,8 +86,16 @@ export function FindingsPane({
 
   // Toggle semantics (clicking the active thumb returns the finding to pending) and the
   // merge onto the existing row (reviewFinding's row carries no `body`) live in the store.
-  async function setReview(id: number, next: 'accepted' | 'rejected'): Promise<void> {
-    await findingsStore.review(slug, id, next)
+  /** Reject now, reason strip after (spec 2026-10-25 D3): a thumbs-down that lands on
+   *  `rejected` opens the strip under that card; anything else — accept, a toggle back to
+   *  pending, a reason pick — closes it. Nothing here blocks. */
+  async function setReview(
+    id: number,
+    next: 'accepted' | 'rejected',
+    reason?: FindingRejectReason
+  ): Promise<void> {
+    const row = await findingsStore.review(slug, id, next, reason)
+    setRejectingId(row?.reviewState === 'rejected' && !reason ? id : null)
   }
 
   /**
@@ -319,13 +329,11 @@ export function FindingsPane({
           </div>
         )}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {/* `showSkeleton` alone is not enough to gate the skeleton: `loaded` resets to false on
-              every `bump`, and `bump` fires for EVERY finding an agent emits during a run, not just
-              a case/session switch. If that refetch is slow enough to cross usePendingDisplay's
-              150ms delay, a skeleton-only guard would win ahead of `shown.length > 0` and replace
-              findings the user is reading with grey blocks — a refetch must never blank content
-              already on screen. `shown.length === 0` keeps the skeleton exclusive with the list,
-              same as ReposSection's `workspaces.length === 0` guard. */}
+          {/* The skeleton is for the FIRST load of a slug only: `loaded` is store-owned and never
+              resets, and the store keeps the rows it already has across a `bump`-triggered refetch,
+              so a refetch cannot blank findings the user is reading. `shown.length === 0` is the
+              belt-and-braces half — it keeps the skeleton exclusive with the list, same as
+              ReposSection's `workspaces.length === 0` guard. */}
           {showSkeleton && shown.length === 0 ? (
             <SkeletonRows count={3} />
           ) : shown.length > 0 ? (
@@ -357,6 +365,15 @@ export function FindingsPane({
                   onAction={(action) => void runAction(f.id, action)}
                   onCite={onCite}
                   onDelete={(id) => void onDelete(id)}
+                  onWhy={() => setRejectingId(f.id)}
+                  footer={
+                    rejectingId === f.id && f.mode === 'investigation' ? (
+                      <FindingRejectStrip
+                        onPick={(reason) => void setReview(f.id, 'rejected', reason)}
+                        onSkip={() => setRejectingId(null)}
+                      />
+                    ) : undefined
+                  }
                 />
               ))}
             </ul>
