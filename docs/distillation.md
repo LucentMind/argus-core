@@ -204,6 +204,12 @@ installs (failure rate by stage, cost per pipeline version, acceptance by reject
 the backend; see [observability.md](observability.md) for the exact names and what `captureContent`
 gates.
 
+Findings carry the same kind of label: a human reject tags the finding `wrong`, `not-useful` or
+`other` with an optional one-line note, the agent's own retractions carry their reason, and every
+distill snapshot projects both (`rejectTag` / `rejectNote`, `reviewReason` / `reviewActor`) so the
+eval export can separate a false claim from true-but-noise. A snapshot is frozen at distill time;
+a label added later lives in the `findings` table, not in that snapshot.
+
 ## 1.7 Which pipeline should I pick
 
 **v2 is the default and it is the honest recommendation today.** v3 is built, tested and live-
