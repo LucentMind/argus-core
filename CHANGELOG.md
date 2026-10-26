@@ -28,6 +28,21 @@
   the machine unless a provider is enabled; stage raw output is gated by the provider's
   content-capture switch, and error strings are always cut at their first quote.
 
+**Findings review**
+
+- **Findings review where you read.** A finding the agent records now appears as a card in the
+  chat transcript, with the same thumbs as the findings rail; both read one store, so a review
+  made in either place shows in both.
+- **One-click reject reasons.** Thumbs-down rejects on the spot; a strip under the card then
+  offers `Wrong` / `Not useful` / `Other` with an optional one-line note (or Skip). A `Wrong` note
+  that names a skill, reference or memory of the case marks that asset as having misled it. The
+  tag reaches the distiller, the RCA draft and the agent's `list_findings`.
+- **The agent hears your reviews.** Findings you accept or reject between turns are summarised
+  at the top of the agent's next turn, so it stops defending a rejected finding and treats an
+  accepted one as settled.
+- `finding_accepted` observability scores now upsert per finding and carry the label metadata
+  (actor, tag, mode, role); the agent's own retractions are scored too.
+
 ### Changed
 
 - Settings: `observability.langfuse` moved to `observability.providers.langfuse` (migrated
