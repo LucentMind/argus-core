@@ -41,6 +41,25 @@ export type ReviewState = 'pending' | 'accepted' | 'rejected'
  *  the same path a human reject does at every display and prompt site. */
 export type ReviewActor = 'agent' | 'human'
 
+/** Why a HUMAN rejected a finding (spec 2026-10-25 §D1). Three tags on purpose — the owner will
+ *  not pick from five; `wrong` vs `not-useful` is the split the remedies need (evidence grounding
+ *  vs finding threshold). The agent's own reason lives in `review_reason`, never here. */
+export const FINDING_REJECT_TAGS = ['wrong', 'not-useful', 'other'] as const
+export type FindingRejectTag = (typeof FINDING_REJECT_TAGS)[number]
+export interface FindingRejectReason {
+  tag: FindingRejectTag
+  /** Optional one line; stored as its first non-blank line, ≤ 200 chars. */
+  note?: string
+}
+export const FINDING_REJECT_LABELS: Record<FindingRejectTag, string> = {
+  wrong: 'Wrong',
+  'not-useful': 'Not useful',
+  other: 'Other'
+}
+export function isFindingRejectTag(v: unknown): v is FindingRejectTag {
+  return typeof v === 'string' && (FINDING_REJECT_TAGS as readonly string[]).includes(v)
+}
+
 export type FindingRole = 'root-cause' | 'contributing' | 'symptom' | 'ruled-out' | 'duplicate'
 export const FINDING_ROLES: FindingRole[] = [
   'root-cause',
@@ -85,6 +104,12 @@ export interface FindingRow {
   reviewReason: string | null
   /** Who rejected it. 'agent' means the agent withdrew its own finding. */
   reviewActor: ReviewActor | null
+  /** The human's reject tag (spec 2026-10-25). Null on every accepted, pending and
+   *  agent-retracted row, and on every human reject written before the column existed —
+   *  "unlabelled", never coerced to `other`. */
+  rejectTag: FindingRejectTag | null
+  /** The human's optional one-line note beside `rejectTag`. */
+  rejectNote: string | null
   /** Derived from the finding's session (sessions.mode), never stored on the row.
    *  A finding with no session reads as the default mode. */
   mode: ModeId

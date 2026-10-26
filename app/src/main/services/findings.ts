@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   isFindingRole,
+  isFindingRejectTag,
   type FindingRow,
   type RetractResult,
   type ReviewState,
@@ -44,6 +45,8 @@ interface Raw {
   role: string | null
   review_reason: string | null
   review_actor: string | null
+  reject_tag: string | null
+  reject_note: string | null
 }
 
 function toRow(r: Raw): FindingRow {
@@ -78,7 +81,9 @@ function toRow(r: Raw): FindingRow {
       ? 'agent'
       : r.review_actor
         ? 'human'
-        : null) as ReviewActor | null
+        : null) as ReviewActor | null,
+    rejectTag: isFindingRejectTag(r.reject_tag) ? r.reject_tag : null,
+    rejectNote: r.reject_note ?? null
   }
 }
 
