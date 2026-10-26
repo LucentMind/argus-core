@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { FindingsPane } from '../FindingsPane'
+import { findingsStore } from '../../lib/findingsStore'
 import type { FindingRow } from '../../../../shared/observability'
 
 function row(over: Partial<FindingRow>): FindingRow {
@@ -37,6 +38,7 @@ function row(over: Partial<FindingRow>): FindingRow {
 const list = vi.fn()
 
 beforeEach(() => {
+  findingsStore.clearForTests()
   list.mockReset()
   window.argus = {
     findings: { list, review: vi.fn(), clear: vi.fn() },

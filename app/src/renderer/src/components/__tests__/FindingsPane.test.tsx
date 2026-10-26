@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, act, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { FindingsPane } from '../FindingsPane'
+import { findingsStore } from '../../lib/findingsStore'
 import { uiStore } from '../../lib/uiStore'
 import { clearSnippetCache } from '../../lib/snippetCache'
 import { confirm } from '../../lib/confirmStore'
@@ -49,6 +50,7 @@ function row(over: Partial<FindingRow>): FindingRow {
 const list = vi.fn()
 
 beforeEach(() => {
+  findingsStore.clearForTests()
   localStorage.clear()
   clearSnippetCache()
   reposStore.clearForTests()
@@ -248,7 +250,7 @@ describe('FindingsPane', () => {
     render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={() => {}} />)
     const good = await screen.findByRole('button', { name: /mark finding good/i })
     good.click()
-    expect(review).toHaveBeenCalledWith(1, 'accepted')
+    expect(review).toHaveBeenCalledWith(1, 'accepted', undefined)
   })
 
   it('clicking the active thumb toggles the finding back to pending', async () => {
@@ -266,7 +268,7 @@ describe('FindingsPane', () => {
     render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={() => {}} />)
     const good = await screen.findByRole('button', { name: /mark finding good/i })
     good.click()
-    expect(review).toHaveBeenCalledWith(1, 'pending')
+    expect(review).toHaveBeenCalledWith(1, 'pending', undefined)
   })
 
   describe('per-finding delete', () => {

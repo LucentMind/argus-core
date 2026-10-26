@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FindingsPane } from '../FindingsPane'
+import { findingsStore } from '../../lib/findingsStore'
 import type { FindingRow } from '../../../../shared/observability'
 
 function row(over: Partial<FindingRow>): FindingRow {
@@ -55,6 +56,7 @@ const postFindingComment = vi.fn()
 const worktreeHead = vi.fn()
 
 beforeEach(() => {
+  findingsStore.clearForTests()
   list.mockReset()
   composeActionPrompt.mockReset()
   send.mockReset()
