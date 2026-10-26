@@ -907,8 +907,8 @@ export function CaseWorkspace({
                   by mode client-side, so this keys on `slug` alone, not `${slug}:${activeMode}`
                   (unlike CaseFiles above) — keying on mode would discard a good fetch on every
                   mode toggle. The remount is what guarantees no cross-case findings leak now
-                  that a rejected fetch no longer clears state (see FindingsPane's list().catch
-                  comment): without it, this would stay a single long-lived instance across case
+                  that a rejected fetch no longer clears state (see findingsStore.load's
+                  keep-rows-on-failure rule): without it, this would stay a single long-lived instance across case
                   switches, and a failed fetch for the new case would leave the old case's
                   findings on screen under the new slug. The remount also resets the per-case
                   expandedId/selected/layerFilter state. */}

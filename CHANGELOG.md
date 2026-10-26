@@ -32,7 +32,9 @@
 
 - **Findings review where you read.** A finding the agent records now appears as a card in the
   chat transcript, with the same thumbs as the findings rail; both read one store, so a review
-  made in either place shows in both.
+  made in either place shows in both. On the ACP drivers (Codex, Gemini, Qwen) the transcript
+  still shows the plain tool row because those drivers do not canonicalise Argus tool names; the
+  rail, the reason strip and the agent-side review note work on every driver.
 - **One-click reject reasons.** Thumbs-down rejects on the spot; a strip under the card then
   offers `Wrong` / `Not useful` / `Other` with an optional one-line note (or Skip). A `Wrong` note
   that names a skill, reference or memory of the case marks that asset as having misled it. The

@@ -10,6 +10,7 @@ import {
 import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
 import type { ReviewSeverity } from '../../../shared/reviewLayers'
 import { FINDING_REJECT_LABELS } from '../../../shared/observability'
+import { REWIND_REVIEW_REASON } from '../../../shared/branching'
 import type { FindingRole, FindingRow } from '../../../shared/observability'
 import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
@@ -153,10 +154,11 @@ export function FindingCard({
         {/* The human's label (spec 2026-10-25 §4.4), in the slot the agent chip uses — the two are
             exclusive on the actor. A tagged reject shows the label and the note; an untagged one
             offers a ghost `why?`. Either click reopens the strip, so a label can be added or changed
-            later without re-rejecting. Investigation only: review cards have Post/Apply, not thumbs. */}
+            later without re-rejecting. Investigation only, and never on a rewound finding (not a judgement): review cards have Post/Apply, not thumbs. */}
         {rejected &&
           f.reviewActor !== 'agent' &&
           f.mode === 'investigation' &&
+          f.reviewReason !== REWIND_REVIEW_REASON &&
           (f.rejectTag ? (
             <>
               <button
