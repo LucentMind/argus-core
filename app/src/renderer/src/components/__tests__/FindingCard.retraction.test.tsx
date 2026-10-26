@@ -28,6 +28,8 @@ function row(over: Partial<FindingRow>): FindingRow {
     role: null,
     reviewReason: null,
     reviewActor: null,
+    rejectTag: null,
+    rejectNote: null,
     ...over
   }
 }
