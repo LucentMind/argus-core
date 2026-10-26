@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { AgentEvent } from '../../../shared/agent-events'
 import type { ApprovalDecision, DialogAnswer } from '../../../shared/types'
+import type { ReviewDeltaQueue } from './reviewDelta'
 import type { ModeId } from '../../../shared/modes'
 import type { ComposedMcp, RiskLevel } from '../../../shared/connectors'
 import type { RunOptionSelection } from '../../../shared/runOptions'
@@ -122,6 +123,9 @@ export interface AgentServiceDeps {
   /** Re-emits attribution rows a `retract_finding` call implicitly overrode. */
   emitAttributions?: NativeToolDeps['emitAttributions']
   onFindingReviewed?: NativeToolDeps['onFindingReviewed']
+  /** Queue of human finding reviews the agent has not heard about yet; drained by each session's
+   *  next send. Shared across sessions (keyed by case + mode inside). */
+  reviewDelta?: ReviewDeltaQueue
   /** Fired after workspace_checkout materializes/switches a case worktree. */
   onWorktreeChanged?: (caseSlug: string) => void
   /** Dispatch a panel command to a case's open panel (3b-2); AgentService binds caseSlug per session. */
@@ -395,6 +399,7 @@ export class AgentService {
       onCaseClosed: this.deps.onCaseClosed,
       emitAttributions: this.deps.emitAttributions,
       onFindingReviewed: this.deps.onFindingReviewed,
+      reviewDelta: this.deps.reviewDelta,
       onWorktreeChanged: this.deps.onWorktreeChanged,
       defectCorpus: this.deps.defectCorpus,
       processLabels: this.deps.processLabels,

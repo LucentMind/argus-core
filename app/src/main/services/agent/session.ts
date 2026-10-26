@@ -41,6 +41,7 @@ import { DEFAULT_MODE, type ModeId } from '../../../shared/modes'
 import { compileLayerAgents, type SubagentDefinition } from './reviewSubagents'
 import { REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { SubagentSupport } from '../../../shared/drivers'
+import type { ReviewDeltaQueue } from './reviewDelta'
 import { reviewSubagentSupport } from './reviewFraming'
 import { prHead, defaultGhRunner, type Runner } from '../github'
 import type { WatermarkTarget } from '../../../shared/watermark'
@@ -189,6 +190,9 @@ export interface SessionDeps {
   ) => Promise<unknown>
   /** Prompt-registry resolver (`services/prompts/store.ts`). Absent = use the constants. */
   resolvePrompt?: (id: string) => string
+  /** Human finding reviews waiting to be told to the agent; drained into the NEXT driver send
+   *  (spec 2026-10-26 §5.3). Absent in tests that do not care. */
+  reviewDelta?: ReviewDeltaQueue
   /** Multi-source known-defects search, session-bound by AgentService. Absent when the
    *  corpus feature is unwired (tests, or a session built without it). */
   defectCorpus?: NativeToolDeps['defectCorpus']
@@ -772,6 +776,11 @@ export class CaseSession {
     if (this.state === 'dead') throw new Error('session is dead')
     // Captured BEFORE the turnIndex bump and before any of this turn's own rows exist.
     const digest = this.historyDigestForTurn()
+    // The user's finding reviews since the agent last ran. Like the digest, DRIVER-only: the
+    // transcript, the title, the FTS index and the bundle all keep the raw user text — the
+    // reviews themselves are already visible on the finding cards.
+    const delta =
+      this.deps.reviewDelta?.drain(this.deps.caseId, this.mode, this.deps.resolvePrompt) ?? ''
     this.turnIndex++
     this.activeTurn = true
     // Task 7 (fix round 2): deliberately NOT clearing `auditedToolCallIds` here. A turn
@@ -796,8 +805,8 @@ export class CaseSession {
         ...(opts?.composed ? { composed: true } : {})
       })
     )
-    // The ONLY consumer of the digest. Everything above deliberately used raw `text`.
-    this.driverSession.send(digest + text)
+    // The ONLY consumer of the digest and the delta. Everything above deliberately used raw `text`.
+    this.driverSession.send(digest + delta + text)
     return this.turnIndex
   }
 
