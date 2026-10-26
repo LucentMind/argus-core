@@ -95,7 +95,10 @@ export function FindingsPane({
     reason?: FindingRejectReason
   ): Promise<void> {
     const row = await findingsStore.review(slug, id, next, reason)
-    setRejectingId(row?.reviewState === 'rejected' && !reason ? id : null)
+    // A failed save must not discard the typed note: a reason pick that comes back null keeps
+    // the strip open. Otherwise the strip is open only on a fresh reject with no reason yet.
+    const keepOpen = reason ? row === null : row?.reviewState === 'rejected'
+    setRejectingId(keepOpen ? id : null)
   }
 
   /**

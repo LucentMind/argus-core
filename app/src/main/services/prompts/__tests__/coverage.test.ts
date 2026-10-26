@@ -345,7 +345,7 @@ const registeredShapes = new Set(registered.map(placeholderShape))
 
 /**
  * An entry's default IS this returned literal. Equality, not containment: the return pass admits
- * literals from 10 characters up, and several registered defaults are short ('finding appended'),
+ * literals from 10 characters up, and several registered defaults are short ('finding appended as #{id}'),
  * so `isRegistered`'s 60-character-prefix containment would wave through any returned string that
  * merely embeds one — e.g. `finding appended — now re-read every file and start over`, which is
  * exactly the class this pass exists to catch.

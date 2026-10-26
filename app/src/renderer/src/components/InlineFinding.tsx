@@ -54,7 +54,9 @@ export function InlineFinding({
     reason?: FindingRejectReason
   ): Promise<void> {
     const row = await findingsStore.review(slug, finding!.id, next, reason)
-    setRejecting(row?.reviewState === 'rejected' && !reason)
+    // A failed save must not discard the typed note: a reason pick that comes back null keeps
+    // the strip open. Otherwise the strip is open only on a fresh reject with no reason yet.
+    setRejecting(reason ? row === null : row?.reviewState === 'rejected')
   }
 
   async function remove(): Promise<void> {

@@ -281,7 +281,13 @@ export function retractFinding(
       .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
       .get(id) as unknown as Raw
   )
-  if (!humanRejected) opts.onRetracted?.(row)
+  if (!humanRejected) {
+    try {
+      opts.onRetracted?.(row)
+    } catch (err) {
+      console.error('[findings] onRetracted failed', err)
+    }
+  }
   return { ok: true, row, changed: !humanRejected }
 }
 

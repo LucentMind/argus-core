@@ -88,6 +88,17 @@ describe('FindingCard human reject reason', () => {
     expect(screen.queryByRole('button', { name: /reject reason/ })).not.toBeInTheDocument()
     expect(screen.getByText('retracted by agent')).toBeInTheDocument()
   })
+  it('offers no reason on a rewound finding (a rewind is not a judgement)', () => {
+    mount(
+      row({
+        reviewState: 'rejected',
+        reviewActor: 'human',
+        reviewReason: 'rewound'
+      })
+    )
+    expect(screen.queryByRole('button', { name: 'Add reject reason' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Change reject reason' })).not.toBeInTheDocument()
+  })
   it('renders the footer slot inside the card', () => {
     render(
       <ul>

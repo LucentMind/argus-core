@@ -77,6 +77,16 @@ describe('FindingsPane reject strip', () => {
     )
     expect(screen.getByText('Wrong')).toBeInTheDocument()
   })
+  it('a failed reason save (store returns null) keeps the strip open', async () => {
+    await pane(row({}))
+    review.mockResolvedValueOnce({ id: 1, reviewState: 'rejected', reviewActor: 'human' })
+    await userEvent.click(screen.getByRole('button', { name: /mark finding not useful/i }))
+    review.mockResolvedValueOnce(null)
+    await userEvent.click(await screen.findByRole('button', { name: 'Reject as wrong' }))
+    await waitFor(() => expect(review).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reject as wrong' })).toBeInTheDocument()
+  })
   it('Skip closes the strip with no call; the card then offers why?', async () => {
     await pane(row({}))
     review.mockResolvedValueOnce({ id: 1, reviewState: 'rejected', reviewActor: 'human' })

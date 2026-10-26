@@ -1355,6 +1355,8 @@ function registerIpc(): void {
   })
   distillQueue.recoverOnBoot()
   const onCaseClosed = (rec: CaseRecord, opts: CloseOptions): void => {
+    // Spec 2026-10-26 §5.3: unsent review notes are dropped when the case closes.
+    reviewDelta.clear(rec.id)
     try {
       // The four-row checkbox table lives in routeCaseClose (queue.ts). The case branch goes
       // through reconcileAndEnqueue: an in-flight job for this case (started while it was open)
@@ -2948,8 +2950,13 @@ function registerIpc(): void {
       onOverride: (r) => emitAttributions([r])
     })
     if (row) {
-      onFindingReviewed(row)
-      reviewDelta.note(row)
+      // The review is already committed: a throwing hook must not turn it into an IPC failure.
+      try {
+        onFindingReviewed(row)
+        reviewDelta.note(row)
+      } catch (err) {
+        console.error('[findings] post-review hooks failed', err)
+      }
     }
     return row
   })
@@ -2958,9 +2965,18 @@ function registerIpc(): void {
     // IPC args are untrusted: an unknown mode must not silently no-op or clear everything.
     if (mode !== undefined && mode !== 'investigation' && mode !== 'review')
       throw new Error(`Invalid mode: ${JSON.stringify(mode)}`)
-    return clearFindings(db, argusHome, caseSlug, mode)
+    const kase = getCase(db, caseSlug)
+    const res = clearFindings(db, argusHome, caseSlug, mode)
+    if (kase) reviewDelta.clear(kase.id, mode)
+    return res
   })
-  ipcMain.handle(IPC.findingsDelete, (_e, id: number) => deleteFinding(db, argusHome, id))
+  ipcMain.handle(IPC.findingsDelete, (_e, id: number) => {
+    const owner = db.prepare('SELECT case_id FROM findings WHERE id = ?').get(id) as
+      { case_id: number } | undefined
+    const res = deleteFinding(db, argusHome, id)
+    if (owner) reviewDelta.forget(owner.case_id, id)
+    return res
+  })
 
   // — workspaces —
   ipcMain.handle(IPC.workspacesPick, async () => {
