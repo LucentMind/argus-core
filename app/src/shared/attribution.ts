@@ -37,7 +37,7 @@ export interface AttributionOutput {
   duplicateDropped: number
 }
 
-export type OverrideSource = 'finding-retraction' | 'proposal-reject'
+export type OverrideSource = 'finding-retraction' | 'proposal-reject' | 'finding-reject'
 
 export interface AttributionRow {
   id: number

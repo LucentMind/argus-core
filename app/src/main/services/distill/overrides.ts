@@ -1,14 +1,21 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { matchAssetMention, type AssetKind, type AttributionRow } from '../../../shared/attribution'
+import {
+  matchAssetMention,
+  type AssetKind,
+  type AttributionRow,
+  type OverrideSource
+} from '../../../shared/attribution'
 import type { RejectReason } from '../../../shared/proposals'
 import { applyAttributionOverride, assetNamesForCase } from './attributions'
 import { refFileName } from '../proposals'
 
-/** Spec §4.7: a retraction whose reason names an asset of that case flips it to misled. */
-export function overrideFromRetraction(
+/** A finding-scoped free text (a retraction reason, a human reject note) that names an asset of
+ *  the finding's case flips that asset to misled, stamped with `source`. */
+function overrideFromFindingText(
   db: DatabaseSync,
   findingId: number,
-  reason: string
+  text: string,
+  source: Extract<OverrideSource, 'finding-retraction' | 'finding-reject'>
 ): AttributionRow | null {
   const f = db
     .prepare(
@@ -16,15 +23,34 @@ export function overrideFromRetraction(
     )
     .get(findingId) as { slug: string } | undefined
   if (!f) return null
-  const hit = matchAssetMention(reason, assetNamesForCase(db, f.slug))
+  const hit = matchAssetMention(text, assetNamesForCase(db, f.slug))
   if (!hit) return null
   return applyAttributionOverride(db, {
     caseSlug: f.slug,
     kind: hit.kind,
     name: hit.name,
     verdict: 'misled',
-    source: 'finding-retraction'
+    source
   })
+}
+
+/** Spec §4.7: a retraction whose reason names an asset of that case flips it to misled. */
+export function overrideFromRetraction(
+  db: DatabaseSync,
+  findingId: number,
+  reason: string
+): AttributionRow | null {
+  return overrideFromFindingText(db, findingId, reason, 'finding-retraction')
+}
+
+/** Spec 2026-10-25 §4.6: a human `wrong` reject whose note names an asset of the case flips it
+ *  to misled. The caller decides the tag gate (`wrong` only); this function only matches. */
+export function overrideFromFindingReject(
+  db: DatabaseSync,
+  findingId: number,
+  note: string
+): AttributionRow | null {
+  return overrideFromFindingText(db, findingId, note, 'finding-reject')
 }
 
 const EDIT_KIND: Record<string, AssetKind> = {

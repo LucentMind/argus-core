@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   isFindingRole,
   isFindingRejectTag,
+  type FindingRejectReason,
   type FindingRow,
   type RetractResult,
   type ReviewState,
@@ -15,7 +16,7 @@ import type { RoleAssignment } from '../../shared/rca'
 import { caseDir } from './paths'
 import { getCase } from './caseService'
 import { appendDeletionAudit } from './deletionAudit'
-import { overrideFromRetraction } from './distill/overrides'
+import { overrideFromRetraction, overrideFromFindingReject } from './distill/overrides'
 import type { AttributionRow } from '../../shared/attribution'
 
 export type { FindingRow, ReviewState }
@@ -142,7 +143,37 @@ export function listFindings(db: DatabaseSync, argusHome: string, caseSlug: stri
   })
 }
 
-export function reviewFinding(db: DatabaseSync, id: number, state: ReviewState): FindingRow | null {
+/** The `rejectProposal` note rule: first non-blank line, trimmed, at most 200 chars; null when
+ *  there is nothing left. */
+export function firstNoteLine(note: string | undefined): string | null {
+  const line = (note ?? '')
+    .split(/\r\n|\r|\n/)
+    .find((l) => l.trim())
+    ?.trim()
+    .slice(0, 200)
+  return line || null
+}
+
+/** IPC-boundary validation of a reject reason. `undefined`/`null` mean "no reason" (the plain
+ *  thumb). Anything else must be `{ tag: <FindingRejectTag>, note?: string }` or this throws —
+ *  before any write, so the finding keeps its previous state. */
+export function parseFindingRejectReason(v: unknown): FindingRejectReason | undefined {
+  if (v === undefined || v === null) return undefined
+  if (typeof v !== 'object') throw new Error(`Invalid reject reason: ${JSON.stringify(v)}`)
+  const { tag, note } = v as { tag?: unknown; note?: unknown }
+  if (!isFindingRejectTag(tag)) throw new Error(`Invalid reject tag: ${JSON.stringify(tag)}`)
+  if (note !== undefined && typeof note !== 'string')
+    throw new Error(`Invalid reject note: ${JSON.stringify(note)}`)
+  return note === undefined ? { tag } : { tag, note }
+}
+
+export function reviewFinding(
+  db: DatabaseSync,
+  id: number,
+  state: ReviewState,
+  reason?: FindingRejectReason,
+  opts: { onOverride?: (row: AttributionRow) => void } = {}
+): FindingRow | null {
   if (!REVIEW_STATES.includes(state))
     throw new Error(`Invalid review state: ${JSON.stringify(state)}`)
   const reviewedAt = state === 'pending' ? null : new Date().toISOString()
@@ -157,9 +188,33 @@ export function reviewFinding(db: DatabaseSync, id: number, state: ReviewState):
   // regardless of whether the column still has it. Clearing it here would just destroy the
   // agent's stated reasoning with no undo and no audit trail, for no visible benefit.
   const reviewActor = state === 'pending' ? null : 'human'
-  db.prepare(
-    `UPDATE findings SET review_state = ?, reviewed_at = ?, review_actor = ? WHERE id = ?`
-  ).run(state, reviewedAt, reviewActor, id)
+  // The human's label (spec 2026-10-25 §4.2): a reject WITH a reason writes it; a reject
+  // WITHOUT one leaves whatever label is there (the plain thumb never wipes a label, so a fresh
+  // reject of a pending row lands NULL/NULL); accept and pending clear both.
+  const note = reason ? firstNoteLine(reason.note) : null
+  if (state === 'rejected' && reason) {
+    db.prepare(
+      `UPDATE findings SET review_state = ?, reviewed_at = ?, review_actor = ?, reject_tag = ?, reject_note = ? WHERE id = ?`
+    ).run(state, reviewedAt, reviewActor, reason.tag, note, id)
+  } else if (state === 'rejected') {
+    db.prepare(
+      `UPDATE findings SET review_state = ?, reviewed_at = ?, review_actor = ? WHERE id = ?`
+    ).run(state, reviewedAt, reviewActor, id)
+  } else {
+    db.prepare(
+      `UPDATE findings SET review_state = ?, reviewed_at = ?, review_actor = ?, reject_tag = NULL, reject_note = NULL WHERE id = ?`
+    ).run(state, reviewedAt, reviewActor, id)
+  }
+  // Spec 2026-10-25 §4.2/§4.6: the override sits ON the write. Only `wrong` with a stored note
+  // says anything about an asset; a failure here is logged and never fails the review.
+  if (state === 'rejected' && reason?.tag === 'wrong' && note) {
+    try {
+      const overridden = overrideFromFindingReject(db, id, note)
+      if (overridden) opts.onOverride?.(overridden)
+    } catch (err) {
+      console.error('[attribution] finding-reject override failed', err)
+    }
+  }
   const row = db
     .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
     .get(id) as unknown as Raw | undefined
