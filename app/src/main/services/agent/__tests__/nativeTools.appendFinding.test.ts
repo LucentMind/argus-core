@@ -189,3 +189,19 @@ describe('append_finding via argusToolHandlers records comment_body and head_sha
     expect(row.head_sha).toBeNull()
   })
 })
+
+it('append_finding reports the new row id in its result', async () => {
+  const h = argusToolHandlers({
+    db,
+    argusHome: home,
+    detection: createDetection(),
+    caseId: ctx.caseId,
+    caseSlug: 'CASE-A',
+    sessionId: 5,
+    emitFinding: () => {},
+    githubWatermark: () => ({ enabled: false, text: '' })
+  })
+  const out = await h.append_finding({ title: 'Race', markdown: 'r' })
+  const id = (db.prepare(`SELECT MAX(id) AS id FROM findings`).get() as { id: number }).id
+  expect(out).toBe(`finding appended as #${id}`)
+})

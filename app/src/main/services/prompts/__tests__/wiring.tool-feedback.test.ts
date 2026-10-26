@@ -35,7 +35,8 @@ describe('tool-feedback registry entries', () => {
       'from',
       'total'
     ])
-    expect(entryById('tool-feedback.append_finding.ok')?.placeholders).toBeUndefined()
+    expect(entryById('tool-feedback.append_finding.ok')?.placeholders).toEqual(['id'])
+    expect(entryById('tool-feedback.search_case_history.empty')?.placeholders).toBeUndefined()
   })
 
   it('every declared placeholder appears in its own default text', () => {

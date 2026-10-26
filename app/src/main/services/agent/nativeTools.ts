@@ -224,7 +224,8 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   },
   'append_finding.ok': {
     title: 'append_finding — success',
-    text: 'finding appended'
+    text: 'finding appended as #{id}',
+    placeholders: ['id']
   },
   'update_case_status.invalid-status': {
     title: 'update_case_status — unknown status',
@@ -714,7 +715,7 @@ export function argusToolHandlers(
         { db, argusHome, git: deps.git, resolve: deps.resolve },
         caseSlug
       )
-      const { block } = appendFinding(
+      const { block, findingId } = appendFinding(
         {
           db,
           argusHome,
@@ -737,7 +738,9 @@ export function argusToolHandlers(
         }
       )
       deps.emitFinding(block)
-      return fb('append_finding.ok')
+      // The id is what the chat transcript's inline finding card resolves the row by
+      // (shared/findingRef.ts) — an override of this text must keep `#{id}` for that to work.
+      return fb('append_finding.ok', { id: String(findingId) })
     },
 
     async read_findings(args) {
