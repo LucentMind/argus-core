@@ -16,15 +16,18 @@ export const REVIEW_DELTA_PROMPTS: PromptTextSpecs = {
   },
   accepted: {
     title: 'Review delta — accepted line',
-    text: '- Finding #{id} "{summary}" — ACCEPTED by the user.'
+    text: '- Finding #{id} "{summary}" — ACCEPTED by the user.',
+    placeholders: ['id', 'summary']
   },
   rejected: {
     title: 'Review delta — rejected line',
-    text: '- Finding #{id} "{summary}" — REJECTED by the user ({why}).'
+    text: '- Finding #{id} "{summary}" — REJECTED by the user ({why}).',
+    placeholders: ['id', 'summary', 'why']
   },
   cleared: {
     title: 'Review delta — review cleared line',
-    text: '- Finding #{id} "{summary}" — review cleared by the user (back to unreviewed).'
+    text: '- Finding #{id} "{summary}" — review cleared by the user (back to unreviewed).',
+    placeholders: ['id', 'summary']
   },
   'no-reason': {
     title: 'Review delta — untagged reject',

@@ -205,6 +205,7 @@ import { TextDocSearchHub, type TextDocSearchOpts } from './services/textdocSear
 import type { TextDocSource } from '../shared/textdoc'
 import { searchMessages, searchAllMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
+import { ReviewDeltaQueue } from './services/agent/reviewDelta'
 import { ownerKeyOf } from './services/agent/session'
 import { buildReferenceIndex } from './services/agent/referenceIndex'
 import { flattenPanelCommands } from './services/agent/panelCommands'
@@ -1212,6 +1213,9 @@ function registerIpc(): void {
   function onFindingReviewed(row: FindingRow): void {
     observationExporter?.scoreFinding(row, { caseSlug: caseSlugById(row.caseId) })
   }
+  // Human reviews the agent has not been told about yet; each session drains its own mode's
+  // share into its next driver send (spec 2026-10-26 §5.3).
+  const reviewDelta = new ReviewDeltaQueue()
   // Reused by the queue dep and the distill telemetry: the distill provider's model, per call
   // (it can change between jobs).
   const judgeModel = (): string => {
@@ -2201,6 +2205,7 @@ function registerIpc(): void {
     onCaseClosed,
     emitAttributions,
     onFindingReviewed,
+    reviewDelta,
     onWorktreeChanged: (slug) => broadcast(IPC.workspacesChanged, slug),
     defectCorpus,
     processLabels: defaultProcessLabels,
@@ -2942,7 +2947,10 @@ function registerIpc(): void {
     const row = reviewFinding(db, id, state, parsed, {
       onOverride: (r) => emitAttributions([r])
     })
-    if (row) onFindingReviewed(row)
+    if (row) {
+      onFindingReviewed(row)
+      reviewDelta.note(row)
+    }
     return row
   })
   ipcMain.handle(IPC.findingsClear, (_e, caseSlug: string, mode?: ModeId) => {
