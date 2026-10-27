@@ -50,3 +50,26 @@ export function parseHumanFindingPatch(v: unknown): Pick<FindingPatch, 'role' | 
   if (Object.keys(out).length === 0) throw new Error('Invalid finding patch: empty')
   return out
 }
+
+/** The card's one-line explanation of a refused HUMAN edit (the agent's wording lives in
+ *  TOOL_FEEDBACK). The two agent-only refusals never reach a human edit; they still get text. */
+export function describeUpdateRefusal(reason: UpdateRefusal, existingRoot?: number): string {
+  switch (reason) {
+    case 'unknown':
+      return 'That finding no longer exists.'
+    case 'empty':
+      return 'Nothing to change.'
+    case 'bad-cause':
+      return 'The cause must be another finding of this case.'
+    case 'self-cause':
+      return 'A finding cannot be caused by itself.'
+    case 'cycle':
+      return 'That would make a loop in the chain.'
+    case 'second-root':
+      return `Finding #${existingRoot} is already the confirmed root cause — change its role first.`
+    case 'accepted-locked':
+      return 'An accepted finding keeps its status and role.'
+    case 'rca-frozen':
+      return 'That role was set by the confirmed RCA report.'
+  }
+}

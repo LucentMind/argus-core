@@ -12,7 +12,7 @@ import { fillPrompt } from '../prompts/fill'
 export const REVIEW_DELTA_PROMPTS: PromptTextSpecs = {
   preamble: {
     title: 'Review delta — preamble',
-    text: "[Finding reviews since your last turn — the user's judgement on findings you recorded. An ACCEPTED finding is settled unless the user reopens it. A REJECTED finding is ruled out; its reason says how — do not record it again and do not restate it as a conclusion. Call list_findings for the full picture.]"
+    text: "[Finding reviews since your last turn — the user's judgement on findings you recorded. An ACCEPTED finding is settled unless the user reopens it. A REJECTED finding is ruled out; its reason says how — do not record it again and do not restate it as a conclusion. A line that says the user set a role or cause is their edit of the causal chain — keep it unless they ask otherwise. Call list_findings for the full picture.]"
   },
   accepted: {
     title: 'Review delta — accepted line',
@@ -28,6 +28,11 @@ export const REVIEW_DELTA_PROMPTS: PromptTextSpecs = {
     title: 'Review delta — review cleared line',
     text: '- Finding #{id} "{summary}" — review cleared by the user (back to unreviewed).',
     placeholders: ['id', 'summary']
+  },
+  edited: {
+    title: 'Review delta — human chain edit line',
+    text: '- Finding #{id} "{summary}" — the user set its role to {role} and its cause to {cause}.',
+    placeholders: ['id', 'summary', 'role', 'cause']
   },
   'no-reason': {
     title: 'Review delta — untagged reject',
@@ -59,20 +64,39 @@ export function renderReviewDeltaLine(row: FindingRow, resolve?: Resolve): strin
   }
 }
 
+/** One line per human chain edit, from the row's CURRENT role and cause. */
+export function renderReviewEditLine(row: FindingRow, resolve?: Resolve): string {
+  return fillPrompt(text('edited', resolve), {
+    id: String(row.id),
+    summary: row.summary,
+    role: row.role ?? 'none',
+    cause: row.causedBy === null ? 'none' : `#${row.causedBy}`
+  })
+}
+
+/** A pending finding: its latest row, and which kinds of human action it carries. */
+type Entry = { row: FindingRow; reviewed: boolean; edited: boolean }
+
 /**
- * Per-case queue of human reviews the agent has not been told about yet (spec 2026-10-26 §5.3).
- * `note` records the row's latest state (last review of a finding wins); `drain` renders the
- * block a session of `mode` prefixes to its next driver send and forgets exactly what it
- * rendered. In-memory on purpose: a note lost to a restart costs one `list_findings` call, and a
- * persisted queue would need its own lifecycle. Keyed by caseId because that is what
+ * Per-case queue of human reviews and chain edits the agent has not been told about yet (spec
+ * 2026-10-26 §5.3). `note` records the row's latest state (the last action on a finding wins the
+ * row; the kinds accumulate, so a finding reviewed AND edited renders one line per kind); `drain`
+ * renders the block a session of `mode` prefixes to its next driver send and forgets exactly
+ * what it rendered. In-memory on purpose: a note lost to a restart costs one `list_findings`
+ * call, and a persisted queue would need its own lifecycle. Keyed by caseId because that is what
  * `CaseSession` and `FindingRow` both carry.
  */
 export class ReviewDeltaQueue {
-  private byCase = new Map<number, Map<number, FindingRow>>()
+  private byCase = new Map<number, Map<number, Entry>>()
 
-  note(row: FindingRow): void {
-    const entries = this.byCase.get(row.caseId) ?? new Map<number, FindingRow>()
-    entries.set(row.id, row)
+  note(row: FindingRow, kind: 'review' | 'edit' = 'review'): void {
+    const entries = this.byCase.get(row.caseId) ?? new Map<number, Entry>()
+    const prev = entries.get(row.id)
+    entries.set(row.id, {
+      row,
+      reviewed: (prev?.reviewed ?? false) || kind === 'review',
+      edited: (prev?.edited ?? false) || kind === 'edit'
+    })
     this.byCase.set(row.caseId, entries)
   }
 
@@ -82,9 +106,10 @@ export class ReviewDeltaQueue {
     const entries = this.byCase.get(caseId)
     if (!entries) return ''
     const lines: string[] = []
-    for (const [id, row] of entries) {
-      if (row.mode !== mode) continue
-      lines.push(renderReviewDeltaLine(row, resolve))
+    for (const [id, e] of entries) {
+      if (e.row.mode !== mode) continue
+      if (e.reviewed) lines.push(renderReviewDeltaLine(e.row, resolve))
+      if (e.edited) lines.push(renderReviewEditLine(e.row, resolve))
       entries.delete(id)
     }
     if (entries.size === 0) this.byCase.delete(caseId)
@@ -109,7 +134,7 @@ export class ReviewDeltaQueue {
     }
     const entries = this.byCase.get(caseId)
     if (!entries) return
-    for (const [id, row] of entries) if (row.mode === mode) entries.delete(id)
+    for (const [id, e] of entries) if (e.row.mode === mode) entries.delete(id)
     if (entries.size === 0) this.byCase.delete(caseId)
   }
 }

@@ -1,6 +1,11 @@
 // app/src/main/services/agent/__tests__/reviewDelta.test.ts
 import { describe, it, expect } from 'vitest'
-import { ReviewDeltaQueue, renderReviewDeltaLine, REVIEW_DELTA_PROMPTS } from '../reviewDelta'
+import {
+  ReviewDeltaQueue,
+  renderReviewDeltaLine,
+  renderReviewEditLine,
+  REVIEW_DELTA_PROMPTS
+} from '../reviewDelta'
 import type { FindingRow } from '../../../../shared/observability'
 
 function row(over: Partial<FindingRow>): FindingRow {
@@ -120,5 +125,38 @@ describe('ReviewDeltaQueue', () => {
     const out = q.drain(1, 'investigation')
     expect(out).not.toContain('#4')
     expect(out).toContain('#5')
+  })
+})
+
+describe('human chain edits', () => {
+  it('renders the edit line from the current role and cause', () => {
+    expect(
+      renderReviewEditLine(row({ role: 'root-cause', causedBy: null, roleSource: 'human' }))
+    ).toBe(
+      '- Finding #4 "Race in parser" — the user set its role to root-cause and its cause to none.'
+    )
+    expect(renderReviewEditLine(row({ role: null, causedBy: 2 }))).toBe(
+      '- Finding #4 "Race in parser" — the user set its role to none and its cause to #2.'
+    )
+  })
+  it('queues an edit beside a review and drains one line per kind, once', () => {
+    const q = new ReviewDeltaQueue()
+    q.note(row({ id: 4, reviewState: 'accepted' }))
+    q.note(row({ id: 4, reviewState: 'accepted', role: 'symptom', causedBy: 2 }), 'edit')
+    q.note(row({ id: 5, role: 'contributing' }), 'edit')
+    const out = q.drain(1, 'investigation')
+    expect(out).toContain('- Finding #4 "Race in parser" — ACCEPTED by the user.')
+    expect(out).toContain(
+      '- Finding #4 "Race in parser" — the user set its role to symptom and its cause to #2.'
+    )
+    expect(out).toContain(
+      '- Finding #5 "Race in parser" — the user set its role to contributing and its cause to none.'
+    )
+    expect(out.match(/Finding #4/g)).toHaveLength(2)
+    expect(out).not.toContain('#5 "Race in parser" — ACCEPTED')
+    expect(q.drain(1, 'investigation')).toBe('')
+  })
+  it('the preamble explains chain edits', () => {
+    expect(REVIEW_DELTA_PROMPTS.preamble.text).toContain('set a role or cause')
   })
 })

@@ -368,8 +368,10 @@ import {
   clearFindings,
   deleteFinding,
   retractFinding,
+  updateFinding,
   parseFindingRejectReason
 } from './services/findings'
+import { parseHumanFindingPatch, describeUpdateRefusal } from '../shared/findingPatch'
 import type { FindingRow, MetricsQuery, RetractResult, ReviewState } from '../shared/observability'
 import {
   DistillQueue,
@@ -2959,6 +2961,22 @@ function registerIpc(): void {
       }
     }
     return row
+  })
+  ipcMain.handle(IPC.findingsUpdate, (_e, id: number, patch: unknown) => {
+    // Untrusted args: validate BEFORE the write; parseHumanFindingPatch throws on any key but
+    // role / causedBy (status is the agent's claim — no human editor). A refusal from
+    // updateFinding is a one-line card message, never a stack.
+    if (!Number.isInteger(id)) throw new Error('findings:update: id must be an integer')
+    const parsed = parseHumanFindingPatch(patch)
+    const res = updateFinding(db, argusHome, id, parsed, { actor: 'human' })
+    if (!res.ok) throw new Error(describeUpdateRefusal(res.reason, res.existingRoot))
+    // Spec §5.3: a human chain edit reaches the agent like a review does.
+    try {
+      reviewDelta.note(res.row, 'edit')
+    } catch (err) {
+      console.error('[findings] post-update hooks failed', err)
+    }
+    return res.row
   })
   ipcMain.handle(IPC.findingsClear, (_e, caseSlug: string, mode?: ModeId) => {
     assertSlug(caseSlug)
