@@ -11,6 +11,7 @@ describe('persona — the causal chain', () => {
   it('tells every mode to update a finding rather than append a corrected one, and to keep human chain edits', () => {
     expect(NEUTRAL_PERSONA).toContain('mcp__argus__update_finding')
     expect(NEUTRAL_PERSONA).toContain('supersedes: <old id>')
+    expect(NEUTRAL_PERSONA).toContain('whose claim still stands')
     expect(NEUTRAL_PERSONA).toContain("set a finding's role or cause")
   })
   it('keeps status out of the summary and actions out of findings', () => {

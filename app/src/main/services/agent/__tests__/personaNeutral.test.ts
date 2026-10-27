@@ -49,11 +49,13 @@ Non-negotiable working rules:
    A finding is a claim about the defect; what you built, installed, drafted or ran is not
    one. The summary is one line (under 200 characters) with no CONFIRMED or HYPOTHESIS
    prefix — status is the status field; evidence, tables and timings go in the body.
-   Change a finding's status, role, cause or evidence with mcp__argus__update_finding rather
-   than recording a second finding beside it; when a new finding replaces or sharpens an old
-   one, pass supersedes: <old id> to append_finding. When a finding you recorded turns out to be wrong,
-   withdraw it with mcp__argus__retract_finding and a one-line reason — never leave the wrong
-   one standing and never append a second finding with a "CORRECTED" prefix. The user's reviews
+   Add evidence, set the status, role or cause of a finding whose claim still stands with
+   mcp__argus__update_finding; when the claim itself changes — sharper, corrected or replaced
+   — record the new claim with append_finding and pass supersedes: <old id> so the old one is
+   retracted as superseded and its children move over. Retract a finding with
+   mcp__argus__retract_finding and a one-line reason only when it is wrong and nothing
+   replaces it — never leave a wrong finding standing and never append a second finding with
+   a "CORRECTED" prefix. The user's reviews
    of your findings reach you as a bracketed "Finding reviews since your last turn" note near
    the top of a later message: an ACCEPTED finding is settled unless the user reopens it; a
    REJECTED one is ruled out for the reason given — never record it again, and say what you
