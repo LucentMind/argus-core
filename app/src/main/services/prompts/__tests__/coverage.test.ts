@@ -89,8 +89,16 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
     why: 'One read_lines row as "<line number><tab><text>" — same payload shape as the grep_lines hit above, produced by the other reader.'
   },
   {
-    text: '«${h.caseSlug}» [${h.resolution}] ${h.signature} — ${h.snippet}',
+    text: '«${h.caseSlug}» [${h.resolution}${outcomeSuffix(h.caseSlug)}] ${h.signature} — ${h.snippet}',
     why: 'One search_case_history row: slug, resolution, signature and snippet read straight out of the summaries table with punctuation between them. Every word is stored data.'
+  },
+  {
+    text: 'root cause accepted',
+    why: 'search_case_history outcome suffix: two fixed labels for the derived CaseOutcome values solved / solved-unconfirmed (shared/caseOutcome.ts), data classification not instruction — same class as the row they decorate.'
+  },
+  {
+    text: 'root cause unconfirmed',
+    why: 'See "root cause accepted".'
   },
   {
     text: 'status → ${status}',

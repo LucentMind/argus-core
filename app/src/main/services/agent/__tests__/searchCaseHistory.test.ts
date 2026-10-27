@@ -73,6 +73,35 @@ describe('search_case_history', () => {
     )
   })
 
+  it('suffixes a solved case with whether a human accepted its root cause', async () => {
+    const handlers = argusToolHandlers({
+      db,
+      argusHome,
+      detection,
+      caseId: 1,
+      caseSlug: 'new-case',
+      sessionId: 1,
+      emitFinding,
+      githubWatermark: () => ({ enabled: false, text: '' })
+    })
+    db.prepare(`UPDATE cases SET status = 'closed', resolution = 'solved' WHERE slug = 'old'`).run()
+    const caseId = (db.prepare(`SELECT id FROM cases WHERE slug = 'old'`).get() as { id: number })
+      .id
+    db.prepare(
+      `INSERT INTO findings (case_id, session_id, summary, review_state, created_at, role, role_source, status)
+       VALUES (?, NULL, 'root', 'pending', 'x', 'root-cause', 'agent', 'confirmed')`
+    ).run(caseId)
+    expect(String(await handlers.search_case_history({ query: 'DLT' }))).toContain(
+      '«old» [solved · root cause unconfirmed] ECU reset drifts DLT timestamps'
+    )
+    db.prepare(
+      `UPDATE findings SET review_state = 'accepted', review_actor = 'human' WHERE case_id = ?`
+    ).run(caseId)
+    expect(String(await handlers.search_case_history({ query: 'DLT' }))).toContain(
+      '«old» [solved · root cause accepted] ECU reset drifts DLT timestamps'
+    )
+  })
+
   it('is classified LOW/allow', () => {
     const v = classifyToolCall('mcp__argus__search_case_history', {}, ctx())
     expect(v).toMatchObject({ action: 'allow', risk: 'LOW' })
