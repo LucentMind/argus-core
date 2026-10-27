@@ -142,6 +142,7 @@ describe('ChatPane inline finding', () => {
     await userEvent.selectOptions(screen.getByLabelText('Role'), 'symptom')
     expect(update).toHaveBeenCalledWith(7, { role: 'symptom' })
     expect(await screen.findByText('That would make a loop in the chain.')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('That would make a loop in the chain.')
     expect((screen.getByLabelText('Role') as HTMLSelectElement).value).toBe('')
     expect(findingsStore.get('NAV-1').rows[0].role).toBeNull()
   })
