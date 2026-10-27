@@ -1,11 +1,16 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FindingsDocument } from '../FindingsDocument'
 import { findingsStore } from '../../lib/findingsStore'
 import type { FindingRow } from '../../../../shared/observability'
+
+vi.mock('../../lib/confirmStore', () => ({
+  confirm: vi.fn(() => Promise.resolve(true)),
+  alert: vi.fn(() => Promise.resolve())
+}))
 
 function row(over: Partial<FindingRow>): FindingRow {
   return {
@@ -139,6 +144,21 @@ describe('FindingsDocument', () => {
     )
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByTestId('review-walk')).toBeNull()
+  })
+  it('shows the error under the card and keeps it when the delete call rejects', async () => {
+    list.mockResolvedValue(chain())
+    ;(window.argus.findings as unknown as { delete: ReturnType<typeof vi.fn> }).delete = vi.fn(
+      async () => {
+        throw new Error('Finding is locked by a sibling job')
+      }
+    )
+    render(<FindingsDocument slug="c1" sessionId={1} onCite={vi.fn()} />)
+    const card = (await screen.findByText('hyp body')).closest('li') as HTMLElement
+    fireEvent.click(within(card).getByRole('button', { name: 'Delete finding' }))
+    expect(await within(card).findByRole('alert')).toHaveTextContent(
+      'Finding is locked by a sibling job'
+    )
+    expect(screen.getByText('Fallback never tried')).toBeInTheDocument()
   })
   it('shows the empty state', async () => {
     list.mockResolvedValue([])
