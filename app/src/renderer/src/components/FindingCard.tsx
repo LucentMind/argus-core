@@ -109,8 +109,8 @@ export function FindingCard({
   const hypothesis = f.mode === 'investigation' && f.status === 'hypothesis'
   return (
     <li
-      data-status={f.status}
-      style={depth > 0 ? { marginLeft: depth * 14 } : undefined}
+      data-status={f.mode === 'investigation' ? f.status : undefined}
+      style={f.mode === 'investigation' && depth > 0 ? { marginLeft: depth * 14 } : undefined}
       className={`group/f relative rounded-r2 border bg-panel ${
         accepted ? 'border-review/35' : rejected ? 'border-danger/35' : 'border-hair'
       } ${hypothesis ? 'border-dashed' : ''}`}
@@ -407,6 +407,15 @@ export function FindingCard({
                     #{o.id} {o.summary}
                   </option>
                 ))}
+              {/* The stored cause is always an option, even when it is no longer selectable (a
+                  rejected / ruled-out / duplicate / superseded row): a controlled select with no
+                  matching option shows "none" while the chip says otherwise, and picking "none"
+                  would fire no change event, so the dead cause could never be cleared. */}
+              {f.causedBy !== null && !causeOptions.some((o) => o.id === f.causedBy) && (
+                <option key={f.causedBy} value={f.causedBy}>
+                  #{f.causedBy} (inactive)
+                </option>
+              )}
             </select>
           </label>
         </div>

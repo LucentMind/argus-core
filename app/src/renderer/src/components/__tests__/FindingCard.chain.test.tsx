@@ -114,6 +114,25 @@ describe('FindingCard — chain', () => {
     expect(onEdit).toHaveBeenLastCalledWith({ causedBy: null })
   })
 
+  it('keeps an inactive stored cause selected and lets the human clear it', async () => {
+    const onEdit = vi.fn()
+    // #6 was rejected, so it is not among the selectable (active) options.
+    mount(row({ causedBy: 6 }), {
+      open: true,
+      onEdit,
+      causeOptions: [
+        { id: 1, summary: 'Race in parser' },
+        { id: 9, summary: 'Other' }
+      ]
+    })
+    const cause = screen.getByLabelText('Caused by') as HTMLSelectElement
+    expect(cause.value).toBe(String(6))
+    expect([...cause.options].map((o) => o.value)).toEqual(['', '9', '6'])
+    expect(cause.selectedOptions[0]).toHaveTextContent('#6 (inactive)')
+    await userEvent.selectOptions(cause, '')
+    expect(onEdit).toHaveBeenLastCalledWith({ causedBy: null })
+  })
+
   it('renders no editors on a closed card, on a review card, or without onEdit', () => {
     mount(row({}), { open: false, onEdit: vi.fn() })
     expect(screen.queryByTestId('chain-editors')).toBeNull()
@@ -131,8 +150,12 @@ describe('FindingCard — chain', () => {
     mount(row({ mode: 'review', status: 'hypothesis', causedBy: 6 }))
     expect(screen.queryByTestId('status-chip')).toBeNull()
     expect(screen.queryByTestId('caused-by-chip')).toBeNull()
-    expect(screen.getByText('Race in parser').closest('li')!.className).not.toContain(
-      'border-dashed'
-    )
+    const li = screen.getByText('Race in parser').closest('li')!
+    expect(li.className).not.toContain('border-dashed')
+    expect(li).not.toHaveAttribute('data-status')
+    cleanup()
+
+    mount(row({ mode: 'review' }), { depth: 2 })
+    expect(screen.getByText('Race in parser').closest('li')!.style.marginLeft).toBe('')
   })
 })

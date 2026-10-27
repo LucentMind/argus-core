@@ -108,7 +108,11 @@ export function InlineFinding({
         footer={
           editError || rejecting ? (
             <>
-              {editError && <p className="px-3 pb-1 text-[10.5px] text-danger">{editError}</p>}
+              {editError && (
+                <p role="alert" className="px-3 pb-1 text-[10.5px] text-danger">
+                  {editError}
+                </p>
+              )}
               {rejecting && (
                 <FindingRejectStrip
                   onPick={(reason) => void review('rejected', reason)}
