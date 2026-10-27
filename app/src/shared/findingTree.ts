@@ -55,13 +55,14 @@ const ROLE_RANK: Record<FindingRole, number> = {
   duplicate: 4
 }
 const rank = (f: ChainRow): number => (isFindingRole(f.role) ? ROLE_RANK[f.role] : 3)
-const idOf = (f: ChainRow, i: number): number => f.id ?? -(i + 1)
+const idOf = (f: ChainRow, i: number, n: number): number => f.id ?? -(n - i)
 
 /** The only ordering of a case's findings. Pure: the rail, `list_findings` and every prompt
  *  site call it (through `renderFindingTree`). Rows without an id (pre-v3 snapshots) get a
- *  negative placeholder for the walk only; it never renders. */
+ *  negative placeholder for the walk only (it never renders), ascending in input order so rows of
+ *  equal rank keep the order they came in. */
 export function buildFindingTree<T extends ChainRow>(rows: readonly T[]): FindingTree<T> {
-  const keyed = rows.map((row, i) => ({ row, id: idOf(row, i) }))
+  const keyed = rows.map((row, i) => ({ row, id: idOf(row, i, rows.length) }))
   const byRankThenId = (a: { row: T; id: number }, b: { row: T; id: number }): number =>
     rank(a.row) - rank(b.row) || a.id - b.id
   const active = keyed.filter((k) => !isInactiveFinding(k.row))
@@ -132,8 +133,9 @@ function line(f: TreeTextRow, depth: number): string {
  * The one text form of the tree (spec 2026-10-26 §9.1): `list_findings` prints it without
  * bodies; the distill v2 prompt, the v3 dossier prompt and the RCA prompt print it with. With
  * `bodies`, a finding's body follows its line unindented (markdown must not be indented into a
- * code block), then a blank line; a superseded row (§9.3) never gets a body — it is folded into
- * its successor. Empty input renders as the empty string: the caller decides what "(none)" is.
+ * code block), and a blank line separates consecutive entries; a superseded row (§9.3) never
+ * gets a body — it is folded into its successor. Sections are one blank line apart and the
+ * output has no trailing newline. Empty input renders as the empty string: the caller decides what "(none)" is.
  */
 export function renderFindingTree(
   rows: readonly TreeTextRow[],
@@ -144,12 +146,15 @@ export function renderFindingTree(
   const entry = (f: TreeTextRow, depth: number): string => {
     const l = line(f, depth)
     if (!opts.bodies) return l
-    const body = f.supersededBy != null ? '' : (f.body ?? '').trim()
-    return body ? `${l}\n${body}\n` : `${l}\n`
+    // Strip leading blank lines and trailing whitespace only: a body that opens with an
+    // indented code block keeps its indentation.
+    const body = f.supersededBy != null ? '' : (f.body ?? '').replace(/^\s*\n/, '').trimEnd()
+    return body ? `${l}\n${body}` : l
   }
-  // Entries with bodies already end in `\n`, so one `\n` joiner is the blank line between them.
+  // With bodies a blank line separates consecutive entries; without, entries are plain lines.
+  const entrySep = opts.bodies ? '\n\n' : '\n'
   const section = (heading: string, nodes: TreeNode<TreeTextRow>[]): string =>
-    [heading, ...nodes.map((n) => entry(n.row, n.depth))].join('\n')
+    `${heading}\n${nodes.map((n) => entry(n.row, n.depth)).join(entrySep)}`
   const sections: string[] = []
   if (tree.rootCause.length > 0) sections.push(section(opts.headings.rootCause, tree.rootCause))
   if (tree.unexplained.length > 0)

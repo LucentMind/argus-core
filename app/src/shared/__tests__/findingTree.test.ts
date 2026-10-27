@@ -169,18 +169,65 @@ describe('renderFindingTree', () => {
     expect(out).toContain(
       '#5 · confirmed · rejected · wrong: old build · ruled-out · Clock skew\nskew body'
     )
-    expect(out).toContain('#3 · superseded by #6 · root-cause · Server rejects every install\n')
+    expect(out.endsWith('#3 · superseded by #6 · root-cause · Server rejects every install')).toBe(
+      true
+    )
     expect(out).not.toContain('old body')
   })
 
   it('renders a legacy snapshot row (no id, no chain fields) as a flat unexplained line in the old wording', () => {
     const legacy = [{ summary: 'F1', reviewState: 'accepted', role: null, body: 'body1' }]
     expect(renderFindingTree(legacy, { headings: H, bodies: true })).toBe(
-      'UNEXPLAINED\naccepted · no role · F1\nbody1\n'
+      'UNEXPLAINED\naccepted · no role · F1\nbody1'
     )
   })
 
   it('returns the empty string for no rows', () => {
     expect(renderFindingTree([], { headings: H })).toBe('')
+  })
+
+  it('keeps id-less rows of equal rank in input order', () => {
+    const legacy = ['F1', 'F2', 'F3'].map((summary) => ({
+      summary,
+      reviewState: 'accepted',
+      role: null
+    }))
+    expect(renderFindingTree(legacy, { headings: H })).toBe(
+      'UNEXPLAINED\naccepted · no role · F1\naccepted · no role · F2\naccepted · no role · F3'
+    )
+  })
+
+  it('with bodies, puts exactly one blank line between sections and no trailing newline', () => {
+    const two = [
+      row({
+        id: 6,
+        summary: 'Root',
+        role: 'root-cause',
+        reviewState: 'accepted',
+        body: 'root body'
+      }),
+      row({
+        id: 3,
+        summary: 'Old',
+        role: 'root-cause',
+        reviewState: 'rejected',
+        reviewActor: 'agent',
+        reviewReason: 'superseded by #6',
+        supersededBy: 6,
+        body: 'old body'
+      })
+    ]
+    expect(renderFindingTree(two, { headings: H, bodies: true })).toBe(
+      'ROOT CAUSE\n#6 · confirmed · accepted · root-cause · Root\nroot body\n\nRULED OUT\n#3 · superseded by #6 · root-cause · Old'
+    )
+  })
+
+  it('keeps the leading indentation of a body that opens with a code block', () => {
+    const r = [
+      row({ id: 1, summary: 'Code', role: 'root-cause', body: '\n\n    code\nmore\n  \n' })
+    ]
+    expect(renderFindingTree(r, { headings: H, bodies: true })).toBe(
+      'ROOT CAUSE\n#1 · confirmed · pending · root-cause · Code\n    code\nmore'
+    )
   })
 })
