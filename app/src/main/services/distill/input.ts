@@ -248,7 +248,9 @@ export function assembleDistillInput(
         roleSource: f.roleSource,
         causedBy: f.causedBy,
         supersededBy: f.supersededBy,
-        body: f.body ?? ''
+        // A superseded finding is folded into its successor (spec 2026-10-26 §9.3): its line
+        // stays in the prompt, its body does not.
+        body: f.supersededBy != null ? '' : (f.body ?? '')
       })),
     evidence: listEvidence(db, slug).map((e) => ({
       relPath: e.relPath,
