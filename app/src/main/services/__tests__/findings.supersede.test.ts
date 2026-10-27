@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -105,5 +105,92 @@ describe('supersedeFinding', () => {
       ok: false,
       reason: 'unknown'
     })
+  })
+
+  it('does not re-parent a child in another case whose caused_by equals the old id', () => {
+    const old = seed()
+    const foreign = seed({ caused_by: old }, otherCaseId)
+    const fresh = seed()
+    expect(supersedeFinding(db, old, fresh).ok).toBe(true)
+    expect(col(foreign, 'caused_by')).toBe(old)
+  })
+
+  it('answers already-superseded on a second supersede and writes nothing', () => {
+    const old = seed()
+    const fresh = seed()
+    expect(supersedeFinding(db, old, fresh).ok).toBe(true)
+    const other = seed()
+    expect(supersedeFinding(db, old, other)).toEqual({ ok: false, reason: 'already-superseded' })
+    expect(col(old, 'superseded_by')).toBe(fresh)
+  })
+
+  it('refuses a self-supersede and writes nothing', () => {
+    const x = seed()
+    expect(supersedeFinding(db, x, x)).toEqual({ ok: false, reason: 'unknown' })
+    expect(col(x, 'review_state')).toBe('pending')
+    expect(col(x, 'superseded_by')).toBeNull()
+    expect(col(x, 'review_reason')).toBeNull()
+  })
+
+  it("hoists a replacement caused by the old finding to the old finding's own cause (no self-edge)", () => {
+    const root = seed()
+    const old = seed({ caused_by: root })
+    const child = seed({ caused_by: old })
+    const fresh = seed({ caused_by: old })
+    expect(supersedeFinding(db, old, fresh).ok).toBe(true)
+    expect(col(fresh, 'caused_by')).toBe(root)
+    expect(col(child, 'caused_by')).toBe(fresh)
+    expect(col(fresh, 'caused_by')).not.toBe(fresh)
+  })
+
+  it('hoists to null when the old finding had no cause', () => {
+    const old = seed()
+    const child = seed({ caused_by: old })
+    const fresh = seed({ caused_by: old })
+    expect(supersedeFinding(db, old, fresh).ok).toBe(true)
+    expect(col(fresh, 'caused_by')).toBeNull()
+    expect(col(child, 'caused_by')).toBe(fresh)
+  })
+
+  it('never forms a cycle when the replacement is caused by a descendant of the old finding', () => {
+    const root = seed()
+    const old = seed({ caused_by: root })
+    const x = seed({ caused_by: old })
+    const deep = seed({ caused_by: x })
+    const fresh = seed({ caused_by: deep })
+    expect(supersedeFinding(db, old, fresh).ok).toBe(true)
+    expect(col(fresh, 'caused_by')).toBe(root)
+    expect(col(x, 'caused_by')).toBe(fresh)
+    expect(col(deep, 'caused_by')).toBe(x)
+  })
+
+  it('fires onRetracted after commit with the final row; not for a human-rejected old finding', () => {
+    const old = seed()
+    const fresh = seed()
+    const onRetracted = vi.fn()
+    expect(supersedeFinding(db, old, fresh, { onRetracted }).ok).toBe(true)
+    expect(onRetracted).toHaveBeenCalledTimes(1)
+    const row = onRetracted.mock.calls[0][0]
+    expect(row.id).toBe(old)
+    expect(row.supersededBy).toBe(fresh)
+    expect(row.reviewState).toBe('rejected')
+
+    const humanOld = seed({ review_state: 'rejected', review_actor: 'human' })
+    const fresh2 = seed()
+    const spy = vi.fn()
+    expect(supersedeFinding(db, humanOld, fresh2, { onRetracted: spy }).ok).toBe(true)
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  it('a throwing onRetracted cannot fail the supersede', () => {
+    const old = seed()
+    const fresh = seed()
+    const res = supersedeFinding(db, old, fresh, {
+      onRetracted: () => {
+        throw new Error('boom')
+      }
+    })
+    expect(res.ok).toBe(true)
+    expect(col(old, 'superseded_by')).toBe(fresh)
   })
 })
