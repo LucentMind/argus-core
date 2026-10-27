@@ -401,6 +401,35 @@ describe('review-mode findings take no chain fields', () => {
     expect(fs.readFileSync(mdPath, 'utf8')).toContain('Also hits the last page.')
   })
 
+  it('refuses a body replace on a review row for either actor; an append is still accepted', () => {
+    const rev = session('review')
+    const id = seed({ session_id: rev, summary: 'Stale cache key' })
+    const mdPath = path.join(caseDir(home, 'CASE-A'), 'findings.md')
+    fs.writeFileSync(
+      mdPath,
+      `# Findings
+
+<!-- finding:${id} -->
+## Stale cache key
+
+Original reasoning.
+`
+    )
+    for (const actor of ['agent', 'human'] as const) {
+      expect(updateFinding(db, home, id, { replaceMarkdown: 'Rewritten.' }, { actor })).toEqual({
+        ok: false,
+        reason: 'review-mode'
+      })
+    }
+    expect(fs.readFileSync(mdPath, 'utf8')).toContain('Original reasoning.')
+    expect(fs.readFileSync(mdPath, 'utf8')).not.toContain('Rewritten.')
+    const res = updateFinding(db, home, id, { appendMarkdown: 'Seen twice.' }, { actor: 'agent' })
+    expect(res.ok).toBe(true)
+    const md = fs.readFileSync(mdPath, 'utf8')
+    expect(md).toContain('Original reasoning.')
+    expect(md).toContain('Seen twice.')
+  })
+
   it('a review-mode confirmed root never counts as the case root', () => {
     const rev = session('review')
     const inv = session('investigation')
