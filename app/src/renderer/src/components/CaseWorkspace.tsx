@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { PanelLeft, PanelRight } from 'lucide-react'
 import { IconBtn, SectionLabel } from './ui'
 import { SearchBar } from './SearchBar'
@@ -18,7 +18,7 @@ import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH, EVIDENCE_MIN_WIDTH } from '../lib/uiStore'
-import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
+import { panelsStore, wirePanelsStore, CHAT_TAB, FINDINGS_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { notice } from '../lib/noticeStore'
 import { reposStore } from '../lib/reposStore'
@@ -26,6 +26,7 @@ import { findingsStore, wireFindingsStore } from '../lib/findingsStore'
 import { sessionsStore } from '../lib/sessionsStore'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { panelKeyStr } from '../../../shared/panels'
+import { buildFindingTree } from '../../../shared/findingTree'
 import type { ChatJumpTarget, FileNode, UnifiedHit } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
 import type { ModeId } from '../../../shared/modes'
@@ -103,6 +104,18 @@ export function CaseWorkspace({
     (cb) => panelsStore.subscribe(cb),
     () => panelsStore.get()
   )
+  const findingRows = useSyncExternalStore(
+    (cb) => findingsStore.subscribe(cb),
+    () => findingsStore.get(slug).rows
+  )
+  const findingsPending = useMemo(
+    () => buildFindingTree(findingRows.filter((f) => f.mode === 'investigation')).pending,
+    [findingRows]
+  )
+  // Review mode has no chain, so it has no Findings tab; if it was the active tab, Chat takes over.
+  useEffect(() => {
+    panelsStore.setFindingsAvailable(activeMode === 'investigation')
+  }, [activeMode])
   const dockHost = useRef<HTMLDivElement | null>(null)
   const mainEl = useRef<HTMLElement | null>(null)
   const drag = useRef<{
@@ -791,6 +804,7 @@ export function CaseWorkspace({
             onSwitchSession={handleSwitchSession}
             onJumpToTurn={handleJumpToTurn}
             onOpenFind={() => setFindOpen(true)}
+            findingsTab={activeMode === 'investigation' ? { pending: findingsPending } : null}
             action={
               activeMode === 'review' ? (
                 <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
@@ -835,7 +849,7 @@ export function CaseWorkspace({
               {/* The active docked panel's native view is painted over this host by PanelDock. */}
               <div
                 ref={dockHost}
-                className={`absolute inset-0 ${panels.activeTab === CHAT_TAB ? 'hidden' : ''}`}
+                className={`absolute inset-0 ${panels.activeTab === CHAT_TAB || panels.activeTab === FINDINGS_TAB ? 'hidden' : ''}`}
               />
               <PanelDock hostRef={dockHost} />
             </div>
