@@ -161,7 +161,7 @@ describe('prompt builder', () => {
 
   it('the contract names the status prefix, the superseded form and the chain', () => {
     expect(CASE_DISTILL_CONTRACT).toContain(
-      '[hypothesis · …] is never the basis of a summary or a proposal'
+      'An active [hypothesis · …] finding (pending or accepted) is never the basis of a summary or a proposal'
     )
     expect(CASE_DISTILL_CONTRACT).toContain('[superseded by #N]')
     expect(CASE_DISTILL_CONTRACT).toContain(
