@@ -16,6 +16,7 @@ import { settingsStore } from '../../lib/settingsStore'
 import { defaultSettings, type SettingsPayload } from '../../../../shared/settings'
 import type {
   PostResults,
+  RcaAnchoring,
   RcaDraft,
   RcaDroppedSections,
   RcaJobRow,
@@ -159,6 +160,7 @@ function doneStatusPayload(
     dropped?: RcaDroppedSections
     confirmedAt?: string | null
     postResults?: PostResults | null
+    anchoring?: RcaAnchoring
   } = {}
 ): RcaStatusPayload {
   return {
@@ -170,7 +172,8 @@ function doneStatusPayload(
     }),
     draft: draft(),
     template: over.template ?? DEFAULT_RCA_TEMPLATE,
-    dropped: over.dropped ?? {}
+    dropped: over.dropped ?? {},
+    ...(over.anchoring ? { anchoring: over.anchoring } : {})
   }
 }
 
@@ -180,6 +183,7 @@ async function renderDonePanel(
     dropped?: RcaDroppedSections
     confirmedAt?: string | null
     postResults?: PostResults | null
+    anchoring?: RcaAnchoring
   } = {},
   ticketProvider?: 'jira' | 'github'
 ): Promise<void> {
@@ -497,6 +501,27 @@ describe('RcaPanel', () => {
     expect(() => validateRcaDraft(editedDraft)).not.toThrow()
     expect(editedDraft.rootCause.statement).toBe('No confirmed root cause.')
     expect(editedDraft.rootCause.findingId).toBeNull()
+  })
+
+  it('shows the anchoring counters when the draft left statements or findings unanchored', async () => {
+    await renderDonePanel({
+      anchoring: {
+        unanchored: { rootCause: 0, contributing: 2, symptoms: 1, ruledOut: 0 },
+        unused: [4, 7]
+      }
+    })
+    const line = screen.getByTestId('rca-anchoring')
+    expect(line).toHaveTextContent('3 statements without a finding · 2 findings not used')
+    expect(line).toHaveAttribute('title', 'Findings not named by the draft: #4, #7')
+  })
+  it('omits the anchoring line when everything is anchored or the payload has none', async () => {
+    await renderDonePanel({
+      anchoring: {
+        unanchored: { rootCause: 0, contributing: 0, symptoms: 0, ruledOut: 0 },
+        unused: []
+      }
+    })
+    expect(screen.queryByTestId('rca-anchoring')).toBeNull()
   })
 
   it("lists the snapshot template's sections as drop toggles, per report", async () => {

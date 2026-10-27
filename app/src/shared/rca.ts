@@ -64,6 +64,8 @@ export interface RcaStatusPayload {
    *  a row that predates the column, or an unreadable cell. Persisted so a re-render after a
    *  reload reproduces the confirmed bytes rather than silently restoring dropped sections. */
   dropped: RcaDroppedSections
+  /** Absent when there is no draft. */
+  anchoring?: RcaAnchoring
 }
 
 export interface RoleAssignment {
@@ -79,6 +81,14 @@ export interface RoleAssignment {
 export interface RcaDroppedSections {
   exec?: string[]
   tech?: string[]
+}
+
+/** What the drafter left unanchored (spec 2026-10-26 §9.4): statements with `findingId: null`
+ *  per section, and the ids of active investigation findings no statement names. Computed in
+ *  main on every status read; a counter, never a gate. */
+export interface RcaAnchoring {
+  unanchored: { rootCause: number; contributing: number; symptoms: number; ruledOut: number }
+  unused: number[]
 }
 
 export interface CaseRcaInput {
