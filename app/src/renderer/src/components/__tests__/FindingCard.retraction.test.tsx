@@ -2,6 +2,7 @@
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { FindingsPane } from '../FindingsPane'
 import { findingsStore } from '../../lib/findingsStore'
 import type { FindingRow } from '../../../../shared/observability'
@@ -64,6 +65,8 @@ describe('retracted finding card', () => {
       })
     ])
     render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    // A rejected finding is ruled out: it lives in the collapsed RULED OUT section.
+    await userEvent.click(await screen.findByRole('button', { name: 'RULED OUT · 1' }))
     expect(await screen.findByText('retracted by agent')).toBeInTheDocument()
     expect(screen.getByText('the guard is in the caller')).toBeInTheDocument()
   })
@@ -73,6 +76,8 @@ describe('retracted finding card', () => {
       row({ id: 5, summary: 'Race', reviewState: 'rejected', reviewActor: 'human' })
     ])
     render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    // A rejected finding is ruled out: it lives in the collapsed RULED OUT section.
+    await userEvent.click(await screen.findByRole('button', { name: 'RULED OUT · 1' }))
     await waitFor(() => expect(screen.getByText('Race')).toBeInTheDocument())
     expect(screen.queryByText('retracted by agent')).not.toBeInTheDocument()
   })
@@ -82,6 +87,8 @@ describe('retracted finding card', () => {
       row({ id: 6, summary: 'Legacy', reviewState: 'rejected', reviewActor: null })
     ])
     render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    // A rejected finding is ruled out: it lives in the collapsed RULED OUT section.
+    await userEvent.click(await screen.findByRole('button', { name: 'RULED OUT · 1' }))
     await waitFor(() => expect(screen.getByText('Legacy')).toBeInTheDocument())
     expect(screen.queryByText('retracted by agent')).not.toBeInTheDocument()
   })
