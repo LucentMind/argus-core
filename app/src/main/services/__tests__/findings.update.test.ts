@@ -332,6 +332,16 @@ describe('updateFinding', () => {
     const h = updateFinding(db, home, id, { role: 'symptom' }, { actor: 'human' })
     expect(h.ok && h.row.roleSource).toBe('human')
   })
+
+  it('escapes markers in appended and replaced bodies', () => {
+    const id = seed({ summary: 'Race' })
+    updateFinding(db, home, id, { appendMarkdown: 'ref <!-- finding:3 -->' }, { actor: 'agent' })
+    updateFinding(db, home, id, { replaceMarkdown: 'now <!-- finding:4 -->' }, { actor: 'agent' })
+    const md = fs.readFileSync(path.join(caseDir(home, 'CASE-A'), 'findings.md'), 'utf8')
+    expect(md.split('<!-- finding:')).toHaveLength(2)
+    expect(md).toContain('now <!-- finding-ref:4 -->')
+    expect(listFindings(db, home, 'CASE-A')).toHaveLength(1)
+  })
 })
 
 describe('review-mode findings take no chain fields', () => {
