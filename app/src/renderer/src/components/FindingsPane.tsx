@@ -114,15 +114,17 @@ export function FindingsPane({
     id: number,
     next: 'accepted' | 'rejected',
     reason?: FindingRejectReason
-  ): Promise<void> {
+  ): Promise<FindingRow | null> {
     const row = await findingsStore.review(slug, id, next, reason)
     // A failed save must not discard the typed note: a reason pick that comes back null keeps
     // the strip open. Otherwise the strip is open only on a fresh reject with no reason yet.
     const keepOpen = reason ? row === null : row?.reviewState === 'rejected'
     setRejectingId(keepOpen ? id : null)
     // A rejected investigation finding leaves its section for RULED OUT, which is collapsed by
-    // default: open it, or the strip this reject just opened would render nowhere.
-    if (keepOpen && !reason) setShowRuledOut(true)
+    // default: open it, or the strip this reject just opened would render nowhere. Review mode
+    // has no RULED OUT section, so a review-mode reject must not leave it open for later.
+    if (keepOpen && !reason && activeMode === 'investigation') setShowRuledOut(true)
+    return row
   }
 
   /**
@@ -228,19 +230,42 @@ export function FindingsPane({
     if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')
       return
     const cur = w.ids[w.i]
+    // The walk SETS a state; the store's review() toggles. Read the row fresh (not from this
+    // render's closure) and never call review() when the row is already in the target state, or
+    // a revisit (k, then a) would flip an accepted finding back to pending.
+    const curState = findingsStore.get(slug).rows.find((f) => f.id === cur)?.reviewState
     switch (e.key) {
       case 'a':
         e.preventDefault()
         // Advance only if the walk is still on this card when the save lands (a fast `s` or
-        // Escape in between already moved it).
-        void setReview(cur, 'accepted').then(() => {
-          const now = walkRef.current
-          if (now && now.ids[now.i] === cur) stepWalk(1)
-        })
+        // Escape in between already moved it), and only if the save landed at all: a refusal
+        // (null) or a rejection stays on the card, the rejection's text on the card.
+        if (curState === 'accepted') {
+          stepWalk(1)
+          break
+        }
+        setEditError(null)
+        setReview(cur, 'accepted').then(
+          (saved) => {
+            const now = walkRef.current
+            if (saved && now && now.ids[now.i] === cur) stepWalk(1)
+          },
+          (err: unknown) => setEditError({ id: cur, message: (err as Error).message })
+        )
         break
       case 'r':
         e.preventDefault()
-        void setReview(cur, 'rejected') // opens the strip; `s` moves on
+        if (curState === 'rejected') {
+          // Already rejected: reopen the strip (under RULED OUT), do not toggle it back.
+          setRejectingId(cur)
+          setShowRuledOut(true)
+        } else {
+          setEditError(null)
+          // Opens the strip; `s` moves on.
+          setReview(cur, 'rejected').catch((err: unknown) =>
+            setEditError({ id: cur, message: (err as Error).message })
+          )
+        }
         break
       case 's':
       case 'j':
@@ -254,6 +279,7 @@ export function FindingsPane({
       case 'Escape':
         e.preventDefault()
         setWalk(null)
+        setRejectingId(null)
         break
     }
   }
