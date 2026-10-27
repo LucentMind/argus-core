@@ -167,6 +167,32 @@ describe('FindingsPane — chain index', () => {
     expect(screen.queryByTestId('finding-reject-strip')).toBeNull()
   })
 
+  it('the walk scrolls its current card into view as it moves', async () => {
+    // jsdom has no scrollIntoView: stub it on the prototype and record which element it ran on.
+    const scrolled: Element[] = []
+    const stub = vi.fn(function (this: Element) {
+      scrolled.push(this)
+    })
+    Element.prototype.scrollIntoView = stub
+    try {
+      list.mockResolvedValue(chain())
+      render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+      await screen.findByText('tilesVersion blocked')
+      await userEvent.click(screen.getByRole('button', { name: 'Review pending findings' }))
+      // Pending in tree order: #4, #2, #7 — the walk starts on #4.
+      await waitFor(() => expect(scrolled.at(-1)).toHaveAttribute('data-finding-id', '4'))
+      expect(stub).toHaveBeenLastCalledWith({ block: 'nearest' })
+      await userEvent.keyboard('s')
+      expect(screen.getByTestId('review-walk')).toHaveTextContent('Reviewing 2 of 3')
+      await waitFor(() => expect(scrolled.at(-1)).toHaveAttribute('data-finding-id', '2'))
+      const card = scrolled.at(-1) as HTMLElement
+      expect(card.tagName).toBe('LI')
+      expect(within(card).getByText('NoRoute offline')).toBeInTheDocument()
+    } finally {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    }
+  })
+
   it('walk keys set a state, never flip it: revisiting an accepted card with a only advances', async () => {
     list.mockResolvedValue(chain())
     review.mockImplementation(async (id: number, state: string) => ({

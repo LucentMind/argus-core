@@ -61,6 +61,16 @@ export function FindingsPane({
     walkRef.current = walk
   }, [walk])
   const listRef = useRef<HTMLDivElement>(null)
+  // A long rail puts the walk's next card below the fold: bring the current card into view each
+  // time the walk moves (after the commit that expanded it). `?.` because jsdom has no
+  // scrollIntoView.
+  const walkCurrent = walk ? walk.ids[walk.i] : null
+  useEffect(() => {
+    if (walkCurrent === null) return
+    listRef.current
+      ?.querySelector<HTMLElement>(`li[data-finding-id="${walkCurrent}"]`)
+      ?.scrollIntoView?.({ block: 'nearest' })
+  }, [walkCurrent])
   // The pane survives a mode switch (it is keyed by slug), and the walk is investigation-only:
   // a switch ends it, so review mode never shows the bar and a switch back does not resume it.
   const [walkMode, setWalkMode] = useState(activeMode)
