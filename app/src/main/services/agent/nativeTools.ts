@@ -322,6 +322,10 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
     text: 'Finding {id} was already superseded by #{by}. Supersede that one instead, or record yours as a new finding. Nothing was recorded.',
     placeholders: ['id', 'by']
   },
+  'append_finding.review-mode': {
+    title: 'append_finding — chain args in a review session',
+    text: 'status, role, caused_by and supersedes apply to investigation findings; this is a review session. Record the finding without them. Nothing was recorded.'
+  },
   'finding.self-cause': {
     title: 'finding chain — a finding cannot cause itself',
     text: 'A finding cannot be caused by itself. Nothing was changed.'
@@ -384,9 +388,14 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
     text: 'The role of finding {id} was set by the confirmed RCA report and is not yours to change — raise it with the user. Nothing was changed.',
     placeholders: ['id']
   },
+  'update_finding.review-mode': {
+    title: 'update_finding — chain fields of a review finding',
+    text: 'status, role and caused_by apply to investigation findings; finding {id} belongs to this review session. You may still append evidence with append_markdown. Nothing was changed.',
+    placeholders: ['id']
+  },
   'list_findings.root-cause': {
     title: 'list_findings — ROOT CAUSE heading',
-    text: 'ROOT CAUSE (each line is caused by the line above it)'
+    text: 'ROOT CAUSE (each ↳ line is caused by the nearest less-indented line above it)'
   },
   'list_findings.unexplained': {
     title: 'list_findings — UNEXPLAINED heading',
@@ -848,6 +857,28 @@ export function argusToolHandlers(
     },
 
     async append_finding(args) {
+      // The handler's only await comes FIRST, so every check below, the insert and the supersede
+      // run in one synchronous section — atomic on Node's single thread. A check that ran before
+      // an await could pass for two parallel calls (two confirmed roots), or approve a cause that
+      // is deleted before the insert.
+      // Best-effort staleness stamp: any case with a materialized PR worktree gets the sha it
+      // resolves to here, regardless of the session's mode — the renderer, not this call, is
+      // what restricts pinning to review-mode findings (FindingsPane only passes headSha into
+      // the citation preview when f.mode === 'review'). No worktree just costs one no-op lookup.
+      const headSha = await prWorktreeHead(
+        { db, argusHome, git: deps.git, resolve: deps.resolve },
+        caseSlug
+      )
+      // The chain is an investigation concept: a review session records flat findings only, and
+      // is told so before any chain arg is parsed or checked. Nothing is written on this path.
+      if (
+        sessionMode(db, deps.sessionId) === 'review' &&
+        (args.status !== undefined ||
+          args.role !== undefined ||
+          args.caused_by !== undefined ||
+          args.supersedes !== undefined)
+      )
+        throw new Error(fb('append_finding.review-mode'))
       const status = args.status === undefined ? undefined : (String(args.status) as FindingStatus)
       const role = args.role === undefined ? undefined : (String(args.role) as FindingRole)
       const causedBy = args.caused_by === undefined ? undefined : num(args.caused_by, 'caused_by')
@@ -869,14 +900,6 @@ export function argusToolHandlers(
         if (existing !== null)
           throw new Error(fb('finding.second-root', { existing: String(existing) }))
       }
-      // Best-effort staleness stamp: any case with a materialized PR worktree gets the sha it
-      // resolves to here, regardless of the session's mode — the renderer, not this call, is
-      // what restricts pinning to review-mode findings (FindingsPane only passes headSha into
-      // the citation preview when f.mode === 'review'). No worktree just costs one no-op lookup.
-      const headSha = await prWorktreeHead(
-        { db, argusHome, git: deps.git, resolve: deps.resolve },
-        caseSlug
-      )
       const { block, findingId } = appendFinding(
         {
           db,
@@ -1088,6 +1111,8 @@ export function argusToolHandlers(
             throw new Error(fb('update_finding.accepted-locked', { id: String(findingId) }))
           case 'rca-frozen':
             throw new Error(fb('update_finding.rca-frozen', { id: String(findingId) }))
+          case 'review-mode':
+            throw new Error(fb('update_finding.review-mode', { id: String(findingId) }))
           case 'self-cause':
             throw new Error(fb('finding.self-cause'))
           case 'cycle':
@@ -1440,7 +1465,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'append_finding',
     description:
-      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor — suggested_change when you know the concrete fix (what the user's Apply action will implement), and comment_body: the finding rewritten for the PR author in your reviewer's voice, a few sentences, publishable as-is. comment_body must NOT restate the citation (the posted comment is already anchored at that line) and must not reference other findings or internal ids — it is posted verbatim when the user presses Post comment. Before recording, call list_findings. If this finding replaces or sharpens one already recorded, pass supersedes: <its id> — the old one is retracted as superseded and its children move to this one. Retract a recorded finding with retract_finding only when it is wrong and nothing replaces it. Pass status: hypothesis for a claim you have stated but not yet tested (default confirmed = evidence-backed); role (symptom | contributing | root-cause | ruled-out | duplicate) for its place in the causal chain; caused_by: the id of the finding this one is CAUSED BY (pointing toward the root cause). Only one confirmed root-cause finding may exist per case.",
+      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor — suggested_change when you know the concrete fix (what the user's Apply action will implement), and comment_body: the finding rewritten for the PR author in your reviewer's voice, a few sentences, publishable as-is. comment_body must NOT restate the citation (the posted comment is already anchored at that line) and must not reference other findings or internal ids — it is posted verbatim when the user presses Post comment. Before recording, call list_findings. If this finding replaces or sharpens one already recorded, pass supersedes: <its id> — the old one is retracted as superseded and its children move to this one. Retract a recorded finding with retract_finding only when it is wrong and nothing replaces it. Pass status: hypothesis for a claim you have stated but not yet tested (default confirmed = evidence-backed); role (symptom | contributing | root-cause | ruled-out | duplicate) for its place in the causal chain; caused_by: the id of the finding this one is CAUSED BY (pointing toward the root cause). status, role, caused_by and supersedes apply to investigation sessions only — a review session records findings without them. Only one confirmed root-cause finding may exist per case.",
     schema: {
       title: z.string(),
       markdown: z.string(),
@@ -1463,19 +1488,19 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'list_findings',
     description:
-      'List the findings already recorded on this case as the causal chain — ROOT CAUSE trees (each line caused by the line above), UNEXPLAINED findings with no recorded cause, and RULED OUT — with id, status, review state, role and title per line (review sessions: id, review state, severity/layer, diff anchor and title). Call this BEFORE recording a new finding, so you can see whether you are about to contradict or duplicate something you already recorded. Bodies are not included — read those with read_findings.',
+      'List the findings already recorded on this case as the causal chain — ROOT CAUSE trees (each ↳ line is caused by the nearest less-indented line above it) and UNEXPLAINED findings with no recorded cause, each line with id, status, review state, role and title; then RULED OUT, each line with id, review state, role, its successor if superseded, and title (review sessions: id, review state, severity/layer, diff anchor and title). Call this BEFORE recording a new finding, so you can see whether you are about to contradict or duplicate something you already recorded. Bodies are not included — read those with read_findings.',
     schema: {}
   },
   {
     name: 'retract_finding',
     description:
-      'Withdraw a finding you recorded that has turned out to be wrong. Pass the finding_id from list_findings and a one-line reason saying what was wrong about it. The finding is marked rejected and stops counting as a conclusion, while the reason is kept as the record of what was ruled out and how. Use this instead of recording a second, corrected finding beside the wrong one. A finding a human has ACCEPTED cannot be retracted — if you believe an accepted finding is wrong, say so in your reply instead.',
+      'Withdraw a finding you recorded that has turned out to be wrong. Pass the finding_id from list_findings and a one-line reason saying what was wrong about it. The finding is marked rejected and stops counting as a conclusion, while the reason is kept as the record of what was ruled out and how. Retract only when the finding is wrong and nothing replaces it: a corrected or sharper claim is recorded with append_finding and supersedes: <its id>, which retracts the old one for you. A finding a human has ACCEPTED cannot be retracted — if you believe an accepted finding is wrong, say so in your reply instead.',
     schema: { finding_id: z.number(), reason: z.string().min(1) }
   },
   {
     name: 'update_finding',
     description:
-      'Change a finding you recorded instead of recording a second one beside it: promote a hypothesis with status: confirmed once the evidence confirms it (or demote with status: hypothesis), set role (symptom | contributing | root-cause | ruled-out; null clears), set caused_by to the id of the finding that CAUSES this one (null detaches), or append_markdown to add a dated Update section with new evidence and citations. Pass only what changes. A finding a human ACCEPTED keeps its status and role (you may still add a cause or evidence); a role set by a confirmed RCA report is not yours to change — raise it with the user. Only one confirmed root-cause finding may exist per case.',
+      'Change a finding you recorded instead of recording a second one beside it: promote a hypothesis with status: confirmed once the evidence confirms it (or demote with status: hypothesis), set role (symptom | contributing | root-cause | ruled-out | duplicate; null clears), set caused_by to the id of the finding that CAUSES this one (null detaches), or append_markdown to add a dated Update section with new evidence and citations. Pass only what changes. A finding a human ACCEPTED keeps its status and role (you may still add a cause or evidence); a role set by a confirmed RCA report is not yours to change — raise it with the user. status, role and caused_by apply to investigation sessions only; on a review finding only append_markdown is accepted. Only one confirmed root-cause finding may exist per case.',
     schema: {
       finding_id: z.number(),
       status: z.enum(FINDING_STATUSES).optional(),

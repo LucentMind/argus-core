@@ -200,3 +200,49 @@ it('a supersede that fails after the pre-check leaves no half-recorded finding',
   expect(col(old, 'superseded_by')).toBeNull()
   expect(emitFindingUpdated).not.toHaveBeenCalled()
 })
+
+it('a review session passing a chain arg is refused before anything is written; a plain review finding still records', async () => {
+  const rev = handlersFor(sessionFor(caseId, 'review'))
+  const inv = idOf(
+    await handlersFor(sessionFor(caseId)).append_finding({
+      title: 'Cache key collision',
+      markdown: 'b'
+    })
+  )
+  const before = findingsMd()
+  const refusal = TOOL_FEEDBACK['append_finding.review-mode'].text
+  for (const chain of [
+    { role: 'root-cause' },
+    { status: 'hypothesis' },
+    { caused_by: inv },
+    // Pointing at an investigation finding the review session cannot see: the mode guard fires
+    // first, so neither the supersede nor its retraction of the investigation finding happens.
+    { supersedes: inv }
+  ]) {
+    await expect(
+      rev.append_finding({ title: 'Unchecked null', markdown: 'b', ...chain })
+    ).rejects.toThrow(refusal)
+  }
+  expect(listFindings(db, home, 'CASE-A').filter((f) => f.mode === 'review')).toHaveLength(0)
+  expect(findingsMd()).toBe(before)
+  expect(col(inv, 'review_state')).toBe('pending')
+  expect(col(inv, 'superseded_by')).toBeNull()
+  expect(emitFindingUpdated).not.toHaveBeenCalled()
+  const plain = idOf(await rev.append_finding({ title: 'Unchecked null', markdown: 'b' }))
+  expect(col(plain, 'role')).toBeNull()
+  expect(col(plain, 'status')).toBeNull()
+})
+
+it('a review-mode root-cause row does not block the investigation root', async () => {
+  const now = new Date().toISOString()
+  const rev = sessionFor(caseId, 'review')
+  db.prepare(
+    `INSERT INTO findings (case_id, session_id, summary, review_state, created_at, role, status)
+     VALUES (?, ?, 'Review-side root', 'pending', ?, 'root-cause', 'confirmed')`
+  ).run(caseId, rev, now)
+  const h = handlersFor(sessionFor(caseId))
+  const root = idOf(
+    await h.append_finding({ title: 'Stale token cache', markdown: 'b', role: 'root-cause' })
+  )
+  expect(col(root, 'role')).toBe('root-cause')
+})
