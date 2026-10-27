@@ -4,6 +4,8 @@ import path from 'node:path'
 import {
   isFindingRole,
   isFindingRejectTag,
+  isFindingStatus,
+  isRoleSource,
   type FindingRejectReason,
   type FindingRow,
   type RetractResult,
@@ -48,6 +50,10 @@ interface Raw {
   review_actor: string | null
   reject_tag: string | null
   reject_note: string | null
+  status: string | null
+  role_source: string | null
+  caused_by: number | null
+  superseded_by: number | null
 }
 
 function toRow(r: Raw): FindingRow {
@@ -84,7 +90,12 @@ function toRow(r: Raw): FindingRow {
         ? 'human'
         : null) as ReviewActor | null,
     rejectTag: isFindingRejectTag(r.reject_tag) ? r.reject_tag : null,
-    rejectNote: r.reject_note ?? null
+    rejectNote: r.reject_note ?? null,
+    status: isFindingStatus(r.status) ? r.status : 'confirmed',
+    // Source only means something beside a role: a stray source on a role-less row is noise.
+    roleSource: isFindingRole(r.role) && isRoleSource(r.role_source) ? r.role_source : null,
+    causedBy: r.caused_by ?? null,
+    supersededBy: r.superseded_by ?? null
   }
 }
 

@@ -72,6 +72,34 @@ export function isFindingRole(v: unknown): v is FindingRole {
   return typeof v === 'string' && (FINDING_ROLES as string[]).includes(v)
 }
 
+/** The agent's claim about evidence (spec 2026-10-26 §5.1): `hypothesis` is stated but
+ *  untested, `confirmed` is evidence-backed. The HUMAN axis is `reviewState`; the two compose on
+ *  the card. A NULL column — every row written before this existed — reads as `confirmed`, so
+ *  packs and drivers that never pass a status keep today's meaning (owner decision 7.2). */
+export const FINDING_STATUSES = ['hypothesis', 'confirmed'] as const
+export type FindingStatus = (typeof FINDING_STATUSES)[number]
+export function isFindingStatus(v: unknown): v is FindingStatus {
+  return typeof v === 'string' && (FINDING_STATUSES as readonly string[]).includes(v)
+}
+
+/** Who wrote `role`: the agent's tools, the human's card editor, or a confirmed RCA report
+ *  (`applyReportRoles`). NULL whenever `role` is NULL. Provenance is what keeps three writers
+ *  of one column from becoming the two-representations defect. */
+export type RoleSource = 'agent' | 'human' | 'rca'
+export function isRoleSource(v: unknown): v is RoleSource {
+  return v === 'agent' || v === 'human' || v === 'rca'
+}
+
+/** The role vocabulary as the user reads it — the card chip, the role select, the tree
+ *  headings. One table so a rename happens once. */
+export const FINDING_ROLE_LABELS: Record<FindingRole, string> = {
+  'root-cause': 'ROOT CAUSE',
+  contributing: 'contributing',
+  symptom: 'symptom',
+  'ruled-out': 'ruled out',
+  duplicate: 'duplicate'
+}
+
 export interface FindingRow {
   id: number
   caseId: number
@@ -116,6 +144,16 @@ export interface FindingRow {
   /** RCA role assigned to this finding (root-cause / contributing / symptom / ruled-out /
    *  duplicate); null on findings that haven't been triaged into an RCA yet. */
   role: FindingRole | null
+  /** The agent's claim status (spec 2026-10-26 §5.1). Never null on a read: a NULL column is
+   *  `confirmed`. */
+  status: FindingStatus
+  /** Provenance of `role`; null when `role` is null. */
+  roleSource: RoleSource | null
+  /** The causal edge toward the root: this finding is caused by `causedBy`. Same case, no
+   *  cycles (enforced by `updateFinding`). */
+  causedBy: number | null
+  /** The newer finding that replaced this one (`append_finding(supersedes)`), if any. */
+  supersededBy: number | null
 }
 
 /** Outcome of the agent withdrawing its own finding (`retractFinding`). Lives here, beside
