@@ -45,6 +45,27 @@
 - `finding_accepted` observability scores now upsert per finding and carry the label metadata
   (actor, tag, mode, role); the agent's own retractions are scored too.
 
+**Findings as a causal chain (increment 2)**
+
+- Every investigation finding now carries the agent's claim status (`hypothesis` / `confirmed`),
+  a role in the chain with its provenance (agent, you, or the confirmed RCA report) and a
+  `caused by` edge. The agent records them with `append_finding` and changes them with the new
+  `update_finding` tool (promote a hypothesis, set a role or cause, append dated evidence);
+  `append_finding(supersedes)` replaces a finding with a sharper one, rules the old one out and
+  re-attaches its children.
+- The findings rail is a chain index: `ROOT CAUSE` trees with children indented, `UNEXPLAINED`
+  findings with no recorded cause, and `RULED OUT` collapsed; hypotheses have a dashed border;
+  the header counts what is still to review and **Review** walks those cards one at a time
+  (`a` accept / `r` reject / `s` or `j` skip / `k` back / `Esc` done), scrolling each into view.
+- You can set a finding's role and cause on the open card (rail or chat); the agent hears those
+  edits at its next turn, the way it hears your reviews. Only one confirmed root cause per
+  case; the agent cannot change the status or role of a finding you accepted, nor a role set by
+  a confirmed RCA report.
+- `list_findings` shows the agent the same tree. The distill snapshot and the RCA input carry
+  the chain fields (consumer rules follow in increment 3).
+- PR review sessions are unchanged: their findings stay a flat list, and the agent's chain
+  fields (`status`, `role`, `caused_by`, `supersedes`) are refused there.
+
 ### Changed
 
 - Settings: `observability.langfuse` moved to `observability.providers.langfuse` (migrated
