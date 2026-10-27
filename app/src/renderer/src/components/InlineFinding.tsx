@@ -9,6 +9,7 @@ import { findingsStore } from '../lib/findingsStore'
 import { reposStore } from '../lib/reposStore'
 import { FindingCard } from './FindingCard'
 import { FindingRejectStrip } from './FindingRejectStrip'
+import { stageCorrection } from '../lib/correctFinding'
 import { ToolCallCard } from './ToolCallCard'
 
 /**
@@ -101,6 +102,9 @@ export function InlineFinding({
         onCite={onCite}
         onDelete={() => void remove()}
         onWhy={() => setRejecting(true)}
+        onCorrect={
+          sessionId !== null ? () => stageCorrection(slug, sessionId, finding.id) : undefined
+        }
         onEdit={(patch) => void edit(patch)}
         causeOptions={rows
           .filter((r) => r.mode === 'investigation')
@@ -126,6 +130,11 @@ export function InlineFinding({
                 <FindingRejectStrip
                   onPick={(reason) => void review('rejected', reason)}
                   onSkip={() => setRejecting(false)}
+                  onCorrect={
+                    sessionId !== null
+                      ? () => stageCorrection(slug, sessionId, finding.id)
+                      : undefined
+                  }
                 />
               )}
             </>

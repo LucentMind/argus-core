@@ -713,10 +713,18 @@ export function Composer({
     onCitationsConsumed?.()
   }
 
+  const textRef = useRef<HTMLTextAreaElement>(null)
   const rowRef = useRef<HTMLDivElement>(null)
   const modelRef = useRef<HTMLDivElement>(null)
   const sendRef = useRef<HTMLButtonElement>(null)
   const moreRef = useRef<HTMLDivElement>(null)
+
+  // A staged prefill (a panel's sendToAgent, a finding's Correct) is an invitation to type: put
+  // the caret in the box. `useEffect` (not the render-time prefill block above) so the focus
+  // lands after the commit that showed the text.
+  useEffect(() => {
+    if (prefill) textRef.current?.focus()
+  }, [prefill])
   const itemEls = useRef<(HTMLDivElement | null)[]>([])
 
   // Send is hoisted because it is one element shared verbatim by both densities. Tool
@@ -886,6 +894,7 @@ export function Composer({
         className={`relative flex flex-col gap-2 rounded-r4 border border-hair px-3 pb-2.5 pt-3 transition-colors focus-within:border-hair2 ${dynamic ? 'glass-panel' : 'bg-panel'}`}
       >
         <textarea
+          ref={textRef}
           rows={3}
           className="w-full resize-none bg-transparent px-1 text-sm text-ink placeholder:text-mute focus:outline-none"
           placeholder="Message the analyst — / for skills"
