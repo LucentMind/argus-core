@@ -178,4 +178,24 @@ describe('ChatPane inline finding', () => {
     await act(() => findingsStore.load('NAV-1'))
     expect(screen.getByText('argus:append_finding')).toBeInTheDocument()
   })
+  it('an update_finding item on an accepted finding says the agent changed it after the accept', async () => {
+    mountWithFinding(
+      'finding #7 updated',
+      finding({ reviewState: 'accepted', reviewActor: 'human' }),
+      'mcp__argus__update_finding'
+    )
+    await act(() => findingsStore.load('NAV-1'))
+    expect(await screen.findByTestId('finding-note')).toHaveTextContent(
+      'the agent changed this finding; your accept stands'
+    )
+  })
+  it('an append_finding item never carries the note', async () => {
+    mountWithFinding(
+      'finding appended as #7',
+      finding({ reviewState: 'accepted', reviewActor: 'human' })
+    )
+    await act(() => findingsStore.load('NAV-1'))
+    await screen.findByText('Tile region blocked server-side')
+    expect(screen.queryByTestId('finding-note')).toBeNull()
+  })
 })

@@ -121,4 +121,21 @@ describe('findingsStore', () => {
     handler({ type: 'content.delta', caseSlug: 'c9', sessionId: 1, payload: { text: '' } })
     expect(list).toHaveBeenCalledTimes(1)
   })
+  it('a thumbs-down on an agent-retracted row writes a human reject instead of toggling it back to pending', async () => {
+    list.mockResolvedValue([
+      row({ id: 1, reviewState: 'rejected', reviewActor: 'agent', reviewReason: 'old build' })
+    ])
+    await findingsStore.load('c1')
+    review.mockResolvedValue(row({ id: 1, reviewState: 'rejected', reviewActor: 'human' }))
+    await findingsStore.review('c1', 1, 'rejected')
+    expect(review).toHaveBeenCalledWith(1, 'rejected', undefined)
+    expect(findingsStore.get('c1').rows[0].reviewActor).toBe('human')
+  })
+  it('a repeated thumb on a human review still returns the row to pending', async () => {
+    list.mockResolvedValue([row({ id: 1, reviewState: 'rejected', reviewActor: 'human' })])
+    await findingsStore.load('c1')
+    review.mockResolvedValue(row({ id: 1, reviewState: 'pending', reviewActor: null }))
+    await findingsStore.review('c1', 1, 'rejected')
+    expect(review).toHaveBeenCalledWith(1, 'pending', undefined)
+  })
 })

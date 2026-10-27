@@ -59,8 +59,12 @@ class FindingsStore {
     next: 'accepted' | 'rejected',
     reason?: FindingRejectReason
   ): Promise<FindingRow | null> {
-    const cur = this.get(slug).rows.find((f) => f.id === id)?.reviewState
-    const state: ReviewState = cur === next && !reason ? 'pending' : next
+    const curRow = this.get(slug).rows.find((f) => f.id === id)
+    // Toggle only a HUMAN review back to pending. An agent retraction is `rejected` too, but a
+    // thumbs-down on it is the human's own reject (reviewFinding records the human as actor and
+    // keeps the agent's reason in the column), not an undo of the retraction (#242 follow-up).
+    const repeats = curRow?.reviewState === next && curRow.reviewActor !== 'agent'
+    const state: ReviewState = repeats && !reason ? 'pending' : next
     const row = await window.argus.findings.review(id, state, reason)
     if (row) this.merge(slug, row)
     return row
