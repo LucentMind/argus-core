@@ -464,6 +464,73 @@ export function updateFinding(
   return { ok: true, row }
 }
 
+export type SupersedeRefusal = 'unknown' | 'accepted' | 'already-superseded'
+
+/** The retraction reason a superseded finding carries. One string, read back by the dossier. */
+export const SUPERSEDED_REASON = (newId: number): string => `superseded by #${newId}`
+
+/** Pre-check for `append_finding(supersedes)`: run BEFORE the new row is inserted so a refused
+ *  call leaves no row and no findings.md block. Cross-case and missing are the same answer. */
+export function canSupersede(
+  db: DatabaseSync,
+  caseId: number,
+  oldId: number
+): { ok: true } | { ok: false; reason: SupersedeRefusal } {
+  const cur = db
+    .prepare(`SELECT review_state, superseded_by FROM findings WHERE id = ? AND case_id = ?`)
+    .get(oldId, caseId) as { review_state: string; superseded_by: number | null } | undefined
+  if (!cur) return { ok: false, reason: 'unknown' }
+  if (cur.review_state === 'accepted') return { ok: false, reason: 'accepted' }
+  if (cur.superseded_by !== null) return { ok: false, reason: 'already-superseded' }
+  return { ok: true }
+}
+
+/**
+ * `append_finding(supersedes: old)` after the new row exists (spec §5.2): retract the old
+ * finding with `SUPERSEDED_REASON` (actor agent — retractFinding's rules apply, so a human's
+ * rejection is kept and `retracted` is false), link `old.superseded_by = new`, and move the old
+ * finding's children to the new one. One transaction. The retraction comes first so a
+ * superseded finding is always also rejected and a later edge-nulling cannot revive it.
+ */
+export function supersedeFinding(
+  db: DatabaseSync,
+  oldId: number,
+  newId: number,
+  opts: {
+    onOverride?: (row: AttributionRow) => void
+    onRetracted?: (row: FindingRow) => void
+  } = {}
+): { ok: true; row: FindingRow; retracted: boolean } | { ok: false; reason: SupersedeRefusal } {
+  const fresh = db.prepare(`SELECT case_id FROM findings WHERE id = ?`).get(newId) as
+    { case_id: number } | undefined
+  if (!fresh) return { ok: false, reason: 'unknown' }
+  const pre = canSupersede(db, fresh.case_id, oldId)
+  if (!pre.ok) return pre
+  db.exec('BEGIN')
+  let retracted = false
+  try {
+    const r = retractFinding(db, oldId, SUPERSEDED_REASON(newId), { actor: 'agent', ...opts })
+    if (!r.ok) throw new Error(`retract ${oldId}: ${r.reason}`)
+    retracted = r.changed
+    db.prepare(`UPDATE findings SET superseded_by = ? WHERE id = ?`).run(newId, oldId)
+    db.prepare(`UPDATE findings SET caused_by = ? WHERE caused_by = ? AND case_id = ?`).run(
+      newId,
+      oldId,
+      fresh.case_id
+    )
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
+  const row = toRow(
+    db
+      .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
+      .get(oldId) as unknown as Raw
+  )
+  return { ok: true, row, retracted }
+}
+
 /** findings.md minus the marker segments for `ids` — mode-scoped clear must leave the other
  *  mode's bodies intact. Everything before the first `<!-- finding:N -->` marker (the seeded
  *  header, any pre-marker prose) is always kept. */
