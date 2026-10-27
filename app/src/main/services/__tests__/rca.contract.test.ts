@@ -97,7 +97,9 @@ describe('buildCaseRcaPrompt', () => {
     // The contract wraps its lines; compare the rule text with whitespace collapsed.
     const flat = p.replace(/\s+/g, ' ')
     expect(flat).toContain('a [superseded by #N] finding is folded into #N')
-    expect(flat).toContain('A [hypothesis · …] finding is never rootCause or contributing')
+    expect(flat).toContain(
+      'An active [hypothesis · …] finding (pending or accepted) is never rootCause or contributing'
+    )
   })
 
   it('labels the case-meta tracker line "jira" for a Jira-bound case', () => {

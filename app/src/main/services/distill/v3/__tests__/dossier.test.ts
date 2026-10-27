@@ -66,6 +66,15 @@ describe('buildDossierPrompt', () => {
     // The lite contract is derived by replacement and must carry the same rules.
     expect(DOSSIER_LITE_CONTRACT).toContain('A [hypothesis] root-cause does not anchor')
   })
+  it('the contract reads a later-rejected hypothesis under its later state, not as an active hypothesis', () => {
+    expect(DOSSIER_CONTRACT).toContain(
+      'An active [hypothesis · …] finding (pending or accepted) is admissible only in diagnostic_path'
+    )
+    expect(DOSSIER_CONTRACT).not.toContain(
+      'A [hypothesis · …] finding is admissible only in diagnostic_path.'
+    )
+    expect(DOSSIER_LITE_CONTRACT).toContain('An active [hypothesis · …] finding')
+  })
   it('renders evidence, sessions and user messages', () => {
     expect(p).toContain('- logs/a.txt (text, 10 bytes)')
     expect(p).toContain('- please check the flag')

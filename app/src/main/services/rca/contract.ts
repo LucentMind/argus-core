@@ -65,8 +65,9 @@ Rules:
    cause exists; contributing → contributing; symptom → symptoms; ruled-out, rejected and
    retracted findings → ruledOut with the tag's reason as why; duplicate → duplicates; a
    [superseded by #N] finding is folded into #N and never listed on its own. Depart from the
-   chain only where the findings contradict it, and say so in the statement. A [hypothesis · …]
-   finding is never rootCause or contributing.
+   chain only where the findings contradict it, and say so in the statement. An active
+   [hypothesis · …] finding (pending or accepted) is never rootCause or contributing; a rejected,
+   retracted or superseded one is read under that state above.
 `.trim()
 
 export const RCA_SECTIONS: PromptTextSpecs = {
