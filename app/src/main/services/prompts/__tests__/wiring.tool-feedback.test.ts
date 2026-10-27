@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { TOOL_FEEDBACK } from '../../agent/nativeTools'
-import { FINDING_TREE_HEADINGS } from '../../findingTreeHeadings'
+import { FINDING_TREE_HEADINGS, treeHeadings } from '../../findingTreeHeadings'
 import { PROMPT_ENTRIES, entryById } from '../registry'
 import { fillPrompt } from '../fill'
 import { applyMemoryWrite, MEMORY_FEEDBACK } from '../../memory'
@@ -22,8 +22,19 @@ describe('tool-feedback registry entries', () => {
       const e = entryById(`tool-feedback.${key}`)
       expect(e?.source).toBe('app/src/main/services/findingTreeHeadings.ts')
       expect(e?.default()).toBe(FINDING_TREE_HEADINGS[key].text)
+      // The tree is printed for the agent AND for the headless distill / RCA prompts.
+      expect(e?.reaches).toBe('all')
     }
     expect(TOOL_FEEDBACK['list_findings.root-cause']).toBeUndefined()
+  })
+
+  it('resolves every tree heading through the resolver, so an override reaches the tree', () => {
+    expect(treeHeadings(stub)).toEqual({
+      rootCause: '<<tool-feedback.list_findings.root-cause>>',
+      unexplained: '<<tool-feedback.list_findings.unexplained>>',
+      ruledOut: '<<tool-feedback.list_findings.ruled-out>>'
+    })
+    expect(treeHeadings().rootCause).toBe(FINDING_TREE_HEADINGS['list_findings.root-cause'].text)
   })
 
   it('registers one entry per TOOL_FEEDBACK key', () => {

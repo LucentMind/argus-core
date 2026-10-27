@@ -82,7 +82,14 @@ export function FindingsDocument({
       message: f?.summary ?? `Finding ${id}`,
       danger: true
     })
-    if (ok) await findingsStore.remove(slug, id)
+    if (!ok) return
+    setEditError(null)
+    try {
+      await findingsStore.remove(slug, id)
+    } catch (err) {
+      // Shown under the card, as the pane's delete error is; the card stays.
+      setEditError({ id, message: (err as Error).message })
+    }
   }
   const review = useReviewWalk({
     slug,
