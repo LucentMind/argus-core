@@ -244,6 +244,10 @@ export function assembleDistillInput(
         rejectTag: f.rejectTag,
         rejectNote: f.rejectNote,
         role: f.role,
+        status: f.status,
+        roleSource: f.roleSource,
+        causedBy: f.causedBy,
+        supersededBy: f.supersededBy,
         body: f.body ?? ''
       })),
     evidence: listEvidence(db, slug).map((e) => ({

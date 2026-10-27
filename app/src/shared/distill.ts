@@ -115,6 +115,11 @@ export interface CaseDistillInput {
     /** The human's reject tag and note (spec 2026-10-25); absent on snapshots written before. */
     rejectTag?: 'wrong' | 'not-useful' | 'other' | null
     rejectNote?: string | null
+    /** The causal chain (spec 2026-10-26 §5.1); absent on snapshots written before it. */
+    status?: 'hypothesis' | 'confirmed'
+    roleSource?: 'agent' | 'human' | 'rca' | null
+    causedBy?: number | null
+    supersededBy?: number | null
     role: string | null
     body: string
   }[]

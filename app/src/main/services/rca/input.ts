@@ -121,7 +121,11 @@ export function assembleRcaInput(
         reviewActor: f.reviewActor,
         rejectTag: f.rejectTag,
         rejectNote: f.rejectNote,
-        role: f.role
+        role: f.role,
+        status: f.status,
+        roleSource: f.roleSource,
+        causedBy: f.causedBy,
+        supersededBy: f.supersededBy
       })),
     evidence: evidenceRows.map((e) => ({
       relPath: e.relPath,

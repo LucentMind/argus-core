@@ -118,6 +118,10 @@ describe('assembleDistillInput', () => {
         rejectTag: null,
         rejectNote: null,
         role: null,
+        status: 'confirmed',
+        roleSource: null,
+        causedBy: null,
+        supersededBy: null,
         body: expect.stringContaining('Clock resync.')
       }
     ])
@@ -145,10 +149,24 @@ describe('assembleDistillInput', () => {
         )
         .run(caseId).lastInsertRowid
     )
+    const child = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, summary, review_state, created_at, status, role, role_source, caused_by)
+           VALUES (?, NULL, 'Linked', 'pending', 'x', 'hypothesis', 'symptom', 'agent', ?)`
+        )
+        .run(caseId, id).lastInsertRowid
+    )
     const input = assembleDistillInput(db, home, 'case-a')
     expect(input.findings.find((f) => f.id === id)).toMatchObject({
       rejectTag: 'wrong',
       rejectNote: 'old build'
+    })
+    expect(input.findings.find((f) => f.id === child)).toMatchObject({
+      status: 'hypothesis',
+      roleSource: 'agent',
+      causedBy: id,
+      supersededBy: null
     })
   })
 
