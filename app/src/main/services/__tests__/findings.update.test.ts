@@ -15,7 +15,7 @@ import {
   reviewFinding,
   updateFinding
 } from '../findings'
-import { parseHumanFindingPatch } from '../../../shared/findingPatch'
+import { parseHumanFindingPatch, describeUpdateRefusal } from '../../../shared/findingPatch'
 
 let home: string
 let db: DatabaseSync
@@ -375,5 +375,19 @@ describe('parseHumanFindingPatch', () => {
     expect(() => parseHumanFindingPatch({ causedBy: 1.5 })).toThrow(/causedBy/)
     expect(() => parseHumanFindingPatch({})).toThrow(/empty/)
     expect(() => parseHumanFindingPatch('x')).toThrow()
+  })
+})
+
+describe('describeUpdateRefusal', () => {
+  it('words every refusal for the card, naming the existing root', () => {
+    expect(describeUpdateRefusal('second-root', 6)).toBe(
+      'Finding #6 is already the confirmed root cause — change its role first.'
+    )
+    expect(describeUpdateRefusal('cycle')).toBe('That would make a loop in the chain.')
+    expect(describeUpdateRefusal('self-cause')).toBe('A finding cannot be caused by itself.')
+    expect(describeUpdateRefusal('bad-cause')).toBe(
+      'The cause must be another finding of this case.'
+    )
+    expect(describeUpdateRefusal('unknown')).toBe('That finding no longer exists.')
   })
 })
