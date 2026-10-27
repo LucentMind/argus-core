@@ -128,7 +128,9 @@ describe('ObservationExporter', () => {
         rejectTag: 'wrong',
         rejectNote: 'old build',
         mode: 'investigation',
-        role: null
+        role: null,
+        status: 'confirmed',
+        roleSource: 'human'
       } as FindingRow,
       { caseSlug: 'NAV-1' }
     )
@@ -144,6 +146,8 @@ describe('ObservationExporter', () => {
           caseSlug: 'NAV-1',
           mode: 'investigation',
           role: null,
+          status: 'confirmed',
+          roleSource: 'human',
           actor: 'human',
           tag: 'wrong',
           installId: INSTALL

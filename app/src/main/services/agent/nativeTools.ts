@@ -22,7 +22,8 @@ import { caseDir } from '../paths'
 import { applyMemoryWrite, readTopic } from '../memory'
 import { MEMORY_SCOPES } from '../../../shared/memoryScope'
 import { writeProposal } from '../proposals'
-import { pinCasePhase, setCaseStatus, type CloseOptions } from '../caseService'
+import { getCase, pinCasePhase, setCaseStatus, type CloseOptions } from '../caseService'
+import { deriveCaseOutcome } from '../../../shared/caseOutcome'
 import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import type { Detection } from '../packs/detection'
 import type { CapturePanelEvidence } from './capturePanel'
@@ -721,8 +722,22 @@ export function argusToolHandlers(
       const limit = args.limit == null ? 5 : Number(args.limit)
       const hits = searchCaseSummaries(db, String(args.query ?? ''), { limit })
       if (hits.length === 0) return fb('search_case_history.empty')
+      // Spec 2026-10-26 §9.5: hits are case summaries, so the one chain fact a line can carry
+      // truthfully is whether a human accepted the case's root cause. At most `limit` extra
+      // reads; a hit whose case row is gone renders as before.
+      const outcomeSuffix = (slug: string): string => {
+        const c = getCase(db, slug)
+        if (!c) return ''
+        const outcome = deriveCaseOutcome(c, listFindings(db, argusHome, slug))
+        if (outcome === 'solved') return ' · root cause accepted'
+        if (outcome === 'solved-unconfirmed') return ' · root cause unconfirmed'
+        return ''
+      }
       return hits
-        .map((h) => `«${h.caseSlug}» [${h.resolution}] ${h.signature} — ${h.snippet}`)
+        .map(
+          (h) =>
+            `«${h.caseSlug}» [${h.resolution}${outcomeSuffix(h.caseSlug)}] ${h.signature} — ${h.snippet}`
+        )
         .join('\n')
     },
 
