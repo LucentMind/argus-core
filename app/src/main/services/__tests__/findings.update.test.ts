@@ -10,6 +10,7 @@ import {
   appendToFindingBody,
   applyReportRoles,
   clearFindings,
+  confirmedRootCauseOf,
   deleteFinding,
   listFindings,
   reviewFinding,
@@ -295,6 +296,94 @@ describe('updateFinding', () => {
     expect(updateFinding(db, home, id, { status: 'hypothesis' }, { actor: 'agent' }).ok).toBe(true)
     const h = updateFinding(db, home, id, { role: 'symptom' }, { actor: 'human' })
     expect(h.ok && h.row.roleSource).toBe('human')
+  })
+})
+
+describe('review-mode findings take no chain fields', () => {
+  const session = (mode: 'investigation' | 'review'): number => {
+    const now = new Date().toISOString()
+    return Number(
+      db
+        .prepare(`INSERT INTO sessions (case_id, mode, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+        .run(caseId, mode, now, now).lastInsertRowid
+    )
+  }
+
+  it('refuses status, role and cause on a review row for either actor, writing nothing; evidence appends stay allowed', () => {
+    const rev = session('review')
+    const other = seed({ session_id: rev })
+    const id = seed({ session_id: rev, summary: 'Off-by-one in pager' })
+    const mdPath = path.join(caseDir(home, 'CASE-A'), 'findings.md')
+    fs.writeFileSync(
+      mdPath,
+      `# Findings
+
+<!-- finding:${id} -->
+## Off-by-one in pager
+`
+    )
+    const onUpdated = vi.fn()
+    for (const actor of ['agent', 'human'] as const) {
+      for (const patch of [
+        { role: 'root-cause' as const },
+        { status: 'hypothesis' as const },
+        { causedBy: other },
+        { role: 'symptom' as const, appendMarkdown: 'More.' }
+      ]) {
+        expect(updateFinding(db, home, id, patch, { actor, onUpdated })).toEqual({
+          ok: false,
+          reason: 'review-mode'
+        })
+      }
+    }
+    expect(onUpdated).not.toHaveBeenCalled()
+    expect(col(id, 'role')).toBeNull()
+    expect(col(id, 'role_source')).toBeNull()
+    expect(col(id, 'status')).toBeNull()
+    expect(col(id, 'caused_by')).toBeNull()
+    expect(fs.readFileSync(mdPath, 'utf8')).not.toContain('### Update')
+
+    const res = updateFinding(
+      db,
+      home,
+      id,
+      { appendMarkdown: 'Also hits the last page.' },
+      {
+        actor: 'agent'
+      }
+    )
+    expect(res.ok).toBe(true)
+    expect(fs.readFileSync(mdPath, 'utf8')).toContain('Also hits the last page.')
+  })
+
+  it('a review-mode confirmed root never counts as the case root', () => {
+    const rev = session('review')
+    const inv = session('investigation')
+    const revRoot = seed({ session_id: rev, role: 'root-cause', status: 'confirmed' })
+    expect(confirmedRootCauseOf(db, caseId)).toBeNull()
+    const invId = seed({ session_id: inv })
+    const res = updateFinding(
+      db,
+      home,
+      invId,
+      { role: 'root-cause', status: 'confirmed' },
+      {
+        actor: 'agent'
+      }
+    )
+    expect(res.ok).toBe(true)
+    expect(confirmedRootCauseOf(db, caseId)).toBe(invId)
+    // A session-less row reads as investigation, exactly as every finding read derives it.
+    expect(confirmedRootCauseOf(db, caseId, invId)).toBeNull()
+    const legacy = seed({ role: 'root-cause' })
+    expect(confirmedRootCauseOf(db, caseId, invId)).toBe(legacy)
+    expect(col(revRoot, 'role')).toBe('root-cause')
+  })
+
+  it('describes the refusal for the card', () => {
+    expect(describeUpdateRefusal('review-mode')).toBe(
+      'This finding belongs to a review session; status, role and cause apply to investigation findings only.'
+    )
   })
 })
 

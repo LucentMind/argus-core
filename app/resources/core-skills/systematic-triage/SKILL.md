@@ -59,8 +59,9 @@ Record the conclusion with `mcp__argus__append_finding`, containing:
   (`[<rel-path>:<line>]` for evidence, `[<repo-name>/<path>:<line>]` for code). A chain
   that stops at a proximate cause must say so and say why. When the original trigger is
   a code change, name the introducing commit/PR (suspect-commits skill).
-- **Confidence label**: CONFIRMED (every hop cited) or HYPOTHESIS (plausible, with the
-  specific evidence that would confirm it).
+- **Status** goes in the `status` field, never as a prefix in the title or summary:
+  `confirmed` when every hop is cited, `hypothesis` when it is plausible — and then name the
+  specific evidence that would confirm it.
 - **Minimal reproduction recipe**, when derivable: the smallest input/steps that trigger
   the defect — this is what makes the finding actionable for whoever fixes it.
 - **Recommended fix direction**: fix at the original trigger, not the symptom; optionally

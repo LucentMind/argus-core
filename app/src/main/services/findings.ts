@@ -331,7 +331,11 @@ export function appendToFindingBody(
 
 /** The case's one ACTIVE confirmed root cause (role root-cause, status confirmed or legacy NULL,
  *  not rejected, not superseded), or null. `exceptId` excludes the finding being updated (or,
- *  for `append_finding(supersedes)`, the one about to be retracted). */
+ *  for `append_finding(supersedes)`, the one about to be retracted). Investigation findings
+ *  only: the chain is an investigation concept, so a review-mode (PR) row — which no
+ *  investigation session can see, let alone supersede — never counts as the case's root. Mode
+ *  is joined the same way every finding read derives it (FINDINGS_WITH_MODE; no session row
+ *  reads as investigation). */
 export function confirmedRootCauseOf(
   db: DatabaseSync,
   caseId: number,
@@ -339,11 +343,12 @@ export function confirmedRootCauseOf(
 ): number | null {
   const other = db
     .prepare(
-      `SELECT id FROM findings
-        WHERE case_id = ? AND id != ? AND role = 'root-cause'
-          AND COALESCE(status, 'confirmed') = 'confirmed'
-          AND review_state != 'rejected' AND superseded_by IS NULL
-        ORDER BY id LIMIT 1`
+      `SELECT f.id AS id FROM ${FINDINGS_WITH_MODE}
+        WHERE f.case_id = ? AND f.id != ? AND f.role = 'root-cause'
+          AND COALESCE(f.status, 'confirmed') = 'confirmed'
+          AND f.review_state != 'rejected' AND f.superseded_by IS NULL
+          AND COALESCE(s.mode, 'investigation') = 'investigation'
+        ORDER BY f.id LIMIT 1`
     )
     .get(caseId, exceptId) as { id: number } | undefined
   return other?.id ?? null
@@ -354,9 +359,9 @@ export function confirmedRootCauseOf(
  * `role_source` = the actor), `caused_by`, and the body append. Both the agent's
  * `update_finding` and the human's card editor land here, so every invariant is checked once,
  * in one order, before anything is written:
- *   unknown / empty → accepted-locked, rca-frozen (agent only) → self-cause, bad-cause, cycle →
- *   second-root. A refusal is a RESULT, not a throw — the tool layer and the IPC own the
- *   wording. Invalid enum values are a caller bug and throw.
+ *   unknown / empty → review-mode → accepted-locked, rca-frozen (agent only) → self-cause,
+ *   bad-cause, cycle → second-root. A refusal is a RESULT, not a throw — the tool layer and
+ *   the IPC own the wording. Invalid enum values are a caller bug and throw.
  * A rejected or superseded confirmed root cause is ruled out and does not block a new one.
  * Order of writes: DB row first, findings.md second — a crash between them leaves a correct row
  * missing an evidence paragraph, never a body that claims a change the row does not have.
@@ -370,7 +375,8 @@ export function updateFinding(
 ): UpdateResult {
   const cur = db
     .prepare(
-      `SELECT f.*, c.slug AS slug FROM findings f JOIN cases c ON c.id = f.case_id WHERE f.id = ?`
+      `SELECT f.*, s.mode AS mode, c.slug AS slug FROM ${FINDINGS_WITH_MODE}
+         JOIN cases c ON c.id = f.case_id WHERE f.id = ?`
     )
     .get(id) as (Raw & { slug: string }) | undefined
   if (!cur) return { ok: false, reason: 'unknown' }
@@ -382,6 +388,10 @@ export function updateFinding(
     throw new Error(`Invalid status: ${JSON.stringify(patch.status)}`)
   if (has('role') && patch.role !== null && !isFindingRole(patch.role))
     throw new Error(`Invalid role: ${JSON.stringify(patch.role)}`)
+  // The chain is an investigation concept: a review-mode (PR) finding takes evidence appends
+  // only, whoever the actor. Checked before every other rule so nothing below can write it.
+  if ((cur.mode ?? DEFAULT_MODE) === 'review' && (has('status') || has('role') || has('causedBy')))
+    return { ok: false, reason: 'review-mode' }
   if (opts.actor === 'agent') {
     // A human's accept is not the agent's to overturn (same rule as retraction): the claim
     // and the role are settled; evidence and a cause may still be added.
