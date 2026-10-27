@@ -226,9 +226,17 @@ it('a review session may append evidence to its own finding but not set status, 
   const a = idOf(await h.append_finding({ title: 'Unchecked null', markdown: 'b' }))
   const b = idOf(await h.append_finding({ title: 'Missing retry', markdown: 'b' }))
   const refusal = TOOL_FEEDBACK['update_finding.review-mode'].text.replace('{id}', String(a))
-  for (const patch of [{ role: 'root-cause' }, { status: 'hypothesis' }, { caused_by: b }]) {
+  for (const patch of [
+    { role: 'root-cause' },
+    { status: 'hypothesis' },
+    { caused_by: b },
+    { replace_markdown: 'Rewritten reasoning.' }
+  ]) {
     await expect(h.update_finding({ finding_id: a, ...patch })).rejects.toThrow(refusal)
   }
+  expect(listFindings(db, home, 'CASE-A').find((f) => f.id === a)?.body).not.toContain(
+    'Rewritten reasoning.'
+  )
   expect(col(a, 'role')).toBeNull()
   expect(col(a, 'status')).toBeNull()
   expect(col(a, 'caused_by')).toBeNull()

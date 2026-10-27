@@ -418,8 +418,12 @@ export function updateFinding(
   if (has('role') && patch.role !== null && !isFindingRole(patch.role))
     throw new Error(`Invalid role: ${JSON.stringify(patch.role)}`)
   // The chain is an investigation concept: a review-mode (PR) finding takes evidence appends
-  // only, whoever the actor. Checked before every other rule so nothing below can write it.
-  if ((cur.mode ?? DEFAULT_MODE) === 'review' && (has('status') || has('role') || has('causedBy')))
+  // only, whoever the actor — no chain field and no body replace. Checked before every other
+  // rule so nothing below can write it.
+  if (
+    (cur.mode ?? DEFAULT_MODE) === 'review' &&
+    (has('status') || has('role') || has('causedBy') || replace)
+  )
     return { ok: false, reason: 'review-mode' }
   if (opts.actor === 'agent') {
     // A human's accept is not the agent's to overturn (same rule as retraction): the claim
