@@ -61,12 +61,33 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true })
 })
 
+it('replace_markdown rewrites the body and refuses when append_markdown is passed too', async () => {
+  const h = handlersFor(sessionFor())
+  const id = idOf(
+    await h.append_finding({ title: 'Cited', markdown: 'wrong [evidence/.derived/x.txt:2]' })
+  )
+  expect(
+    await h.update_finding({ finding_id: id, replace_markdown: 'right [evidence/x.txt:2]' })
+  ).toBe(`finding #${id} updated`)
+  expect(
+    listFindings(db, home, 'CASE-A')
+      .find((f) => f.id === id)
+      ?.body?.trim()
+  ).toBe('right [evidence/x.txt:2]')
+  await expect(
+    h.update_finding({ finding_id: id, append_markdown: 'a', replace_markdown: 'b' })
+  ).rejects.toThrow(TOOL_FEEDBACK['update_finding.both-bodies'].text)
+  expect(TOOL_FEEDBACK['update_finding.empty'].text).toContain('replace_markdown')
+  expect(TOOL_FEEDBACK['update_finding.accepted-locked'].text).toContain('replace_markdown')
+})
+
 it('is advertised as a LOW/allow tool with the documented args', () => {
   const spec = NATIVE_TOOL_SPECS.find((s) => s.name === 'update_finding')!
   expect(Object.keys(spec.schema).sort()).toEqual([
     'append_markdown',
     'caused_by',
     'finding_id',
+    'replace_markdown',
     'role',
     'status'
   ])

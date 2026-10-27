@@ -8,6 +8,7 @@ import { createCase } from '../caseService'
 import { caseDir } from '../paths'
 import {
   appendToFindingBody,
+  replaceFindingBody,
   applyReportRoles,
   clearFindings,
   confirmedRootCauseOf,
@@ -287,6 +288,40 @@ describe('updateFinding', () => {
     expect(updateFinding(db, home, id, { role: 'contributing' }, { actor: 'human' }).ok).toBe(true)
   })
 
+  it('replaceMarkdown rewrites the body; append and replace together are refused; an accepted finding keeps its body from the agent', () => {
+    const id = seed({ summary: 'Race' })
+    fs.writeFileSync(
+      path.join(caseDir(home, 'CASE-A'), 'findings.md'),
+      `# Findings\n\n<!-- finding:${id} -->\n## Race\n_x_\n\nold [evidence/.derived/a.txt:1]\n`
+    )
+    expect(
+      updateFinding(
+        db,
+        home,
+        id,
+        { replaceMarkdown: 'fixed [evidence/a.txt:1]' },
+        { actor: 'agent' }
+      )
+    ).toMatchObject({ ok: true })
+    expect(
+      listFindings(db, home, 'CASE-A')
+        .find((f) => f.id === id)
+        ?.body?.trim()
+    ).toBe('fixed [evidence/a.txt:1]')
+    expect(
+      updateFinding(db, home, id, { appendMarkdown: 'a', replaceMarkdown: 'b' }, { actor: 'agent' })
+    ).toEqual({ ok: false, reason: 'both-bodies' })
+    reviewFinding(db, id, 'accepted')
+    expect(updateFinding(db, home, id, { replaceMarkdown: 'c' }, { actor: 'agent' })).toEqual({
+      ok: false,
+      reason: 'accepted-locked'
+    })
+    expect(
+      updateFinding(db, home, id, { appendMarkdown: 'still allowed' }, { actor: 'agent' })
+    ).toMatchObject({ ok: true })
+    expect(describeUpdateRefusal('both-bodies')).toBe('Append or replace the body, not both.')
+  })
+
   it('refuses the agent, not the human, on an rca-sourced role', () => {
     const id = seed({ role: 'contributing', role_source: 'rca' })
     expect(updateFinding(db, home, id, { role: 'symptom' }, { actor: 'agent' })).toEqual({
@@ -451,6 +486,21 @@ describe('appendToFindingBody', () => {
     expect(out).toBe(
       '# Findings\n\n<!-- finding:7 -->\n## Race\n_2026-10-26T10:00:00.000Z_\n\n### Update 2026-10-26T10:00:00.000Z\n\nNew evidence.\n'
     )
+  })
+})
+
+describe('replaceFindingBody', () => {
+  const md =
+    '# Findings\n\n<!-- finding:7 -->\n## Race\n_2026-10-26T10:00:00.000Z · session 3_\n\nold body\n\n### Update 2026-10-26T11:00:00.000Z\n\nmore\n\n<!-- finding:8 -->\n## Other\n_x_\n\nkeep\n'
+  it('replaces everything under the heading and meta line, leaving the other blocks alone', () => {
+    expect(replaceFindingBody(md, 7, 'new body [evidence/a.log:3]', 'Race')).toBe(
+      '# Findings\n\n<!-- finding:7 -->\n## Race\n_2026-10-26T10:00:00.000Z · session 3_\n\nnew body [evidence/a.log:3]\n\n<!-- finding:8 -->\n## Other\n_x_\n\nkeep\n'
+    )
+  })
+  it('adds a block when the finding has none', () => {
+    expect(
+      replaceFindingBody('# Findings\n', 9, 'fresh', 'Nine', new Date('2026-10-27T10:00:00Z'))
+    ).toBe('# Findings\n\n<!-- finding:9 -->\n## Nine\n_2026-10-27T10:00:00.000Z_\n\nfresh\n')
   })
 })
 
