@@ -66,6 +66,28 @@
 - PR review sessions are unchanged: their findings stay a flat list, and the agent's chain
   fields (`status`, `role`, `caused_by`, `supersedes`) are refused there.
 
+**Findings as a causal chain (increment 3) — the chain's consumers**
+
+- Distillation (v2 and the v3 dossier) and the RCA drafter now read a case's findings as the
+  reviewed causal chain: every line carries the agent's status and your review
+  (`confirmed · accepted`, `hypothesis · pending`, …), children sit under their cause, and a
+  finding replaced by a sharper one reads `superseded by #N` with no body — it is folded into
+  its successor, never counted as a ruled-out hypothesis. A hypothesis is admissible only in
+  the diagnostic path; the dossier's root cause anchors on the root-cause finding you accepted,
+  or on the agent's confirmed root with an explicit "unreviewed" note.
+- The RCA draft is seeded from the chain and the RCA panel now says what the draft left
+  unanchored: `N statements without a finding · M findings not used`.
+- A **Findings** tab beside Chat reads the chain as a document — bodies open, thumbs, reject
+  reasons, role and cause editors on every card, and the same `Review` walk as the rail.
+- `Correct` on a card or the reject strip opens the chat with the finding's handle typed for
+  you; thumbs-down on a finding the agent retracted records your own reject instead of undoing
+  the retraction; the cause chip names the cause; an update the agent makes to a finding you
+  accepted says so on the card and in the agent's result.
+- `update_finding` gains `replace_markdown` for a body whose claim stands but whose citation or
+  number was wrong (refused on an accepted finding); a model-written body can no longer split
+  `findings.md`. `finding_accepted` scores carry `status` and `roleSource`;
+  `search_case_history` says whether a solved case's root cause was accepted.
+
 ### Changed
 
 - Settings: `observability.langfuse` moved to `observability.providers.langfuse` (migrated
