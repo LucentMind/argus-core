@@ -57,8 +57,11 @@ import {
   parseFindingBodies,
   removeFindingBodies,
   retractFinding,
-  supersedeFinding
+  supersedeFinding,
+  updateFinding,
+  type FindingPatch
 } from '../findings'
+import { buildFindingTree, type TreeNode } from '../../../shared/findingTree'
 import { reviewTag } from '../../../shared/findingTag'
 import { sessionMode } from './sessionStore'
 import { readSessionEvents } from './mirror'
@@ -361,6 +364,37 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   'retract_finding.already-rejected': {
     title: 'retract_finding — a human already rejected this finding',
     text: 'This finding was already rejected by a human reviewer. Their reason stands and yours was not recorded — if you disagree with how it was rejected, say so in your reply.'
+  },
+  'update_finding.ok': {
+    title: 'update_finding — success',
+    text: 'finding #{id} updated',
+    placeholders: ['id']
+  },
+  'update_finding.empty': {
+    title: 'update_finding — nothing to change',
+    text: 'Pass at least one of status, role, caused_by, append_markdown. Nothing was changed.'
+  },
+  'update_finding.accepted-locked': {
+    title: 'update_finding — status/role of an accepted finding',
+    text: 'Finding {id} was ACCEPTED by a human reviewer: its status and role are theirs now. You may still set caused_by or append evidence with append_markdown. Nothing was changed — if you believe the finding is wrong, say so in your reply.',
+    placeholders: ['id']
+  },
+  'update_finding.rca-frozen': {
+    title: 'update_finding — role frozen by the confirmed RCA report',
+    text: 'The role of finding {id} was set by the confirmed RCA report and is not yours to change — raise it with the user. Nothing was changed.',
+    placeholders: ['id']
+  },
+  'list_findings.root-cause': {
+    title: 'list_findings — ROOT CAUSE heading',
+    text: 'ROOT CAUSE (each line is caused by the line above it)'
+  },
+  'list_findings.unexplained': {
+    title: 'list_findings — UNEXPLAINED heading',
+    text: 'UNEXPLAINED (no recorded cause — the chain stops here)'
+  },
+  'list_findings.ruled-out': {
+    title: 'list_findings — RULED OUT heading',
+    text: 'RULED OUT'
   },
   'propose_case_triage.no-item': {
     title: 'propose_case_triage — not processing an item',
@@ -941,14 +975,44 @@ export function argusToolHandlers(
       const mode = sessionMode(db, deps.sessionId)
       const rows = listFindings(db, argusHome, caseSlug).filter((f) => f.mode === mode)
       if (rows.length === 0) return fb('list_findings.none')
-      return rows
-        .map((f) => {
-          const flavor =
-            f.severity && f.layer ? `${f.severity}/${f.layer}` : (f.severity ?? f.layer)
-          const anchor = f.diffPath ? `${f.diffPath}:${f.diffLine}` : null
-          return [`#${f.id}`, reviewTag(f), flavor, anchor, f.summary].filter(Boolean).join(' · ')
-        })
-        .join('\n')
+      // Review findings have no chain: the flat line, in listFindings' order as before.
+      if (mode === 'review') {
+        return rows
+          .map((f) => {
+            const flavor =
+              f.severity && f.layer ? `${f.severity}/${f.layer}` : (f.severity ?? f.layer)
+            const anchor = f.diffPath ? `${f.diffPath}:${f.diffLine}` : null
+            return [`#${f.id}`, reviewTag(f), flavor, anchor, f.summary].filter(Boolean).join(' · ')
+          })
+          .join('\n')
+      }
+      // The same tree the rail shows (shared/findingTree): one picture for both readers.
+      const tree = buildFindingTree(rows)
+      const node = (n: TreeNode): string =>
+        `${'  '.repeat(n.depth)}${n.depth > 0 ? '↳ ' : ''}#${n.row.id} · ${n.row.status} · ${reviewTag(n.row)} · ${n.row.role ?? 'no role'} · ${n.row.summary}`
+      const sections: string[] = []
+      if (tree.rootCause.length > 0)
+        sections.push([fb('list_findings.root-cause'), ...tree.rootCause.map(node)].join('\n'))
+      if (tree.unexplained.length > 0)
+        sections.push([fb('list_findings.unexplained'), ...tree.unexplained.map(node)].join('\n'))
+      if (tree.ruledOut.length > 0)
+        sections.push(
+          [
+            fb('list_findings.ruled-out'),
+            ...tree.ruledOut.map((f) =>
+              [
+                `#${f.id}`,
+                reviewTag(f),
+                f.role,
+                f.supersededBy ? `superseded by #${f.supersededBy}` : null,
+                f.summary
+              ]
+                .filter(Boolean)
+                .join(' · ')
+            )
+          ].join('\n')
+        )
+      return sections.join('\n\n')
     },
 
     async retract_finding(args) {
@@ -979,6 +1043,66 @@ export function argusToolHandlers(
       if (!res.changed) return fb('retract_finding.already-rejected')
       deps.emitFindingUpdated?.(findingId)
       return fb('retract_finding.ok')
+    },
+
+    async update_finding(args) {
+      const findingId = num(args.finding_id, 'finding_id')
+      // Same scoping as retract_finding: this case AND this session's mode, one opaque error.
+      assertVisibleFinding(findingId)
+      const patch: FindingPatch = {}
+      if (args.status !== undefined) {
+        if (!isFindingStatus(args.status))
+          throw new Error(
+            fb('append_finding.bad-status', {
+              status: JSON.stringify(args.status),
+              expected: FINDING_STATUSES.join('|')
+            })
+          )
+        patch.status = args.status
+      }
+      if (args.role !== undefined) {
+        if (args.role !== null && !isFindingRole(args.role))
+          throw new Error(
+            fb('append_finding.bad-role', {
+              role: JSON.stringify(args.role),
+              expected: FINDING_ROLES.join('|')
+            })
+          )
+        patch.role = args.role
+      }
+      if (args.caused_by !== undefined) {
+        if (args.caused_by === null) patch.causedBy = null
+        else {
+          const c = num(args.caused_by, 'caused_by')
+          if (c !== findingId) assertVisibleFinding(c) // self-cause is updateFinding's own refusal
+          patch.causedBy = c
+        }
+      }
+      if (args.append_markdown !== undefined) patch.appendMarkdown = String(args.append_markdown)
+      const res = updateFinding(db, argusHome, findingId, patch, { actor: 'agent' })
+      if (!res.ok) {
+        switch (res.reason) {
+          case 'empty':
+            throw new Error(fb('update_finding.empty'))
+          case 'accepted-locked':
+            throw new Error(fb('update_finding.accepted-locked', { id: String(findingId) }))
+          case 'rca-frozen':
+            throw new Error(fb('update_finding.rca-frozen', { id: String(findingId) }))
+          case 'self-cause':
+            throw new Error(fb('finding.self-cause'))
+          case 'cycle':
+            throw new Error(fb('finding.cycle', { id: String(patch.causedBy) }))
+          case 'second-root':
+            throw new Error(fb('finding.second-root', { existing: String(res.existingRoot) }))
+          default:
+            // 'unknown' and 'bad-cause': the same opaque wording as an id this session can't see.
+            throw new Error(wf(wdeps0, 'review_write.unknown-finding'))
+        }
+      }
+      deps.emitFindingUpdated?.(findingId)
+      // `#{id}` is what the chat transcript's inline card resolves the row by (shared/findingRef)
+      // — an override of this text must keep it for that to work.
+      return fb('update_finding.ok', { id: String(findingId) })
     },
 
     async post_review_comment(args) {
@@ -1339,7 +1463,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'list_findings',
     description:
-      'List the findings already recorded on this case: id, review state, severity/layer, diff anchor and title, one per line. Call this BEFORE recording a new finding, so you can see whether you are about to contradict or duplicate something you already recorded. Bodies are not included — read those with read_findings.',
+      'List the findings already recorded on this case as the causal chain — ROOT CAUSE trees (each line caused by the line above), UNEXPLAINED findings with no recorded cause, and RULED OUT — with id, status, review state, role and title per line (review sessions: id, review state, severity/layer, diff anchor and title). Call this BEFORE recording a new finding, so you can see whether you are about to contradict or duplicate something you already recorded. Bodies are not included — read those with read_findings.',
     schema: {}
   },
   {
@@ -1347,6 +1471,21 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
     description:
       'Withdraw a finding you recorded that has turned out to be wrong. Pass the finding_id from list_findings and a one-line reason saying what was wrong about it. The finding is marked rejected and stops counting as a conclusion, while the reason is kept as the record of what was ruled out and how. Use this instead of recording a second, corrected finding beside the wrong one. A finding a human has ACCEPTED cannot be retracted — if you believe an accepted finding is wrong, say so in your reply instead.',
     schema: { finding_id: z.number(), reason: z.string().min(1) }
+  },
+  {
+    name: 'update_finding',
+    description:
+      'Change a finding you recorded instead of recording a second one beside it: promote a hypothesis with status: confirmed once the evidence confirms it (or demote with status: hypothesis), set role (symptom | contributing | root-cause | ruled-out; null clears), set caused_by to the id of the finding that CAUSES this one (null detaches), or append_markdown to add a dated Update section with new evidence and citations. Pass only what changes. A finding a human ACCEPTED keeps its status and role (you may still add a cause or evidence); a role set by a confirmed RCA report is not yours to change — raise it with the user. Only one confirmed root-cause finding may exist per case.',
+    schema: {
+      finding_id: z.number(),
+      status: z.enum(FINDING_STATUSES).optional(),
+      role: z
+        .enum(FINDING_ROLES as [FindingRole, ...FindingRole[]])
+        .nullable()
+        .optional(),
+      caused_by: z.number().nullable().optional(),
+      append_markdown: z.string().optional()
+    }
   },
   {
     name: 'post_review_comment',
