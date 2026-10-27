@@ -501,33 +501,84 @@ export function supersedeFinding(
     onRetracted?: (row: FindingRow) => void
   } = {}
 ): { ok: true; row: FindingRow; retracted: boolean } | { ok: false; reason: SupersedeRefusal } {
-  const fresh = db.prepare(`SELECT case_id FROM findings WHERE id = ?`).get(newId) as
-    { case_id: number } | undefined
+  // The closed refusal union has no 'self' member, so a self-supersede reuses 'unknown'.
+  if (oldId === newId) return { ok: false, reason: 'unknown' }
+  const fresh = db.prepare(`SELECT case_id, caused_by FROM findings WHERE id = ?`).get(newId) as
+    { case_id: number; caused_by: number | null } | undefined
   if (!fresh) return { ok: false, reason: 'unknown' }
   const pre = canSupersede(db, fresh.case_id, oldId)
   if (!pre.ok) return pre
+  const readRow = (id: number): FindingRow =>
+    toRow(
+      db
+        .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
+        .get(id) as unknown as Raw
+    )
   db.exec('BEGIN')
   let retracted = false
+  // The callbacks are collected inside the transaction and fired after COMMIT, with the row
+  // re-read, so a listener sees the final state (superseded_by set) and a rolled-back
+  // supersede never notifies anyone.
+  let overridden: AttributionRow | null = null
+  let fireRetracted = false
   try {
-    const r = retractFinding(db, oldId, SUPERSEDED_REASON(newId), { actor: 'agent', ...opts })
+    const r = retractFinding(db, oldId, SUPERSEDED_REASON(newId), {
+      actor: 'agent',
+      onOverride: (row) => {
+        overridden = row
+      },
+      onRetracted: () => {
+        fireRetracted = true
+      }
+    })
     if (!r.ok) throw new Error(`retract ${oldId}: ${r.reason}`)
     retracted = r.changed
     db.prepare(`UPDATE findings SET superseded_by = ? WHERE id = ?`).run(newId, oldId)
-    db.prepare(`UPDATE findings SET caused_by = ? WHERE caused_by = ? AND case_id = ?`).run(
-      newId,
-      oldId,
-      fresh.case_id
-    )
+    // The replacement takes the old finding's place in the chain. If the new finding is itself
+    // caused by the old one or by anything downstream of it, re-parenting the old finding's
+    // children onto it would close a loop (new -> old's child -> new, or new -> new), so first
+    // hoist it to the old finding's own cause. `seen` bounds a walk through a pre-existing loop.
+    const oldParent = (
+      db.prepare(`SELECT caused_by FROM findings WHERE id = ?`).get(oldId) as {
+        caused_by: number | null
+      }
+    ).caused_by
+    const childrenOf = db.prepare(`SELECT id FROM findings WHERE caused_by = ? AND case_id = ?`)
+    const downstream = new Set<number>([oldId])
+    const queue = [oldId]
+    while (queue.length) {
+      const next = queue.shift() as number
+      for (const c of childrenOf.all(next, fresh.case_id) as { id: number }[]) {
+        if (downstream.has(c.id)) continue
+        downstream.add(c.id)
+        queue.push(c.id)
+      }
+    }
+    if (fresh.caused_by !== null && downstream.has(fresh.caused_by))
+      db.prepare(`UPDATE findings SET caused_by = ? WHERE id = ?`).run(oldParent, newId)
+    db.prepare(
+      `UPDATE findings SET caused_by = ? WHERE caused_by = ? AND case_id = ? AND id <> ?`
+    ).run(newId, oldId, fresh.case_id, newId)
     db.exec('COMMIT')
   } catch (err) {
     db.exec('ROLLBACK')
     throw err
   }
-  const row = toRow(
-    db
-      .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
-      .get(oldId) as unknown as Raw
-  )
+  const row = readRow(oldId)
+  if (overridden) {
+    try {
+      opts.onOverride?.(overridden)
+    } catch (err) {
+      console.error('[findings] onOverride failed', err)
+    }
+  }
+  if (fireRetracted) {
+    try {
+      opts.onRetracted?.(row)
+    } catch (err) {
+      console.error('[findings] onRetracted failed', err)
+    }
+  }
   return { ok: true, row, retracted }
 }
 
