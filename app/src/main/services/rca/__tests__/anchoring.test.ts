@@ -25,6 +25,7 @@ const f = (
     mode: string
     reviewState: string
     role: string | null
+    status: string | null
     supersededBy: number | null
   }> = {}
 ): Parameters<typeof draftAnchoring>[1][number] => ({
@@ -62,5 +63,17 @@ describe('draftAnchoring', () => {
       f(1) // active, unnamed → unused
     ]
     expect(draftAnchoring(draft(), findings).unused).toEqual([1, 2])
+  })
+  it('never lists an active hypothesis: the draft may not put one under the root cause or a cause', () => {
+    const findings = [
+      f(6, { role: 'root-cause' }),
+      f(4),
+      f(9),
+      f(12, { status: 'hypothesis' }), // unconfirmed, no role → not unused
+      f(13, { status: 'hypothesis', role: 'symptom' }), // unconfirmed symptom → not unused
+      f(14, { status: 'confirmed' }), // confirmed, unnamed → unused
+      f(15, { status: null }) // legacy NULL reads as confirmed → unused
+    ]
+    expect(draftAnchoring(draft(), findings).unused).toEqual([14, 15])
   })
 })
