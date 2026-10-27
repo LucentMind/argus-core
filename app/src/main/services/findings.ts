@@ -329,6 +329,32 @@ export function appendToFindingBody(
   return `${md.replace(/\s+$/, '')}\n\n<!-- finding:${id} -->\n## ${summary}\n_${iso}_\n\n${section}`
 }
 
+/** `update_finding(replace_markdown)`: the block's `## title` line and the `_meta_` line that
+ *  follows it stay; everything under them is replaced. A finding with no block gets one. Pure;
+ *  same marker grammar as `appendToFindingBody`. */
+export function replaceFindingBody(
+  md: string,
+  id: number,
+  text: string,
+  summary: string,
+  now: Date = new Date()
+): string {
+  const parts = md.split(FINDING_MARKER_SPLIT)
+  for (let i = 1; i < parts.length; i += 2) {
+    if (Number(parts[i]) !== id) continue
+    const lines = (parts[i + 1] ?? '').replace(/^\n/, '').split('\n')
+    const head: string[] = []
+    if (lines[0]?.startsWith('## ')) head.push(lines[0])
+    if (head.length === 1 && /^_.*_$/.test(lines[1] ?? '')) head.push(lines[1])
+    parts[i + 1] = `\n${head.join('\n')}\n\n${text.trim()}\n${i + 2 < parts.length ? '\n' : ''}`
+    let out = parts[0]
+    for (let j = 1; j < parts.length; j += 2)
+      out += `<!-- finding:${parts[j]} -->${parts[j + 1] ?? ''}`
+    return out
+  }
+  return `${md.replace(/\s+$/, '')}\n\n<!-- finding:${id} -->\n## ${summary}\n_${now.toISOString()}_\n\n${text.trim()}\n`
+}
+
 /** The case's one ACTIVE confirmed root cause (role root-cause, status confirmed or legacy NULL,
  *  not rejected, not superseded), or null. `exceptId` excludes the finding being updated (or,
  *  for `append_finding(supersedes)`, the one about to be retracted). Investigation findings
@@ -382,8 +408,10 @@ export function updateFinding(
   if (!cur) return { ok: false, reason: 'unknown' }
   const has = (k: keyof FindingPatch): boolean => patch[k] !== undefined
   const text = (patch.appendMarkdown ?? '').trim()
-  if (!has('status') && !has('role') && !has('causedBy') && !text)
+  const replace = (patch.replaceMarkdown ?? '').trim()
+  if (!has('status') && !has('role') && !has('causedBy') && !text && !replace)
     return { ok: false, reason: 'empty' }
+  if (text && replace) return { ok: false, reason: 'both-bodies' }
   if (has('status') && !isFindingStatus(patch.status))
     throw new Error(`Invalid status: ${JSON.stringify(patch.status)}`)
   if (has('role') && patch.role !== null && !isFindingRole(patch.role))
@@ -394,8 +422,9 @@ export function updateFinding(
     return { ok: false, reason: 'review-mode' }
   if (opts.actor === 'agent') {
     // A human's accept is not the agent's to overturn (same rule as retraction): the claim
-    // and the role are settled; evidence and a cause may still be added.
-    if (cur.review_state === 'accepted' && (has('status') || has('role')))
+    // and the role are settled; evidence and a cause may still be added. The accepted body is
+    // theirs too: a replace is refused, an append is not.
+    if (cur.review_state === 'accepted' && (has('status') || has('role') || replace))
       return { ok: false, reason: 'accepted-locked' }
     // The RCA report fixed this role; the agent may argue in chat, the human may override.
     if (has('role') && cur.role_source === 'rca' && isFindingRole(cur.role))
@@ -464,7 +493,7 @@ export function updateFinding(
       console.error('[findings] onUpdated failed', err)
     }
   }
-  if (text) {
+  if (text || replace) {
     // The row has already changed; a failing body write must not hide that from the hook.
     try {
       const mdPath = path.join(caseDir(argusHome, cur.slug), 'findings.md')
@@ -475,7 +504,12 @@ export function updateFinding(
         if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
         md = `# Findings — ${cur.slug}\n`
       }
-      fs.writeFileSync(mdPath, appendToFindingBody(md, id, text, cur.summary))
+      fs.writeFileSync(
+        mdPath,
+        replace
+          ? replaceFindingBody(md, id, replace, cur.summary)
+          : appendToFindingBody(md, id, text, cur.summary)
+      )
     } catch (err) {
       notify(readRow())
       throw err

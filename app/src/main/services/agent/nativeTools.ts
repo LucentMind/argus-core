@@ -378,12 +378,16 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   },
   'update_finding.empty': {
     title: 'update_finding — nothing to change',
-    text: 'Pass at least one of status, role, caused_by, append_markdown. Nothing was changed.'
+    text: 'Pass at least one of status, role, caused_by, append_markdown, replace_markdown. Nothing was changed.'
   },
   'update_finding.accepted-locked': {
     title: 'update_finding — status/role of an accepted finding',
-    text: 'Finding {id} was ACCEPTED by a human reviewer: its status and role are theirs now. You may still set caused_by or append evidence with append_markdown. Nothing was changed — if you believe the finding is wrong, say so in your reply.',
+    text: 'Finding {id} was ACCEPTED by a human reviewer: its status, role and body are theirs now. You may still set caused_by or append evidence with append_markdown; replace_markdown is refused. Nothing was changed — if you believe the finding is wrong, say so in your reply.',
     placeholders: ['id']
+  },
+  'update_finding.both-bodies': {
+    title: 'update_finding — append and replace together',
+    text: 'Pass append_markdown OR replace_markdown, not both. Nothing was changed.'
   },
   'update_finding.rca-frozen': {
     title: 'update_finding — role frozen by the confirmed RCA report',
@@ -1084,6 +1088,7 @@ export function argusToolHandlers(
         }
       }
       if (args.append_markdown !== undefined) patch.appendMarkdown = String(args.append_markdown)
+      if (args.replace_markdown !== undefined) patch.replaceMarkdown = String(args.replace_markdown)
       const res = updateFinding(db, argusHome, findingId, patch, { actor: 'agent' })
       if (!res.ok) {
         switch (res.reason) {
@@ -1095,6 +1100,8 @@ export function argusToolHandlers(
             throw new Error(fb('update_finding.rca-frozen', { id: String(findingId) }))
           case 'review-mode':
             throw new Error(fb('update_finding.review-mode', { id: String(findingId) }))
+          case 'both-bodies':
+            throw new Error(fb('update_finding.both-bodies'))
           case 'self-cause':
             throw new Error(fb('finding.self-cause'))
           case 'cycle':
@@ -1482,7 +1489,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'update_finding',
     description:
-      'Change a finding you recorded instead of recording a second one beside it: promote a hypothesis with status: confirmed once the evidence confirms it (or demote with status: hypothesis), set role (symptom | contributing | root-cause | ruled-out | duplicate; null clears), set caused_by to the id of the finding that CAUSES this one (null detaches), or append_markdown to add a dated Update section with new evidence and citations. Pass only what changes. A finding a human ACCEPTED keeps its status and role (you may still add a cause or evidence); a role set by a confirmed RCA report is not yours to change — raise it with the user. status, role and caused_by apply to investigation sessions only; on a review finding only append_markdown is accepted. Only one confirmed root-cause finding may exist per case.',
+      'Change a finding you recorded instead of recording a second one beside it: promote a hypothesis with status: confirmed once the evidence confirms it (or demote with status: hypothesis), set role (symptom | contributing | root-cause | ruled-out | duplicate; null clears), set caused_by to the id of the finding that CAUSES this one (null detaches), or append_markdown to add a dated Update section with new evidence and citations. Use replace_markdown instead when the claim stands but the body is wrong in a detail — a bad citation path or a wrong number: it replaces the whole body under the heading, so pass the complete corrected body. A changed claim is a new finding with supersedes, never a replace. Pass only what changes. A finding a human ACCEPTED keeps its status and role (you may still add a cause or append evidence; its body cannot be replaced); a role set by a confirmed RCA report is not yours to change — raise it with the user. status, role and caused_by apply to investigation sessions only; on a review finding only append_markdown is accepted. Only one confirmed root-cause finding may exist per case.',
     schema: {
       finding_id: z.number(),
       status: z.enum(FINDING_STATUSES).optional(),
@@ -1491,7 +1498,8 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
         .nullable()
         .optional(),
       caused_by: z.number().nullable().optional(),
-      append_markdown: z.string().optional()
+      append_markdown: z.string().optional(),
+      replace_markdown: z.string().optional()
     }
   },
   {
