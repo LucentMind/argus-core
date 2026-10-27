@@ -98,6 +98,12 @@ describe('buildCaseRcaPrompt', () => {
     const flat = p.replace(/\s+/g, ' ')
     expect(flat).toContain('a [superseded by #N] finding is folded into #N')
     expect(flat).toContain(
+      'a ↳ finding line is caused by the nearest less-indented finding line (one starting with #) above it; the text under a finding line is its body, and each line reads'
+    )
+    expect(RCA_SECTIONS.findings.text).toContain(
+      '↳ = caused by the nearest less-indented finding line above;'
+    )
+    expect(flat).toContain(
       'An active [hypothesis · …] finding (pending or accepted) is never rootCause or contributing'
     )
   })

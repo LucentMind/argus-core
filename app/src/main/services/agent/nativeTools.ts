@@ -1494,7 +1494,7 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'list_findings',
     description:
-      'List the findings already recorded on this case as the causal chain — ROOT CAUSE trees (each ↳ line is caused by the nearest less-indented line above it) and UNEXPLAINED findings with no recorded cause, each line with id, status, review state, role and title; then RULED OUT, each line with id, review state, role, its successor if superseded, and title (review sessions: id, review state, severity/layer, diff anchor and title). Call this BEFORE recording a new finding, so you can see whether you are about to contradict or duplicate something you already recorded. Bodies are not included — read those with read_findings.',
+      'List the findings already recorded on this case as the causal chain — ROOT CAUSE trees (each ↳ line is caused by the nearest less-indented finding line above it) and UNEXPLAINED findings with no recorded cause, each line with id, status, review state, role and title; then RULED OUT, each line with id, review state, role, its successor if superseded, and title (review sessions: id, review state, severity/layer, diff anchor and title). Call this BEFORE recording a new finding, so you can see whether you are about to contradict or duplicate something you already recorded. Bodies are not included — read those with read_findings.',
     schema: {}
   },
   {

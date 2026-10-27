@@ -16,7 +16,7 @@ export const CASE_DISTILL_SECTIONS: PromptTextSpecs = {
   case: { title: 'Case-distill section — case metadata', text: '# Case' },
   findings: {
     title: 'Case-distill section — findings',
-    text: "# Findings (the investigation's causal chain; ↳ = caused by the line above; each line is #id · status · review · role · summary, then its body)"
+    text: "# Findings (the investigation's causal chain; ↳ = caused by the nearest less-indented finding line above; each line is #id · status · review · role · summary, then its body)"
   },
   evidence: { title: 'Case-distill section — evidence', text: '# Evidence inventory' },
   sessions: { title: 'Case-distill section — chat sessions', text: '# Chat sessions' },

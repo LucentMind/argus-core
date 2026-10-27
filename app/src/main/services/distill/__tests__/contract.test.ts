@@ -3,7 +3,8 @@ import {
   buildCaseDistillPrompt,
   parseCaseDistillOutput,
   DistillParseError,
-  CASE_DISTILL_CONTRACT
+  CASE_DISTILL_CONTRACT,
+  CASE_DISTILL_SECTIONS
 } from '../contract'
 import type { CaseDistillInput } from '../../../../shared/distill'
 import type { RcaDraft } from '../../../../shared/rca'
@@ -108,7 +109,7 @@ describe('prompt builder', () => {
     }
     const p = buildCaseDistillPrompt(withRoleAndStructure)
     expect(p).toContain(
-      'ROOT CAUSE (each ↳ line is caused by the nearest less-indented line above it)\naccepted · root-cause · F1\nbody1'
+      'ROOT CAUSE (each ↳ line is caused by the nearest less-indented finding line — a line starting with # — above it)\naccepted · root-cause · F1\nbody1'
     )
     expect(p).toContain('# Confirmed RCA structure (human-reviewed)')
     expect(p).toContain(JSON.stringify(SAMPLE_DRAFT, null, 2))
@@ -164,8 +165,12 @@ describe('prompt builder', () => {
       'An active [hypothesis · …] finding (pending or accepted) is never the basis of a summary or a proposal'
     )
     expect(CASE_DISTILL_CONTRACT).toContain('[superseded by #N]')
+    // Bodies are unindented, so the cause is named by finding line, never by any line.
     expect(CASE_DISTILL_CONTRACT).toContain(
-      'a ↳ line is caused by the nearest less-indented line above it'
+      "The findings are listed as the investigation's causal chain: a ↳ finding line is caused by the nearest less-indented finding line (one starting with #) above it; the text under a finding line is its body."
+    )
+    expect(CASE_DISTILL_SECTIONS.findings.text).toContain(
+      '↳ = caused by the nearest less-indented finding line above;'
     )
     expect(CASE_DISTILL_CONTRACT).toContain('[confirmed · accepted] or [confirmed · pending]')
   })

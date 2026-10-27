@@ -56,7 +56,8 @@ Rules:
    Do not rename "why" to "rootCause", and do not drop "nextSteps" as redundant with
    remediation — write it in the exec report's own non-technical wording.
 10. THE CHAIN SEEDS THE DRAFT: the findings are listed as the investigation's own causal chain —
-   a ↳ line is caused by the nearest less-indented line above it, and each line reads
+   a ↳ finding line is caused by the nearest less-indented finding line (one starting with #)
+   above it; the text under a finding line is its body, and each line reads
    #id · <status> · <review> · <role> · summary (status: hypothesis = stated but never confirmed,
    confirmed = evidence-backed; a line with no status predates the chain and reads as confirmed).
    Start from it: the root-cause finding is the rootCause when it is [confirmed · accepted] or
@@ -80,7 +81,7 @@ export const RCA_SECTIONS: PromptTextSpecs = {
   comments: { title: 'RCA section — ticket comments', text: '# Ticket comments (as ingested)' },
   findings: {
     title: 'RCA section — findings',
-    text: '# Findings (the causal chain; ↳ = caused by the line above; each line is #id · status · review · role · summary, then its body)'
+    text: '# Findings (the causal chain; ↳ = caused by the nearest less-indented finding line above; each line is #id · status · review · role · summary, then its body)'
   },
   evidence: {
     title: 'RCA section — evidence inventory',
