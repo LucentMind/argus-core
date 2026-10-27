@@ -31,6 +31,8 @@ import {
 import { buildCaseDistillPrompt } from '../contract'
 import { CASE_DISTILL_CONTRACT } from '../caseDistillContract'
 import { DIGEST_PROMPT } from '../rejectDigest'
+import { buildCaseRcaPrompt, RCA_CONTRACT } from '../../rca/contract'
+import { DEFAULT_RCA_TEMPLATE } from '../../../../shared/rcaTemplate'
 import { FINDING_TREE_HEADINGS } from '../../findingTreeHeadings'
 import type { CaseDistillInput } from '../../../../shared/distill'
 import type { Dossier, KnowledgeCandidate } from '../../../../shared/distillV3'
@@ -107,7 +109,26 @@ const PROMPTS = {
   attribution: buildAttributionPrompt(INPUT, DOSSIER),
   materialize: buildMaterializePrompt(INPUT, DOSSIER, CANDIDATE),
   v2: buildCaseDistillPrompt(INPUT),
-  rejectDigest: DIGEST_PROMPT + '\n\nrejects: 3'
+  rejectDigest: DIGEST_PROMPT + '\n\nrejects: 3',
+  rca: buildCaseRcaPrompt(
+    {
+      caseMeta: {
+        slug: 'fx-a',
+        title: 'A',
+        jiraKey: null,
+        resolution: null,
+        tags: [],
+        createdAt: 'x'
+      },
+      findings: [],
+      evidence: [],
+      jiraTicketMarkdown: null,
+      jiraCommentsMarkdown: null,
+      transcripts: [],
+      priorDraft: null
+    },
+    DEFAULT_RCA_TEMPLATE
+  )
 } satisfies Record<FakeStage, string>
 
 const caseOf = (stages: FakeCaseStages): { cases: Map<string, FakeCaseStages> } => ({
@@ -126,7 +147,7 @@ afterEach(() => {
 })
 
 describe('stageOf / slugOf', () => {
-  it('recognises all eight stages from the real prompt builders, and nothing else', () => {
+  it('recognises all nine stages from the real prompt builders, and nothing else', () => {
     for (const [stage, prompt] of Object.entries(PROMPTS))
       expect(stageOf(prompt), stage).toBe(stage)
     expect(stageOf('hello')).toBeNull()
@@ -150,7 +171,8 @@ describe('stageOf / slugOf', () => {
       MATERIALIZE_CONTRACT,
       ATTRIBUTION_CONTRACT,
       CASE_DISTILL_CONTRACT,
-      DIGEST_PROMPT
+      DIGEST_PROMPT,
+      RCA_CONTRACT
     ]
     const heads = contracts.map((c) => /^[\s\S]*?\.(?=\s|$)/.exec(c)?.[0] ?? '')
     expect(heads.every((h) => h.length > 0)).toBe(true)
@@ -251,6 +273,11 @@ describe('createFakeRunners({ cases })', () => {
     )
     expect((await own.agent(PROMPTS.dossierLite, agentOpts)).text).toBe('LITE')
     expect((await own.agent(PROMPTS.dossier, agentOpts)).text).toBe('FULL')
+  })
+
+  it('serves the rca stage one-shot from the case fixture', async () => {
+    const r = createFakeRunners(caseOf({ rca: { text: 'DRAFT' } }))
+    expect((await r.oneShot(PROMPTS.rca)).text).toBe('DRAFT')
   })
 
   it('rejects with an AbortError when the signal is already aborted', async () => {
