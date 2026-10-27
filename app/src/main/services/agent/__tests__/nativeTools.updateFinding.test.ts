@@ -249,6 +249,10 @@ it('a review session may append evidence to its own finding but not set status, 
   const spec = NATIVE_TOOL_SPECS.find((s) => s.name === 'update_finding')!
   expect(spec.description).toContain('ruled-out | duplicate; null clears')
   expect(spec.description).toContain('investigation sessions only')
+  const list = NATIVE_TOOL_SPECS.find((s) => s.name === 'list_findings')!
+  expect(list.description).toContain(
+    'then RULED OUT, each line with id, status, review tag (a superseded line shows superseded by #N instead of status and review state), role and title'
+  )
 })
 it('names the accept in its result when a human had accepted the finding', async () => {
   const h = handlersFor(sessionFor())

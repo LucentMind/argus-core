@@ -1,8 +1,10 @@
 /**
- * The single formatter for a finding's tag. Five render sites use it (`distill/contract.ts`,
- * `distill/v3/dossier.ts`, `rca/contract.ts`, `shared/findingTree.ts`'s `renderFindingTree`)
- * plus the agent's own review-mode `list_findings` line. It lives here, and not in any one of
- * them, because the same fact rendered in five places is the exact shape that drifts.
+ * The single formatter for a finding's tag. It reaches five render sites through two callers:
+ * `shared/findingTree.ts`'s `renderFindingTree` — which prints the investigation `list_findings`,
+ * the distill v2 prompt (`distill/contract.ts`), the v3 dossier (`distill/v3/dossier.ts`) and the
+ * RCA prompt (`rca/contract.ts`) — and the agent's own review-mode `list_findings` line. It lives
+ * here, and not in any one of them, because the same fact rendered in five places is the exact
+ * shape that drifts.
  *
  * Grammar (spec 2026-10-26 §9.2):
  *   superseded by #N                       — `supersededBy` set; nothing else, whatever the review

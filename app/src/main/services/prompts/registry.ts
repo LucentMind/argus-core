@@ -249,7 +249,8 @@ const FINDING_TREE_HEADING_ENTRIES: PromptEntry[] = specEntries(FINDING_TREE_HEA
   prefix: 'tool-feedback',
   category: 'tool-feedback',
   source: 'app/src/main/services/findingTreeHeadings.ts',
-  reaches: NATIVE_TOOL_DRIVERS
+  // The agent's list_findings AND the headless distill v2 / v3 dossier / RCA prompts print the tree.
+  reaches: 'all'
 })
 
 /** The note a session prefixes to its next driver send after the user reviewed findings. */
