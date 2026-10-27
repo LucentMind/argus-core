@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { X, ExternalLink, PinOff, PanelTop, Search } from 'lucide-react'
 import { MenuButton } from './ui'
 import { panelsStore } from '../lib/panelsStore'
-import { CHAT_TAB } from '../lib/panelsStore'
+import { CHAT_TAB, FINDINGS_TAB } from '../lib/panelsStore'
 import { externalAppsStore } from '../lib/externalAppsStore'
 import { panelKeyStr, type PanelDecl, type PanelInfo, type PanelKey } from '../../../shared/panels'
 import type { ChatJumpTarget } from '../../../shared/types'
@@ -26,7 +26,8 @@ export function PanelTabStrip({
   onSwitchSession,
   onJumpToTurn,
   action,
-  onOpenFind = () => {}
+  onOpenFind = () => {},
+  findingsTab
 }: {
   slug: string
   sessionId: number | null
@@ -48,6 +49,8 @@ export function PanelTabStrip({
   /** Opens the in-transcript find overlay (ChatFind) — previously reachable only via
    *  Ctrl+F, with no visible affordance; this button surfaces it. */
   onOpenFind?: () => void
+  /** Rendered as the second fixed tab when given; null/absent in review mode. */
+  findingsTab?: { pending: number } | null
 }): React.JSX.Element {
   const st = useSyncExternalStore(
     (cb) => panelsStore.subscribe(cb),
@@ -155,6 +158,22 @@ export function PanelTabStrip({
           </button>
         )}
       </div>
+      {findingsTab && (
+        <div
+          className={`flex shrink-0 items-center border-b-2 ${
+            activeTab === FINDINGS_TAB ? 'border-signal' : 'border-transparent'
+          }`}
+        >
+          <button
+            type="button"
+            aria-label="Findings"
+            onClick={() => onSelect(FINDINGS_TAB)}
+            className={`px-2 py-1.5 text-xs ${activeTab === FINDINGS_TAB ? 'text-ink' : 'text-dim hover:text-ink'}`}
+          >
+            Findings{findingsTab.pending > 0 ? ` · ${findingsTab.pending}` : ''}
+          </button>
+        </div>
+      )}
       {st.panels.map((p) => {
         const id = panelKeyStr(p)
         return (

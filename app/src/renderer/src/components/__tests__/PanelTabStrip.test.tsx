@@ -921,6 +921,42 @@ describe('PanelTabStrip', () => {
       expect(await screen.findByRole('group', { name: 'Sessions' })).toBeInTheDocument()
     })
   })
+
+  it('renders the Findings tab with its pending count and selects it; hides it when not offered', async () => {
+    window.argus = { ...sessionArgusMocks(), panels: { open: vi.fn() } } as never
+    const onSelect = vi.fn()
+    const view = render(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={null}
+        activeTab="chat"
+        onSelect={onSelect}
+        activeSessionId={null}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+        findingsTab={{ pending: 3 }}
+      />
+    )
+    const tab = screen.getByRole('button', { name: 'Findings' })
+    expect(tab).toHaveTextContent('Findings · 3')
+    await userEvent.click(tab)
+    expect(onSelect).toHaveBeenCalledWith('findings')
+    view.rerender(
+      <PanelTabStrip
+        slug="CASE-A"
+        sessionId={null}
+        activeTab="chat"
+        onSelect={onSelect}
+        activeSessionId={null}
+        instanceId={null}
+        onSwitchSession={vi.fn()}
+        onJumpToTurn={vi.fn()}
+        findingsTab={null}
+      />
+    )
+    expect(screen.queryByRole('button', { name: 'Findings' })).toBeNull()
+  })
 })
 
 describe('PanelTabStrip — externalApp (3c)', () => {
