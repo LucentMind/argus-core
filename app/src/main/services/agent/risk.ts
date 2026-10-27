@@ -112,6 +112,9 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
   // reads the name as write-capable and ASKS — an approval card on every self-correction is
   // enough friction that the agent goes back to appending CORRECTED duplicates instead.
   mcp__argus__retract_finding: { action: 'allow', risk: 'LOW' },
+  // Same tier and same reasons as retract_finding: one row of this case, visible on the card,
+  // human-reversible, and it cannot change what a human accepted.
+  mcp__argus__update_finding: { action: 'allow', risk: 'LOW' },
   mcp__argus__read_memory: { action: 'allow', risk: 'LOW' },
   // NOT sandboxed: the PTC child is a plain ELECTRON_RUN_AS_NODE process (env-scrubbed, but
   // otherwise full user-level fs/network access) — the script's own code runs unsandboxed as
