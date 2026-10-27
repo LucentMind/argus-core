@@ -6,6 +6,7 @@ import { REVIEW_ACTION_PROMPTS } from '../agent/reviewActions'
 import { CI_TRIAGE_PROMPTS } from '../agent/ciTriage'
 import { NEUTRAL_PERSONA, DIAGRAM_FRAGMENT, CONTRIBUTE_BACK_NUDGE } from '../agent/persona'
 import { NATIVE_TOOL_SPECS, NATIVE_TOOL_DRIVERS, TOOL_FEEDBACK } from '../agent/nativeTools'
+import { FINDING_TREE_HEADINGS } from '../findingTreeHeadings'
 import { REVIEW_WRITE_FEEDBACK } from '../agent/reviewWrites'
 import { CI_LOG_FEEDBACK } from '../agent/ciLogs'
 import { SKILL_INDEX_LEAD } from '../agent/skillIndex'
@@ -241,6 +242,13 @@ const TOOL_FEEDBACK_ENTRIES: PromptEntry[] = specEntries(TOOL_FEEDBACK, {
   prefix: 'tool-feedback',
   category: 'tool-feedback',
   source: 'app/src/main/services/agent/nativeTools.ts',
+  reaches: NATIVE_TOOL_DRIVERS
+})
+
+const FINDING_TREE_HEADING_ENTRIES: PromptEntry[] = specEntries(FINDING_TREE_HEADINGS, {
+  prefix: 'tool-feedback',
+  category: 'tool-feedback',
+  source: 'app/src/main/services/findingTreeHeadings.ts',
   reaches: NATIVE_TOOL_DRIVERS
 })
 
@@ -517,6 +525,7 @@ export const PROMPT_ENTRIES: readonly PromptEntry[] = [
   ...SESSION_ENTRIES,
   ...TOOL_ENTRIES,
   ...TOOL_FEEDBACK_ENTRIES,
+  ...FINDING_TREE_HEADING_ENTRIES,
   ...REVIEW_DELTA_ENTRIES,
   ...REVIEW_WRITE_FEEDBACK_ENTRIES,
   ...CI_LOG_FEEDBACK_ENTRIES,

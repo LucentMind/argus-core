@@ -14,6 +14,7 @@ import {
 } from '../nativeTools'
 import { NATIVE_RISK } from '../risk'
 import { listFindings } from '../../findings'
+import { FINDING_TREE_HEADINGS } from '../../findingTreeHeadings'
 import type { Detection } from '../../packs/detection'
 
 let home: string
@@ -168,16 +169,16 @@ it('list_findings renders the investigation chain as sections with depth, status
   const out = await h.list_findings({})
   expect(out).toBe(
     [
-      TOOL_FEEDBACK['list_findings.root-cause'].text,
+      FINDING_TREE_HEADINGS['list_findings.root-cause'].text,
       `#${root} · confirmed · pending · root-cause · tilesVersion blocked`,
       `  ↳ #${mid} · confirmed · pending · contributing · Install rejected`,
       `    ↳ #${leaf} · confirmed · pending · symptom · NoRoute offline`,
       '',
-      TOOL_FEEDBACK['list_findings.unexplained'].text,
+      FINDING_TREE_HEADINGS['list_findings.unexplained'].text,
       `#${hyp} · hypothesis · pending · no role · Fallback never tried`,
       '',
-      TOOL_FEEDBACK['list_findings.ruled-out'].text,
-      `#${idOf(out1)} · rejected · retracted by agent: log was from the old build · Wrong idea`
+      FINDING_TREE_HEADINGS['list_findings.ruled-out'].text,
+      `#${idOf(out1)} · confirmed · rejected · retracted by agent: log was from the old build · no role · Wrong idea`
     ].join('\n')
   )
   fs.rmSync(path.join(caseDir(home, 'CASE-A'), 'findings.md')) // bodies are not part of the listing

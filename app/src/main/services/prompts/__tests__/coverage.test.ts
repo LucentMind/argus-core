@@ -16,6 +16,7 @@ const SCANNED = [
   'app/src/main/services/agent/session.ts',
   'app/src/main/services/agent/reviewDelta.ts',
   'app/src/main/services/agent/nativeTools.ts',
+  'app/src/main/services/findingTreeHeadings.ts',
   'app/src/main/services/agent/risk.ts',
   'app/src/main/services/memory.ts',
   'app/src/main/services/panels/draftMessages.ts',
@@ -41,6 +42,7 @@ const SCANNED = [
 /** Files whose tool RETURNS and THROWS also reach the model, not just their long prose. */
 const RETURN_SCANNED = [
   'app/src/main/services/agent/nativeTools.ts',
+  'app/src/main/services/findingTreeHeadings.ts',
   // Not a tool, but the same class: everything this file returns is prefixed to a driver send
   // and read by the model. Its preamble is the untrusted-content boundary for imported
   // transcripts — the most security-load-bearing string the history-replay feature has — and it
@@ -122,10 +124,6 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
   {
     text: '## Finding ${id} — ${row.summary}\\n${meta}${suggested}\\n\\n${body}',
     why: 'read_findings in nativeTools.ts: one finding\'s section assembled from the findings row (id, summary, severity/layer/anchor, suggested_change) plus its stored body — a markdown header and field list glued around DB data, same class as the \'#${b.number}\' PR identity above. "## Finding" and "Suggested change:" are fixed labels, not instructions, and every variable part is read straight out of the row.'
-  },
-  {
-    text: '#${n.row.id} · ${n.row.status} · ${reviewTag(n.row)} · ${n.row.role ?? ',
-    why: "list_findings in nativeTools.ts (investigation mode): one node of the causal-chain tree — depth indent and arrow, then id, status, review tag, role and summary, every part read straight out of the findings row, same data-echo class as read_findings' section above. The only fixed word, 'no role', labels a NULL column; the section headings around these lines ARE registered (tool-feedback.list_findings.root-cause/unexplained/ruled-out)."
   },
   {
     text: '## ${r.sourceName}: unavailable (${r.error})',

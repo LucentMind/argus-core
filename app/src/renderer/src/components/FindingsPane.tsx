@@ -445,7 +445,7 @@ export function FindingsPane({
     )
   }
 
-  const section = (label: string, nodes: TreeNode[]): React.JSX.Element => (
+  const section = (label: string, nodes: TreeNode<FindingRow>[]): React.JSX.Element => (
     <div className="flex flex-col gap-1">
       <span aria-hidden="true" className="text-[10px] tracking-wide text-faint uppercase">
         {label}

@@ -219,7 +219,9 @@ it('list_findings shows the human reject tag so the agent sees why it was turned
   const id = listFindings(db, home, 'CASE-A')[0].id
   reviewFinding(db, id, 'rejected', { tag: 'wrong', note: 'log is from the old build' })
   const out = await h.list_findings({})
-  expect(out).toContain(`#${id} · rejected · wrong: log is from the old build · Race in parser`)
+  expect(out).toContain(
+    `#${id} · confirmed · rejected · wrong: log is from the old build · no role · Race in parser`
+  )
 })
 
 it('retract_finding reports the retracted row through onFindingReviewed', async () => {

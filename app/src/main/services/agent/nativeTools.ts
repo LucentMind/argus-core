@@ -61,7 +61,8 @@ import {
   updateFinding,
   type FindingPatch
 } from '../findings'
-import { buildFindingTree, type TreeNode } from '../../../shared/findingTree'
+import { renderFindingTree } from '../../../shared/findingTree'
+import { treeHeadings } from '../findingTreeHeadings'
 import { reviewTag } from '../../../shared/findingTag'
 import { sessionMode } from './sessionStore'
 import { readSessionEvents } from './mirror'
@@ -392,18 +393,6 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
     title: 'update_finding — chain fields of a review finding',
     text: 'status, role and caused_by apply to investigation findings; finding {id} belongs to this review session. You may still append evidence with append_markdown. Nothing was changed.',
     placeholders: ['id']
-  },
-  'list_findings.root-cause': {
-    title: 'list_findings — ROOT CAUSE heading',
-    text: 'ROOT CAUSE (each ↳ line is caused by the nearest less-indented line above it)'
-  },
-  'list_findings.unexplained': {
-    title: 'list_findings — UNEXPLAINED heading',
-    text: 'UNEXPLAINED (no recorded cause — the chain stops here)'
-  },
-  'list_findings.ruled-out': {
-    title: 'list_findings — RULED OUT heading',
-    text: 'RULED OUT'
   },
   'propose_case_triage.no-item': {
     title: 'propose_case_triage — not processing an item',
@@ -1005,37 +994,15 @@ export function argusToolHandlers(
             const flavor =
               f.severity && f.layer ? `${f.severity}/${f.layer}` : (f.severity ?? f.layer)
             const anchor = f.diffPath ? `${f.diffPath}:${f.diffLine}` : null
-            return [`#${f.id}`, reviewTag(f), flavor, anchor, f.summary].filter(Boolean).join(' · ')
+            // A review finding has no chain: no status prefix on its line (decision 1).
+            const tag = reviewTag({ ...f, status: null })
+            return [`#${f.id}`, tag, flavor, anchor, f.summary].filter(Boolean).join(' · ')
           })
           .join('\n')
       }
-      // The same tree the rail shows (shared/findingTree): one picture for both readers.
-      const tree = buildFindingTree(rows)
-      const node = (n: TreeNode): string =>
-        `${'  '.repeat(n.depth)}${n.depth > 0 ? '↳ ' : ''}#${n.row.id} · ${n.row.status} · ${reviewTag(n.row)} · ${n.row.role ?? 'no role'} · ${n.row.summary}`
-      const sections: string[] = []
-      if (tree.rootCause.length > 0)
-        sections.push([fb('list_findings.root-cause'), ...tree.rootCause.map(node)].join('\n'))
-      if (tree.unexplained.length > 0)
-        sections.push([fb('list_findings.unexplained'), ...tree.unexplained.map(node)].join('\n'))
-      if (tree.ruledOut.length > 0)
-        sections.push(
-          [
-            fb('list_findings.ruled-out'),
-            ...tree.ruledOut.map((f) =>
-              [
-                `#${f.id}`,
-                reviewTag(f),
-                f.role,
-                f.supersededBy ? `superseded by #${f.supersededBy}` : null,
-                f.summary
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            )
-          ].join('\n')
-        )
-      return sections.join('\n\n')
+      // The same tree the rail shows and the same text the headless readers get
+      // (shared/findingTree): one picture for every reader.
+      return renderFindingTree(rows, { headings: treeHeadings(deps.resolve) })
     },
 
     async retract_finding(args) {
