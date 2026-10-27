@@ -329,6 +329,26 @@ export function appendToFindingBody(
   return `${md.replace(/\s+$/, '')}\n\n<!-- finding:${id} -->\n## ${summary}\n_${iso}_\n\n${section}`
 }
 
+/** The case's one ACTIVE confirmed root cause (role root-cause, status confirmed or legacy NULL,
+ *  not rejected, not superseded), or null. `exceptId` excludes the finding being updated (or,
+ *  for `append_finding(supersedes)`, the one about to be retracted). */
+export function confirmedRootCauseOf(
+  db: DatabaseSync,
+  caseId: number,
+  exceptId = -1
+): number | null {
+  const other = db
+    .prepare(
+      `SELECT id FROM findings
+        WHERE case_id = ? AND id != ? AND role = 'root-cause'
+          AND COALESCE(status, 'confirmed') = 'confirmed'
+          AND review_state != 'rejected' AND superseded_by IS NULL
+        ORDER BY id LIMIT 1`
+    )
+    .get(caseId, exceptId) as { id: number } | undefined
+  return other?.id ?? null
+}
+
 /**
  * The single writer of a finding's chain fields (spec 2026-10-26 §5.1): `status`, `role` (+
  * `role_source` = the actor), `caused_by`, and the body append. Both the agent's
@@ -402,16 +422,8 @@ export function updateFinding(
   const alreadyConfirmedRoot =
     cur.role === 'root-cause' && (cur.status === null || cur.status === 'confirmed')
   if (nextRole === 'root-cause' && nextStatus === 'confirmed' && !alreadyConfirmedRoot) {
-    const other = db
-      .prepare(
-        `SELECT id FROM findings
-          WHERE case_id = ? AND id != ? AND role = 'root-cause'
-            AND COALESCE(status, 'confirmed') = 'confirmed'
-            AND review_state != 'rejected' AND superseded_by IS NULL
-          ORDER BY id LIMIT 1`
-      )
-      .get(cur.case_id, id) as { id: number } | undefined
-    if (other) return { ok: false, reason: 'second-root', existingRoot: other.id }
+    const existing = confirmedRootCauseOf(db, cur.case_id, id)
+    if (existing !== null) return { ok: false, reason: 'second-root', existingRoot: existing }
   }
   const sets: string[] = []
   const vals: (string | number | null)[] = []
