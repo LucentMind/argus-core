@@ -11,9 +11,10 @@ import type {
   RoleAssignment
 } from '../../../shared/rca'
 import { getCase } from '../caseService'
-import { applyReportRoles } from '../findings'
+import { applyReportRoles, listFindings } from '../findings'
 import { artifactsDir } from '../paths'
 import { assertCaseWritable } from '../caseFreeze'
+import { draftAnchoring } from './anchoring'
 import { reportFile, structureFile } from './artifacts'
 import { buildCaseRcaPrompt } from './contract'
 import { expectedSectionIds, parseRcaOutput, validateRcaDraft, RcaParseError } from './parse'
@@ -117,7 +118,7 @@ function parseRawOutput(raw: string | null): RcaDraft | null {
  *  `readPriorDraft`'s "no prior draft" case) OR unreadable/corrupt; a `done` row whose
  *  raw_output also no longer parses reports `draft: null` rather than throwing — status
  *  reads must never fail. */
-function toPayload(r: JobDbRow, argusHome: string): RcaStatusPayload {
+function toPayload(r: JobDbRow, db: DatabaseSync, argusHome: string): RcaStatusPayload {
   const job = toRow(r)
   let draft: RcaDraft | null = null
   if (job.state === 'done') {
@@ -133,12 +134,18 @@ function toPayload(r: JobDbRow, argusHome: string): RcaStatusPayload {
       draft = parseRawOutput(r.raw_output)
     }
   }
+  // Spec 2026-10-26 §9.4: re-computed on every read against the case's CURRENT findings, so a
+  // finding retracted after the draft was written stops counting as unused.
+  const anchoring = draft
+    ? draftAnchoring(draft, listFindings(db, argusHome, job.caseSlug))
+    : undefined
   return {
     caseSlug: job.caseSlug,
     job,
     draft,
     template: templateFromSnapshot(r.template_snapshot),
-    dropped: droppedFromSnapshot(r.dropped_sections)
+    dropped: droppedFromSnapshot(r.dropped_sections),
+    ...(anchoring ? { anchoring } : {})
   }
 }
 
@@ -247,7 +254,7 @@ export class RcaJobs {
         template: templateFromSnapshot(null),
         dropped: {}
       }
-    return toPayload(r, this.deps.argusHome)
+    return toPayload(r, this.deps.db, this.deps.argusHome)
   }
 
   /**

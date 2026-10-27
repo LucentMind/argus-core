@@ -127,6 +127,25 @@ describe('RcaJobs', () => {
     expect(st.draft!.rootCause.statement).toBeTruthy()
   })
 
+  it('status carries the draft anchoring: one unanchored root, two unused findings; none without a draft', async () => {
+    const c = createCase(db, home, { slug: 'anchor-a', title: 'A' })
+    const a = insertFinding(c.id, 'first')
+    const b = insertFinding(c.id, 'second')
+    const { jobs } = mkJobs({
+      run: async () => ({ text: wellFormedRawFor(DEFAULT_RCA_TEMPLATE, validDraft(null)) })
+    })
+    jobs.generate('anchor-a')
+    await jobs.idle()
+    const st = jobs.statusFor('anchor-a')
+    expect(st.job!.state).toBe('done')
+    expect(st.anchoring).toEqual({
+      unanchored: { rootCause: 1, contributing: 0, symptoms: 0, ruledOut: 0 },
+      unused: [a, b]
+    })
+    createCase(db, home, { slug: 'anchor-b', title: 'B' })
+    expect(jobs.statusFor('anchor-b').anchoring).toBeUndefined()
+  })
+
   it('parse failure → failed with raw retained', async () => {
     createCase(db, home, { slug: 'case-b', title: 'Case B' })
     const { jobs } = mkJobs({ run: async () => ({ text: 'not json' }) })
