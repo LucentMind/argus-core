@@ -12,6 +12,9 @@ export interface FindingPatch {
   role?: FindingRole | null
   causedBy?: number | null
   appendMarkdown?: string
+  /** Replaces the body below the heading and meta line (spec 2026-10-26 §9.7: a wrong citation
+   *  or number when the claim stands). Exclusive with `appendMarkdown`. Agent only. */
+  replaceMarkdown?: string
 }
 
 /** Why `updateFinding` wrote nothing. The tool layer and the IPC each own their wording. */
@@ -25,6 +28,7 @@ export type UpdateRefusal =
   | 'accepted-locked'
   | 'rca-frozen'
   | 'review-mode'
+  | 'both-bodies'
 
 export type UpdateResult =
   { ok: true; row: FindingRow } | { ok: false; reason: UpdateRefusal; existingRoot?: number }
@@ -74,5 +78,7 @@ export function describeUpdateRefusal(reason: UpdateRefusal, existingRoot?: numb
       return 'That role was set by the confirmed RCA report.'
     case 'review-mode':
       return 'This finding belongs to a review session; status, role and cause apply to investigation findings only.'
+    case 'both-bodies':
+      return 'Append or replace the body, not both.'
   }
 }
