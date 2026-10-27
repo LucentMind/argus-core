@@ -7,6 +7,7 @@ import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { assembleRcaInput } from '../input'
 import { seedRewoundSession, TAIL_TEXT, LIVE_TEXT } from '../../agent/__tests__/rewoundFixture'
+import { caseDir } from '../../paths'
 
 let tmp: string, db: DatabaseSync, caseId: number
 const SLUG = 'RI-1'
@@ -48,6 +49,18 @@ describe('rca input and the human reject tag', () => {
         )
         .run(caseId, id).lastInsertRowid
     )
+    const old = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, summary, review_state, created_at, review_actor, review_reason, superseded_by)
+           VALUES (?, NULL, 'Replaced', 'rejected', 'x', 'agent', 'superseded by 1', ?)`
+        )
+        .run(caseId, id).lastInsertRowid
+    )
+    fs.appendFileSync(
+      path.join(caseDir(tmp, SLUG), 'findings.md'),
+      `\n<!-- finding:${old} -->\n## Replaced\n_x_\n\nold body text\n`
+    )
     const input = assembleRcaInput(db, tmp, SLUG)
     expect(input.findings.find((f) => f.id === id)).toMatchObject({
       rejectTag: 'wrong',
@@ -59,5 +72,6 @@ describe('rca input and the human reject tag', () => {
       causedBy: id,
       supersededBy: null
     })
+    expect(input.findings.find((f) => f.id === old)).toMatchObject({ supersededBy: id, body: '' })
   })
 })
