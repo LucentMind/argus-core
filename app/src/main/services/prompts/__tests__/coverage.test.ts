@@ -124,6 +124,10 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
     why: 'read_findings in nativeTools.ts: one finding\'s section assembled from the findings row (id, summary, severity/layer/anchor, suggested_change) plus its stored body — a markdown header and field list glued around DB data, same class as the \'#${b.number}\' PR identity above. "## Finding" and "Suggested change:" are fixed labels, not instructions, and every variable part is read straight out of the row.'
   },
   {
+    text: '#${n.row.id} · ${n.row.status} · ${reviewTag(n.row)} · ${n.row.role ?? ',
+    why: "list_findings in nativeTools.ts (investigation mode): one node of the causal-chain tree — depth indent and arrow, then id, status, review tag, role and summary, every part read straight out of the findings row, same data-echo class as read_findings' section above. The only fixed word, 'no role', labels a NULL column; the section headings around these lines ARE registered (tool-feedback.list_findings.root-cause/unexplained/ruled-out)."
+  },
+  {
     text: '## ${r.sourceName}: unavailable (${r.error})',
     why: 'search_known_defects reporting one failed corpus source: sourceName and error are read straight from SourceSearchResult. "## " and ": unavailable (" are fixed markdown structure with no instructional content, same data-echo class as the search_case_history row above.'
   },
