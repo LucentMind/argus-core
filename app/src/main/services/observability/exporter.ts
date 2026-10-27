@@ -83,6 +83,10 @@ export class ObservationExporter {
           ...(ctx.caseSlug ? { caseSlug: ctx.caseSlug } : {}),
           mode: row.mode,
           role: row.role,
+          // Spec 2026-10-26 §9.5: the eval dataset can split human-reviewed roots from the
+          // agent's claims and hypotheses from confirmed findings.
+          status: row.status,
+          roleSource: row.roleSource,
           actor: row.reviewActor,
           tag: row.rejectTag,
           installId: this.opts.installId
