@@ -53,8 +53,18 @@ const VALID = `\`\`\`json
 describe('buildDossierPrompt', () => {
   const p = buildDossierPrompt(INPUT)
   it('renders findings with ids, states and roles', () => {
-    expect(p).toContain('### [#7 · accepted · root-cause] flag stranded')
-    expect(p).toContain('### [#8 · rejected · ruled-out] gps drift')
+    expect(p).toContain('#7 · accepted · root-cause · flag stranded\nbody')
+    expect(p).toContain('RULED OUT\n#8 · rejected · ruled-out · gps drift')
+  })
+  it('the contract anchors root_cause on an accepted or pending confirmed root and never on a hypothesis', () => {
+    expect(DOSSIER_CONTRACT).toContain(
+      '[confirmed · accepted] (human-confirmed) or [confirmed · pending]'
+    )
+    expect(DOSSIER_CONTRACT).toContain('A [hypothesis] root-cause does not anchor')
+    expect(DOSSIER_CONTRACT).toContain('A [superseded by #N] finding was replaced by finding #N')
+    expect(DOSSIER_CONTRACT).not.toContain('assigned by a human-confirmed RCA')
+    // The lite contract is derived by replacement and must carry the same rules.
+    expect(DOSSIER_LITE_CONTRACT).toContain('A [hypothesis] root-cause does not anchor')
   })
   it('renders evidence, sessions and user messages', () => {
     expect(p).toContain('- logs/a.txt (text, 10 bytes)')

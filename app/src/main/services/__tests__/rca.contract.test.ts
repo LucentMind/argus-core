@@ -73,7 +73,9 @@ describe('buildCaseRcaPrompt', () => {
   it('builds a prompt containing every section and the findings with ids', () => {
     const p = buildCaseRcaPrompt(minimalInput(), DEFAULT_RCA_TEMPLATE)
     for (const key of Object.keys(RCA_SECTIONS)) expect(p).toContain(RCA_SECTIONS[key].text)
-    expect(p).toContain('[finding 7]')
+    expect(p).toContain(
+      '#7 · accepted · root-cause · cache key omits tenant id\nthe cache key does not include tenant id, causing collisions'
+    )
   })
 
   it('renders a human-rejected finding with its reject tag and note', () => {
@@ -86,7 +88,16 @@ describe('buildCaseRcaPrompt', () => {
       rejectNote: 'old build'
     }
     const p = buildCaseRcaPrompt(input, DEFAULT_RCA_TEMPLATE)
-    expect(p).toContain('[rejected · wrong: old build')
+    expect(p).toContain('#7 · rejected · wrong: old build · root-cause ·')
+  })
+
+  it('rule 10 seeds the draft from the chain', () => {
+    const p = buildCaseRcaPrompt(minimalInput(), DEFAULT_RCA_TEMPLATE)
+    expect(p).toContain('10. THE CHAIN SEEDS THE DRAFT')
+    // The contract wraps its lines; compare the rule text with whitespace collapsed.
+    const flat = p.replace(/\s+/g, ' ')
+    expect(flat).toContain('a [superseded by #N] finding is folded into #N')
+    expect(flat).toContain('A [hypothesis · …] finding is never rootCause or contributing')
   })
 
   it('labels the case-meta tracker line "jira" for a Jira-bound case', () => {

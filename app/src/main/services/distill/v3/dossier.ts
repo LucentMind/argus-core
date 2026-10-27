@@ -1,7 +1,8 @@
 import type { CaseDistillInput } from '../../../../shared/distill'
 import type { Dossier, DossierCite, DossierCited } from '../../../../shared/distillV3'
 import type { PromptTextSpecs } from '../../../../shared/promptSpec'
-import { reviewTag } from '../../../../shared/findingTag'
+import { renderFindingTree } from '../../../../shared/findingTree'
+import { treeHeadings } from '../../findingTreeHeadings'
 import { DistillParseError } from '../contract'
 
 /**
@@ -13,15 +14,15 @@ import { DistillParseError } from '../contract'
 export const DOSSIER_CONTRACT = `You are building an evidence dossier for one root-cause-analysis case. Later, separate passes will decide what (if anything) in this dossier is durable knowledge — your job is to record what is ESTABLISHED, on what EVIDENCE, and HOW it was established. You do not generalize, you do not decide what is reusable, and you do not write for humans.
 
 EVIDENCE HIERARCHY — strongest first. Every item you record carries "cites" naming where it comes from:
-  1. A finding marked [accepted] with a citation — human-reviewed; admissible for anything.
+  1. A finding marked [confirmed · accepted] with a citation — human-reviewed; admissible for anything.
   2. Tool output or an evidence artifact the assistant READ in the transcript (a log grep, a command result, a query) — primary evidence. Cite it as {"session": id, "turn": n} or {"evidence": "relPath"}.
   3. The user's own statement in a user turn.
   4. The assistant's own claim. A claim is a HYPOTHESIS unless a finding or an artifact confirms it. Decisive values very often live only in tool outputs the assistant read — those outputs are evidence; the assistant's sentence ABOUT them is not.
-A finding marked [rejected] or with role ruled-out is INADMISSIBLE as a cause or fix — record it under rejected_hypotheses with HOW it was ruled out. A finding marked [rejected · retracted by agent: <reason>] was withdrawn by the assistant itself after it turned out to be wrong: it is INADMISSIBLE everywhere except rejected_hypotheses, where that reason IS the how-it-was-ruled-out. A finding marked [rejected · wrong: <note>], [rejected · not-useful] or [rejected · other: <note>] was rejected by the human reviewer for that reason: INADMISSIBLE as a cause or fix, and the note is the how-it-was-ruled-out under rejected_hypotheses. A [pending] finding is inadmissible for root_cause / confirmed_fix but may appear in diagnostic_path.
+A finding line reads [#id · <status> · <review> · <role>]: status is the assistant's claim (hypothesis = stated but never confirmed; confirmed = evidence-backed), review is the human's judgement; a line with no status predates the chain and reads as confirmed. A [hypothesis · …] finding is admissible only in diagnostic_path. A [superseded by #N] finding was replaced by finding #N: fold it into #N and never list it under rejected_hypotheses. A finding marked [… · rejected] or with role ruled-out is INADMISSIBLE as a cause or fix — record it under rejected_hypotheses with HOW it was ruled out. A finding marked [… · rejected · retracted by agent: <reason>] was withdrawn by the assistant itself after it turned out to be wrong: it is INADMISSIBLE everywhere except rejected_hypotheses, where that reason IS the how-it-was-ruled-out. A finding marked [… · rejected · wrong: <note>], [… · rejected · not-useful] or [… · rejected · other: <note>] was rejected by the human reviewer for that reason: INADMISSIBLE as a cause or fix, and the note is the how-it-was-ruled-out under rejected_hypotheses. A [confirmed · pending] finding is inadmissible for confirmed_fix but may anchor root_cause (rule 1) and appear in diagnostic_path. The findings are listed as the investigation's causal chain: a ↳ line is caused by the nearest less-indented line above it, and diagnostic_path follows that chain rather than re-deriving it from the transcript.
 
 RULES:
-1. ROOT CAUSE: the finding with role root-cause (assigned by a human-confirmed RCA) anchors "root_cause". If that finding is still [pending], record it and say so in scope.note. No root-cause role and no accepted causal finding → root_cause is null.
-2. OPEN CASE: status open ⇒ scope.settled=false, confirmed_fix MUST be null, root_cause only from [accepted] findings.
+1. ROOT CAUSE: the finding with role root-cause anchors "root_cause" when it is [confirmed · accepted] (human-confirmed) or [confirmed · pending] — when pending, say in scope.note that the root cause is the assistant's unreviewed claim. A [hypothesis] root-cause does not anchor: root_cause is null and the claim goes to diagnostic_path. Whoever set the role (the assistant, the user or a confirmed RCA report), the human's accept is the confirmation. No root-cause role and no accepted causal finding → root_cause is null.
+2. OPEN CASE: status open ⇒ scope.settled=false, confirmed_fix MUST be null, root_cause only from [confirmed · accepted] findings.
 3. RESOLUTION: wont-fix ⇒ confirmed_fix.applied=false with the reason in text; forwarded / duplicate / rejected / not-reproducible ⇒ usually only scope + rejected_hypotheses; that is a valid dossier.
 4. DIAGNOSTIC PATH: in investigation order, not importance. For each step record what was checked ("step"), what was observed ("observation"), and which hypothesis it separated from which ("discriminated"). This is what a future procedure will be built from — do not compress it into conclusions.
 5. DURABLE FACTS: candidate facts a future agent might consult — thresholds, log signatures, schemas, component behaviour, version splits, product limitations. Keep a verbatim quote (≤ 300 chars) and the SCOPE (component / version / mode / flag / condition) — never generalize here; dropping scope may turn a true statement false. Session-local "X did not work" about the agent's own tools/environment is NOT a durable fact.
@@ -48,7 +49,10 @@ export const DOSSIER_LITE_CONTRACT = DOSSIER_CONTRACT.replace(
 
 export const DOSSIER_SECTIONS: PromptTextSpecs = {
   case: { title: 'Dossier section — case metadata', text: '# Case' },
-  findings: { title: 'Dossier section — findings', text: '# Findings (id · review state · role)' },
+  findings: {
+    title: 'Dossier section — findings',
+    text: '# Findings (the causal chain; ↳ = caused by the line above; each line is #id · status · review · role · summary, then its body)'
+  },
   evidence: { title: 'Dossier section — evidence', text: '# Evidence inventory' },
   sessions: { title: 'Dossier section — chat sessions', text: '# Chat sessions' },
   'user-messages': {
@@ -72,12 +76,10 @@ export function buildDossierPrompt(
   const m = input.caseMeta
   const sec = (key: string): string =>
     resolve ? resolve(`headless.case-distill.dossier.section.${key}`) : DOSSIER_SECTIONS[key].text
-  const findings = input.findings
-    .map(
-      (f) =>
-        `### [${f.id !== undefined ? `#${f.id} · ` : ''}${reviewTag(f)}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`
-    )
-    .join('\n\n')
+  const findings = renderFindingTree(input.findings, {
+    headings: treeHeadings(resolve),
+    bodies: true
+  })
   const parts = [
     resolve ? resolve('headless.case-distill.dossier.contract') : DOSSIER_CONTRACT,
     `${sec('case')}\nslug: ${m.slug}\ntitle: ${m.title}\njira: ${m.jiraKey ?? '—'}\nstatus: ${m.status ?? 'closed'}\nresolution: ${m.resolution ?? '—'}\ntags: ${m.tags.join(', ') || '—'}\nopened: ${m.createdAt}${m.status !== 'open' ? `\nclosed: ${m.closedAt}` : ''}`,

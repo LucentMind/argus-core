@@ -65,13 +65,15 @@ describe('dossier prompt', () => {
         }
       ])
     )
-    expect(q).toContain('[#7 · rejected · retracted by agent: the guard is in the caller]')
+    expect(q).toContain(
+      '#7 · rejected · retracted by agent: the guard is in the caller · no role · Race in parser'
+    )
   })
 
-  it('renders a pre-change snapshot, which has neither field, exactly as before', () => {
+  it('renders a pre-change snapshot, which has neither field, with no status prefix', () => {
     const q = buildDossierPrompt(
       input([{ id: 7, summary: 'Race', reviewState: 'rejected', role: null, body: 'b' }])
     )
-    expect(q).toContain('[#7 · rejected] Race')
+    expect(q).toContain('RULED OUT\n#7 · rejected · no role · Race\nb')
   })
 })
