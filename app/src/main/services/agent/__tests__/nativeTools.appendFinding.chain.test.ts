@@ -246,3 +246,22 @@ it('a review-mode root-cause row does not block the investigation root', async (
   )
   expect(col(root, 'role')).toBe('root-cause')
 })
+
+it('escapes a finding marker inside a model-written body so findings.md keeps one block per finding', async () => {
+  const h = handlersFor(sessionFor(caseId))
+  const id = idOf(
+    await h.append_finding({
+      title: 'Quoted',
+      markdown: 'see <!-- finding:99 --> and <!--finding:1-->'
+    })
+  )
+  const rows = listFindings(db, home, 'CASE-A')
+  expect(rows).toHaveLength(1)
+  expect(rows[0].body?.trim()).toBe('see <!-- finding-ref:99 --> and <!-- finding-ref:1 -->')
+  expect(
+    fs
+      .readFileSync(path.join(caseDir(home, 'CASE-A'), 'findings.md'), 'utf8')
+      .split('<!-- finding:')
+  ).toHaveLength(2)
+  void id
+})
