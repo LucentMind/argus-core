@@ -31,6 +31,7 @@ import {
 import { buildCaseDistillPrompt } from '../contract'
 import { CASE_DISTILL_CONTRACT } from '../caseDistillContract'
 import { DIGEST_PROMPT } from '../rejectDigest'
+import { FINDING_TREE_HEADINGS } from '../../findingTreeHeadings'
 import type { CaseDistillInput } from '../../../../shared/distill'
 import type { Dossier, KnowledgeCandidate } from '../../../../shared/distillV3'
 
@@ -92,6 +93,8 @@ const liteResolve = (id: string): string => {
   if (id === 'headless.case-distill.dossier.contract') return DOSSIER_LITE_CONTRACT
   const m = /^headless\.case-distill\.(dossier|attribution)\.section\.(.+)$/.exec(id)
   const spec = m ? (m[1] === 'dossier' ? DOSSIER_SECTIONS : ATTRIBUTION_SECTIONS)[m[2]] : undefined
+  const heading = /^tool-feedback\.(list_findings\..+)$/.exec(id)
+  if (heading && FINDING_TREE_HEADINGS[heading[1]]) return FINDING_TREE_HEADINGS[heading[1]].text
   if (!spec) throw new Error(`unknown prompt id ${id}`)
   return spec.text
 }
