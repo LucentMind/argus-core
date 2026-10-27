@@ -304,6 +304,12 @@ export function retractFinding(
   return { ok: true, row, changed: !humanRejected }
 }
 
+/** A fresh block's `## ` line: the summary on one line, its markers escaped, so a legacy or
+ *  hand-written summary can neither split findings.md nor forge another block. */
+function headingOf(summary: string): string {
+  return escapeFindingMarkers(summary.replace(/\s+/g, ' ').trim())
+}
+
 /** The `### Update <iso>` section `update_finding(append_markdown)` adds to a finding's block.
  *  Same marker grammar as `removeFindingBodies`; a finding whose block is missing from
  *  findings.md (a legacy row) gets a fresh block so the update is not lost. Pure. */
@@ -327,7 +333,7 @@ export function appendToFindingBody(
       out += `<!-- finding:${parts[j]} -->${parts[j + 1] ?? ''}`
     return out
   }
-  return `${md.replace(/\s+$/, '')}\n\n<!-- finding:${id} -->\n## ${summary}\n_${iso}_\n\n${section}`
+  return `${md.replace(/\s+$/, '')}\n\n<!-- finding:${id} -->\n## ${headingOf(summary)}\n_${iso}_\n\n${section}`
 }
 
 /** `update_finding(replace_markdown)`: the block's `## title` line and the `_meta_` line that
@@ -353,7 +359,7 @@ export function replaceFindingBody(
       out += `<!-- finding:${parts[j]} -->${parts[j + 1] ?? ''}`
     return out
   }
-  return `${md.replace(/\s+$/, '')}\n\n<!-- finding:${id} -->\n## ${summary}\n_${now.toISOString()}_\n\n${text.trim()}\n`
+  return `${md.replace(/\s+$/, '')}\n\n<!-- finding:${id} -->\n## ${headingOf(summary)}\n_${now.toISOString()}_\n\n${text.trim()}\n`
 }
 
 /** The case's one ACTIVE confirmed root cause (role root-cause, status confirmed or legacy NULL,

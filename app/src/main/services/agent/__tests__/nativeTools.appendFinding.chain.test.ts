@@ -265,3 +265,15 @@ it('escapes a finding marker inside a model-written body so findings.md keeps on
   ).toHaveLength(2)
   void id
 })
+
+it('writes the title on one line with its markers escaped, in the row and the block alike', async () => {
+  const h = handlersFor(sessionFor(caseId))
+  const id = idOf(
+    await h.append_finding({ title: 'Line one\n<!-- finding:9 --> two', markdown: 'b' })
+  )
+  expect(col(id, 'summary')).toBe('Line one <!-- finding-ref:9 --> two')
+  const md = findingsMd()
+  expect(md.split('<!-- finding:')).toHaveLength(2)
+  expect(md).toContain('\n## Line one <!-- finding-ref:9 --> two\n')
+  expect(listFindings(db, home, 'CASE-A')).toHaveLength(1)
+})

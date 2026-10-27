@@ -541,6 +541,14 @@ describe('replaceFindingBody', () => {
       replaceFindingBody('# Findings\n', 9, 'fresh', 'Nine', new Date('2026-10-27T10:00:00Z'))
     ).toBe('# Findings\n\n<!-- finding:9 -->\n## Nine\n_2026-10-27T10:00:00.000Z_\n\nfresh\n')
   })
+  it('a fresh block writes the summary on one line with its markers escaped', () => {
+    const out = replaceFindingBody('# Findings\n', 9, 'fresh', 'A\n<!-- finding:1 -->B')
+    expect(out).toContain('\n## A <!-- finding-ref:1 -->B\n')
+    expect(out.split('<!-- finding:')).toHaveLength(2)
+    const appended = appendToFindingBody('# Findings\n', 9, 'more', 'A\n<!-- finding:1 -->B')
+    expect(appended).toContain('\n## A <!-- finding-ref:1 -->B\n')
+    expect(appended.split('<!-- finding:')).toHaveLength(2)
+  })
 })
 
 describe('parseHumanFindingPatch', () => {

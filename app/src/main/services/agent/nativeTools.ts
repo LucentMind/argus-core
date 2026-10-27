@@ -493,7 +493,10 @@ export function appendFinding(
       fillPrompt(text, { role: JSON.stringify(input.role), expected: FINDING_ROLES.join('|') })
     )
   }
-  const title = input.title || 'Finding'
+  // The title is the block's `## ` line and the row's summary: one line, its markers escaped,
+  // so a model-written title can neither split findings.md nor forge another block.
+  const title =
+    escapeFindingMarkers((input.title || 'Finding').replace(/\s+/g, ' ').trim()) || 'Finding'
   const dir = caseDir(ctx.argusHome, ctx.caseSlug)
   // Anchor parsed once, here. Plan 4 posts an inline PR comment against it and must not
   // re-parse prose at the moment it writes to a pull request.
