@@ -11,7 +11,7 @@ import type { TreeHeadings } from '../../shared/findingTree'
 export const FINDING_TREE_HEADINGS: PromptTextSpecs = {
   'list_findings.root-cause': {
     title: 'finding tree — ROOT CAUSE heading',
-    text: 'ROOT CAUSE (each ↳ line is caused by the nearest less-indented line above it)'
+    text: 'ROOT CAUSE (each ↳ line is caused by the nearest less-indented finding line — a line starting with # — above it)'
   },
   'list_findings.unexplained': {
     title: 'finding tree — UNEXPLAINED heading',
