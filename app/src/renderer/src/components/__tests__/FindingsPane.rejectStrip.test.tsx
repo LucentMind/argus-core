@@ -126,5 +126,8 @@ describe('FindingsPane reject strip', () => {
     render(<FindingsPane slug="c1" sessionId={1} activeMode="review" onCite={vi.fn()} />)
     await screen.findByText('Race in parser')
     expect(screen.queryByRole('button', { name: /reject reason/ })).not.toBeInTheDocument()
+    // Review mode has no RULED OUT section (and its cards carry no thumbs, so a review-mode reject
+    // is only reachable through a stale in-flight save; setReview gates the section on the mode).
+    expect(screen.queryByRole('button', { name: /RULED OUT/ })).not.toBeInTheDocument()
   })
 })

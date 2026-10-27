@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FindingsPane } from '../FindingsPane'
 import { findingsStore } from '../../lib/findingsStore'
@@ -157,8 +157,80 @@ describe('FindingsPane — chain index', () => {
     await userEvent.keyboard('r')
     expect(review).toHaveBeenCalledWith(7, 'rejected', undefined)
     expect(await screen.findByTestId('finding-reject-strip')).toBeInTheDocument()
+    // The reject moved #7 to RULED OUT and opened the section so the strip has somewhere to render.
+    expect(screen.getByRole('button', { name: 'RULED OUT · 2' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    )
     await userEvent.keyboard('{Escape}')
     expect(screen.queryByTestId('review-walk')).toBeNull()
+    expect(screen.queryByTestId('finding-reject-strip')).toBeNull()
+  })
+
+  it('walk keys set a state, never flip it: revisiting an accepted card with a only advances', async () => {
+    list.mockResolvedValue(chain())
+    review.mockImplementation(async (id: number, state: string) => ({
+      ...chain().find((f) => f.id === id)!,
+      reviewState: state,
+      body: undefined
+    }))
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    await screen.findByText('tilesVersion blocked')
+    await userEvent.click(screen.getByRole('button', { name: 'Review pending findings' }))
+    const bar = screen.getByTestId('review-walk')
+    await userEvent.keyboard('a')
+    await waitFor(() => expect(bar).toHaveTextContent('Reviewing 2 of 3'))
+    await userEvent.keyboard('k')
+    expect(bar).toHaveTextContent('Reviewing 1 of 3')
+    await userEvent.keyboard('a')
+    expect(bar).toHaveTextContent('Reviewing 2 of 3')
+    expect(review).toHaveBeenCalledTimes(1)
+    expect(review).not.toHaveBeenCalledWith(4, 'pending', undefined)
+  })
+
+  it('r on an already-rejected card reopens the strip without toggling the reject back', async () => {
+    list.mockResolvedValue(chain())
+    review.mockImplementation(async (id: number, state: string) => ({
+      ...chain().find((f) => f.id === id)!,
+      reviewState: state,
+      body: undefined
+    }))
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    await screen.findByText('tilesVersion blocked')
+    await userEvent.click(screen.getByRole('button', { name: 'Review pending findings' }))
+    await userEvent.keyboard('r')
+    expect(await screen.findByTestId('finding-reject-strip')).toBeInTheDocument()
+    await userEvent.keyboard('r')
+    expect(review).toHaveBeenCalledTimes(1)
+    expect(review).toHaveBeenCalledWith(4, 'rejected', undefined)
+    expect(screen.getByTestId('finding-reject-strip')).toBeInTheDocument()
+    expect(screen.getByTestId('review-walk')).toHaveTextContent('Reviewing 1 of 3')
+  })
+
+  it('a refused accept (null) does not advance the walk', async () => {
+    list.mockResolvedValue(chain())
+    review.mockResolvedValue(null)
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    await screen.findByText('tilesVersion blocked')
+    await userEvent.click(screen.getByRole('button', { name: 'Review pending findings' }))
+    const bar = screen.getByTestId('review-walk')
+    await userEvent.keyboard('a')
+    await waitFor(() => expect(review).toHaveBeenCalledWith(4, 'accepted', undefined))
+    // Let the settled promise's continuation run before asserting nothing moved.
+    await act(async () => {})
+    expect(bar).toHaveTextContent('Reviewing 1 of 3')
+  })
+
+  it('a failed accept (rejection) stays on the card and shows the reason as an alert', async () => {
+    list.mockResolvedValue(chain())
+    review.mockRejectedValue(new Error('Save failed.'))
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    await screen.findByText('tilesVersion blocked')
+    await userEvent.click(screen.getByRole('button', { name: 'Review pending findings' }))
+    await userEvent.keyboard('a')
+    const card = screen.getByRole('button', { name: 'Install rejected' }).closest('li')!
+    expect(await within(card).findByRole('alert')).toHaveTextContent('Save failed.')
+    expect(screen.getByTestId('review-walk')).toHaveTextContent('Reviewing 1 of 3')
   })
 
   it('Review: j and k move, k stops at the first card, accepting the last pending ends the walk', async () => {
