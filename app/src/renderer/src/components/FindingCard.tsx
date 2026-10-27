@@ -90,6 +90,7 @@ export function FindingCard({
   onCite,
   onDelete,
   onWhy,
+  onCorrect,
   footer,
   depth = 0,
   onEdit,
@@ -113,6 +114,8 @@ export function FindingCard({
   onDelete: (id: number) => void
   /** Opens the reject-reason strip for this card (investigation mode only). */
   onWhy?: () => void
+  /** Stage a correction into the composer (investigation, not rejected). */
+  onCorrect?: () => void
   /** Rendered as the card's last child — the reject strip when this card is being labelled. */
   footer?: React.ReactNode
   /** Tree depth in the rail's chain index; 14px per level. */
@@ -343,6 +346,16 @@ export function FindingCard({
               </>
             ) : (
               <>
+                {onCorrect && !rejected && (
+                  <button
+                    aria-label="Correct this finding"
+                    title="Tell the agent what is wrong — opens the chat with this finding's handle"
+                    className="inline-flex h-6 items-center justify-center rounded-r2 border border-hair2 px-1 text-[10px] text-mute transition-colors hover:text-ink"
+                    onClick={onCorrect}
+                  >
+                    Correct
+                  </button>
+                )}
                 <button
                   aria-label="Mark finding good"
                   aria-pressed={accepted}

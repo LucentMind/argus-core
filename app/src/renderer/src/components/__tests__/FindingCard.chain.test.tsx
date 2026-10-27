@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FindingCard } from '../FindingCard'
 import type { FindingRow } from '../../../../shared/observability'
@@ -185,5 +185,14 @@ describe('FindingCard — chain', () => {
     expect(screen.getByTestId('finding-note')).toHaveTextContent(
       'the agent changed this finding; your accept stands'
     )
+  })
+  it('shows Correct in the action cluster on a pending or accepted investigation card, never on a rejected one', () => {
+    const onCorrect = vi.fn()
+    mount(row({}), { onCorrect })
+    fireEvent.click(screen.getByRole('button', { name: 'Correct this finding' }))
+    expect(onCorrect).toHaveBeenCalled()
+    cleanup()
+    mount(row({ reviewState: 'rejected', reviewActor: 'human' }), { onCorrect })
+    expect(screen.queryByRole('button', { name: 'Correct this finding' })).toBeNull()
   })
 })

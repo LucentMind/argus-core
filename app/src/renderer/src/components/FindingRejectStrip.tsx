@@ -15,10 +15,13 @@ import { Btn } from './ui'
  */
 export function FindingRejectStrip({
   onPick,
-  onSkip
+  onSkip,
+  onCorrect
 }: {
   onPick: (reason: FindingRejectReason) => void
   onSkip: () => void
+  /** Stage a correction into the composer; the reject above stands. */
+  onCorrect?: () => void
 }): React.JSX.Element {
   const [note, setNote] = useState('')
   const trimmed = note.trim()
@@ -47,6 +50,16 @@ export function FindingRejectStrip({
           {FINDING_REJECT_LABELS[tag]}
         </button>
       ))}
+      {onCorrect && (
+        <button
+          type="button"
+          aria-label="Correct this finding in chat"
+          className="rounded-full border border-hair px-1.5 py-0.5 text-[10.5px] text-dim hover:text-ink"
+          onClick={onCorrect}
+        >
+          Correct…
+        </button>
+      )}
       <input
         aria-label="Reject note"
         placeholder="or write your own reason"

@@ -15,6 +15,7 @@ import type { ModeId } from '../../../shared/modes'
 import type { CiteTarget } from '../lib/citations'
 import { FindingCard } from './FindingCard'
 import { FindingRejectStrip } from './FindingRejectStrip'
+import { stageCorrection } from '../lib/correctFinding'
 import { IconBtn, SectionLabel, SkeletonRows } from './ui'
 
 export function FindingsPane({
@@ -327,6 +328,11 @@ export function FindingsPane({
         onCite={onCite}
         onDelete={(id) => void onDelete(id)}
         onWhy={() => setRejectingId(f.id)}
+        onCorrect={
+          investigation && sessionId !== null
+            ? () => stageCorrection(slug, sessionId, f.id)
+            : undefined
+        }
         depth={depth}
         onEdit={investigation ? (patch) => void edit(f.id, patch) : undefined}
         causeOptions={investigation ? causeOptions : undefined}
@@ -342,6 +348,9 @@ export function FindingsPane({
                 <FindingRejectStrip
                   onPick={(reason) => void setReview(f.id, 'rejected', reason)}
                   onSkip={() => setRejectingId(null)}
+                  onCorrect={
+                    sessionId !== null ? () => stageCorrection(slug, sessionId, f.id) : undefined
+                  }
                 />
               )}
             </>

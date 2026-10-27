@@ -8,6 +8,7 @@ import { buildFindingTree, isInactiveFinding, type TreeNode } from '../../../sha
 import type { CiteTarget } from '../lib/citations'
 import { FindingCard } from './FindingCard'
 import { FindingRejectStrip } from './FindingRejectStrip'
+import { stageCorrection } from '../lib/correctFinding'
 import { SectionLabel } from './ui'
 
 /**
@@ -140,6 +141,7 @@ export function FindingsDocument({
         onCite={onCite}
         onDelete={(id) => void remove(id)}
         onWhy={() => setRejectingId(f.id)}
+        onCorrect={sessionId !== null ? () => stageCorrection(slug, sessionId, f.id) : undefined}
         depth={depth}
         onEdit={(patch) => void edit(f.id, patch)}
         causeOptions={causeOptions}
@@ -155,6 +157,9 @@ export function FindingsDocument({
                 <FindingRejectStrip
                   onPick={(reason) => void setReview(f.id, 'rejected', reason)}
                   onSkip={() => setRejectingId(null)}
+                  onCorrect={
+                    sessionId !== null ? () => stageCorrection(slug, sessionId, f.id) : undefined
+                  }
                 />
               )}
             </>
