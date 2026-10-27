@@ -198,3 +198,25 @@ it('list_findings keeps the flat line for a review session', async () => {
     `#${id} · pending · major/correctness · repo/a.ts:4 · Inverted guard`
   )
 })
+
+it('a review session may append evidence to its own finding but not set status, role or cause', async () => {
+  const h = handlersFor(sessionFor('review'))
+  const a = idOf(await h.append_finding({ title: 'Unchecked null', markdown: 'b' }))
+  const b = idOf(await h.append_finding({ title: 'Missing retry', markdown: 'b' }))
+  const refusal = TOOL_FEEDBACK['update_finding.review-mode'].text.replace('{id}', String(a))
+  for (const patch of [{ role: 'root-cause' }, { status: 'hypothesis' }, { caused_by: b }]) {
+    await expect(h.update_finding({ finding_id: a, ...patch })).rejects.toThrow(refusal)
+  }
+  expect(col(a, 'role')).toBeNull()
+  expect(col(a, 'status')).toBeNull()
+  expect(col(a, 'caused_by')).toBeNull()
+  expect(emitFindingUpdated).not.toHaveBeenCalled()
+  expect(
+    await h.update_finding({ finding_id: a, append_markdown: 'Also on the error path.' })
+  ).toBe(`finding #${a} updated`)
+  expect(emitFindingUpdated).toHaveBeenCalledWith(a)
+  // The description names every role the schema accepts, and says the chain is investigation-only.
+  const spec = NATIVE_TOOL_SPECS.find((s) => s.name === 'update_finding')!
+  expect(spec.description).toContain('ruled-out | duplicate; null clears')
+  expect(spec.description).toContain('investigation sessions only')
+})

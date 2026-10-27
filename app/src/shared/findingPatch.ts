@@ -24,6 +24,7 @@ export type UpdateRefusal =
   | 'second-root'
   | 'accepted-locked'
   | 'rca-frozen'
+  | 'review-mode'
 
 export type UpdateResult =
   { ok: true; row: FindingRow } | { ok: false; reason: UpdateRefusal; existingRoot?: number }
@@ -71,5 +72,7 @@ export function describeUpdateRefusal(reason: UpdateRefusal, existingRoot?: numb
       return 'An accepted finding keeps its status and role.'
     case 'rca-frozen':
       return 'That role was set by the confirmed RCA report.'
+    case 'review-mode':
+      return 'This finding belongs to a review session; status, role and cause apply to investigation findings only.'
   }
 }

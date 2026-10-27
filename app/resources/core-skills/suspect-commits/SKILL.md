@@ -103,14 +103,14 @@ window was bounded.
 
 ## Output
 
-Findings cannot be edited once recorded, so put this section _inside_ the RCA finding when
-you call `mcp__argus__append_finding` rather than planning to patch it in after. If the RCA
-is already filed (you were asked "what changed?" after the fact), record a **separate**
-finding titled `Regression localized: …` carrying this section — never re-file the whole
-RCA to attach it. To point at the RCA, call `list_findings` for its id and quote the line it
-prints verbatim in your first line ("Localizes the RCA recorded as: #<id> · <heading>"); if instead
-the RCA finding itself turns out wrong, withdraw it with `retract_finding` and a reason
-rather than leaving it standing beside a correction. Never edit findings.md directly.
+Put this section _inside_ the RCA finding when you call `mcp__argus__append_finding`. If the
+RCA is already filed (you were asked "what changed?" after the fact), call `list_findings` for
+its id and add the section to it with `update_finding` (`append_markdown`) — never re-file the
+whole RCA to attach it. A finding's status, role, cause and evidence can all be changed with
+`update_finding`. If the localized commit changes the RCA's claim itself, record the corrected
+claim with `append_finding` and `supersedes: <id>`; if the RCA finding turns out wrong and
+nothing replaces it, withdraw it with `retract_finding` and a reason. Never edit findings.md
+directly.
 
 The shape below is a parse contract. Keep the two field lines verbatim, one candidate
 per bullet, and use no parentheses or semicolons inside the anchor and window values:

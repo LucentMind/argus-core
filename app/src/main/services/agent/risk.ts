@@ -113,7 +113,8 @@ export const NATIVE_RISK: Record<string, RiskVerdict> = {
   // enough friction that the agent goes back to appending CORRECTED duplicates instead.
   mcp__argus__retract_finding: { action: 'allow', risk: 'LOW' },
   // Same tier and same reasons as retract_finding: one row of this case, visible on the card,
-  // human-reversible, and it cannot change what a human accepted.
+  // human-reversible, and it cannot change the status or role of a finding a human accepted
+  // (cause and evidence appends stay allowed).
   mcp__argus__update_finding: { action: 'allow', risk: 'LOW' },
   mcp__argus__read_memory: { action: 'allow', risk: 'LOW' },
   // NOT sandboxed: the PTC child is a plain ELECTRON_RUN_AS_NODE process (env-scrubbed, but
