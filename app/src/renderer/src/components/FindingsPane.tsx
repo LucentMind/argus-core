@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { FileText, PanelRight, Trash2 } from 'lucide-react'
 import { usePendingDisplay } from '../lib/usePendingDisplay'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
@@ -6,6 +6,7 @@ import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
 import { uiStore } from '../lib/uiStore'
 import { findingsStore } from '../lib/findingsStore'
+import { useReviewWalk } from '../lib/useReviewWalk'
 import type { FindingRejectReason, FindingRole, FindingRow } from '../../../shared/observability'
 import { buildFindingTree, isInactiveFinding, type TreeNode } from '../../../shared/findingTree'
 import { REVIEW_LAYERS, REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
@@ -15,8 +16,6 @@ import type { CiteTarget } from '../lib/citations'
 import { FindingCard } from './FindingCard'
 import { FindingRejectStrip } from './FindingRejectStrip'
 import { IconBtn, SectionLabel, SkeletonRows } from './ui'
-
-type Walk = { ids: number[]; i: number }
 
 export function FindingsPane({
   slug,
@@ -52,32 +51,7 @@ export function FindingsPane({
   const [rcaBump, setRcaBump] = useState(0)
   const [showRuledOut, setShowRuledOut] = useState(false)
   const [editError, setEditError] = useState<{ id: number; message: string } | null>(null)
-  // The Review walk (spec 2026-10-26 §5.4): pending cards in tree order, one expanded at a time.
-  // Pane state over the existing cards — no modal. `null` = not walking. The ref mirrors the
-  // state so a key handler resolving after an await reads the walk as it is now.
-  const [walk, setWalk] = useState<Walk | null>(null)
-  const walkRef = useRef<Walk | null>(null)
-  useLayoutEffect(() => {
-    walkRef.current = walk
-  }, [walk])
   const listRef = useRef<HTMLDivElement>(null)
-  // A long rail puts the walk's next card below the fold: bring the current card into view each
-  // time the walk moves (after the commit that expanded it). `?.` because jsdom has no
-  // scrollIntoView.
-  const walkCurrent = walk ? walk.ids[walk.i] : null
-  useEffect(() => {
-    if (walkCurrent === null) return
-    listRef.current
-      ?.querySelector<HTMLElement>(`li[data-finding-id="${walkCurrent}"]`)
-      ?.scrollIntoView?.({ block: 'nearest' })
-  }, [walkCurrent])
-  // The pane survives a mode switch (it is keyed by slug), and the walk is investigation-only:
-  // a switch ends it, so review mode never shows the bar and a switch back does not resume it.
-  const [walkMode, setWalkMode] = useState(activeMode)
-  if (walkMode !== activeMode) {
-    setWalkMode(activeMode)
-    setWalk(null)
-  }
   const showSkeleton = usePendingDisplay(!loaded)
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -185,6 +159,27 @@ export function FindingsPane({
   // Investigation only: the chain index (spec 2026-10-26 §5.4). `buildFindingTree` is the only
   // ordering — `list_findings` reads the same one. Review mode keeps the flat severity list.
   const tree = activeMode === 'investigation' ? buildFindingTree(modeFindings) : null
+  const review = useReviewWalk({
+    slug,
+    tree,
+    listRef,
+    onExpand: setExpandedId,
+    onAccept: (id) => {
+      setEditError(null)
+      return setReview(id, 'accepted')
+    },
+    onReject: (id) => {
+      setEditError(null)
+      return setReview(id, 'rejected')
+    },
+    onReopenStrip: (id) => {
+      // Already rejected: reopen the strip (under RULED OUT), do not toggle it back.
+      setRejectingId(id)
+      setShowRuledOut(true)
+    },
+    onClearStrip: () => setRejectingId(null),
+    onError: (id, message) => setEditError({ id, message })
+  })
   const causeOptions = modeFindings.map((f) => ({
     id: f.id,
     summary: f.summary,
@@ -205,97 +200,6 @@ export function FindingsPane({
     }
   }
 
-  /** Pending cards in tree order, captured once: a card the walk accepts or rejects keeps its
-   *  slot, so `i of n` never shifts under the user. */
-  function startWalk(): void {
-    if (!tree) return
-    const ids = [...tree.rootCause, ...tree.unexplained]
-      .filter((n) => n.row.reviewState === 'pending')
-      .map((n) => n.row.id)
-    if (ids.length === 0) return
-    setWalk({ ids, i: 0 })
-    setExpandedId(ids[0])
-    setRejectingId(null)
-    listRef.current?.focus()
-  }
-
-  /** Forward past the last card ends the walk; back stops at the first. */
-  function stepWalk(delta: number): void {
-    const w = walkRef.current
-    if (!w) return
-    const i = Math.max(0, w.i + delta)
-    setRejectingId(null)
-    if (i >= w.ids.length) {
-      setWalk(null)
-      setExpandedId(null)
-      return
-    }
-    setWalk({ ...w, i })
-    setExpandedId(w.ids[i])
-  }
-
-  function onWalkKey(e: React.KeyboardEvent): void {
-    const w = walkRef.current
-    // The reject strip handles its own Escape (skip) and marks it handled.
-    if (!w || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
-    const target = e.target as HTMLElement
-    if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')
-      return
-    const cur = w.ids[w.i]
-    // The walk SETS a state; the store's review() toggles. Read the row fresh (not from this
-    // render's closure) and never call review() when the row is already in the target state, or
-    // a revisit (k, then a) would flip an accepted finding back to pending.
-    const curState = findingsStore.get(slug).rows.find((f) => f.id === cur)?.reviewState
-    switch (e.key) {
-      case 'a':
-        e.preventDefault()
-        // Advance only if the walk is still on this card when the save lands (a fast `s` or
-        // Escape in between already moved it), and only if the save landed at all: a refusal
-        // (null) or a rejection stays on the card, the rejection's text on the card.
-        if (curState === 'accepted') {
-          stepWalk(1)
-          break
-        }
-        setEditError(null)
-        setReview(cur, 'accepted').then(
-          (saved) => {
-            const now = walkRef.current
-            if (saved && now && now.ids[now.i] === cur) stepWalk(1)
-          },
-          (err: unknown) => setEditError({ id: cur, message: (err as Error).message })
-        )
-        break
-      case 'r':
-        e.preventDefault()
-        if (curState === 'rejected') {
-          // Already rejected: reopen the strip (under RULED OUT), do not toggle it back.
-          setRejectingId(cur)
-          setShowRuledOut(true)
-        } else {
-          setEditError(null)
-          // Opens the strip; `s` moves on.
-          setReview(cur, 'rejected').catch((err: unknown) =>
-            setEditError({ id: cur, message: (err as Error).message })
-          )
-        }
-        break
-      case 's':
-      case 'j':
-        e.preventDefault()
-        stepWalk(1)
-        break
-      case 'k':
-        e.preventDefault()
-        stepWalk(-1)
-        break
-      case 'Escape':
-        e.preventDefault()
-        setWalk(null)
-        setRejectingId(null)
-        break
-    }
-  }
-
   async function clearAll(): Promise<void> {
     const count = modeFindings.length
     const ok = await confirm({
@@ -308,7 +212,7 @@ export function FindingsPane({
     })
     if (!ok) return
     setClearError(null)
-    setWalk(null)
+    review.end()
     try {
       await window.argus.findings.clear(slug, activeMode)
     } catch (err) {
@@ -475,13 +379,13 @@ export function FindingsPane({
             : 'Findings'}
         </SectionLabel>
         <div className="flex items-center gap-1">
-          {tree && tree.pending > 0 && !walk && (
+          {tree && tree.pending > 0 && !review.walk && (
             <button
               type="button"
               aria-label="Review pending findings"
               title="Walk the pending findings: a accept · r reject · s skip · k back · esc done"
               className="rounded-r1 border border-signal/50 bg-signal/10 px-1.5 py-0.5 text-[10.5px] text-ink transition-colors hover:bg-signal/20"
-              onClick={startWalk}
+              onClick={review.start}
             >
               Review
             </button>
@@ -561,12 +465,12 @@ export function FindingsPane({
             ))}
           </div>
         )}
-        {walk && (
+        {review.walk && (
           <div
             data-testid="review-walk"
             className="flex shrink-0 items-center gap-2 rounded-r1 border border-signal/35 bg-signal/10 px-2 py-1 font-mono text-[10.5px] text-ink"
           >
-            Reviewing {walk.i + 1} of {walk.ids.length}
+            Reviewing {review.walk.i + 1} of {review.walk.ids.length}
             <span className="text-mute">· a accept · r reject · s skip · k back · esc done</span>
           </div>
         )}
@@ -575,7 +479,7 @@ export function FindingsPane({
         <div
           ref={listRef}
           tabIndex={-1}
-          onKeyDown={onWalkKey}
+          onKeyDown={review.onKeyDown}
           className="min-h-0 flex-1 overflow-y-auto outline-none"
         >
           {/* The skeleton is for the FIRST load of a slug only: `loaded` is store-owned and never
