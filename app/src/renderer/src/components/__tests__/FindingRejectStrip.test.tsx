@@ -36,4 +36,14 @@ describe('FindingRejectStrip', () => {
     expect(onSkip).toHaveBeenCalledTimes(2)
     expect(onPick).not.toHaveBeenCalled()
   })
+  it('offers Correct… when given a handler, and not otherwise', async () => {
+    const onCorrect = vi.fn()
+    const { rerender } = render(
+      <FindingRejectStrip onPick={vi.fn()} onSkip={vi.fn()} onCorrect={onCorrect} />
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Correct this finding in chat' }))
+    expect(onCorrect).toHaveBeenCalled()
+    rerender(<FindingRejectStrip onPick={vi.fn()} onSkip={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'Correct this finding in chat' })).toBeNull()
+  })
 })
