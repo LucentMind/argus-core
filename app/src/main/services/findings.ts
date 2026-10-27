@@ -15,13 +15,14 @@ import {
 import { isReviewLayerId, isReviewSeverity } from '../../shared/reviewLayers'
 import { DEFAULT_MODE, type ModeId } from '../../shared/modes'
 import type { RoleAssignment } from '../../shared/rca'
+import type { FindingPatch, UpdateResult } from '../../shared/findingPatch'
 import { caseDir } from './paths'
 import { getCase } from './caseService'
 import { appendDeletionAudit } from './deletionAudit'
 import { overrideFromRetraction, overrideFromFindingReject } from './distill/overrides'
 import type { AttributionRow } from '../../shared/attribution'
 
-export type { FindingRow, ReviewState }
+export type { FindingRow, ReviewState, FindingPatch, UpdateResult }
 const REVIEW_STATES: ReviewState[] = ['pending', 'accepted', 'rejected']
 // Non-global, so it is safe to share between the two `split` call sites below.
 const FINDING_MARKER_SPLIT = /<!-- finding:(\d+) -->/
@@ -302,6 +303,152 @@ export function retractFinding(
   return { ok: true, row, changed: !humanRejected }
 }
 
+/** The `### Update <iso>` section `update_finding(append_markdown)` adds to a finding's block.
+ *  Same marker grammar as `removeFindingBodies`; a finding whose block is missing from
+ *  findings.md (a legacy row) gets a fresh block so the update is not lost. Pure. */
+export function appendToFindingBody(
+  md: string,
+  id: number,
+  text: string,
+  summary: string,
+  now: Date = new Date()
+): string {
+  const iso = now.toISOString()
+  const section = `### Update ${iso}\n\n${text.trim()}\n`
+  const parts = md.split(FINDING_MARKER_SPLIT)
+  for (let i = 1; i < parts.length; i += 2) {
+    if (Number(parts[i]) !== id) continue
+    parts[i + 1] = `${(parts[i + 1] ?? '').replace(/\s+$/, '')}\n\n${section}${
+      i + 2 < parts.length ? '\n' : ''
+    }`
+    let out = parts[0]
+    for (let j = 1; j < parts.length; j += 2)
+      out += `<!-- finding:${parts[j]} -->${parts[j + 1] ?? ''}`
+    return out
+  }
+  return `${md.replace(/\s+$/, '')}\n\n<!-- finding:${id} -->\n## ${summary}\n_${iso}_\n\n${section}`
+}
+
+/**
+ * The single writer of a finding's chain fields (spec 2026-10-26 §5.1): `status`, `role` (+
+ * `role_source` = the actor), `caused_by`, and the body append. Both the agent's
+ * `update_finding` and the human's card editor land here, so every invariant is checked once,
+ * in one order, before anything is written:
+ *   unknown / empty → accepted-locked, rca-frozen (agent only) → self-cause, bad-cause, cycle →
+ *   second-root. A refusal is a RESULT, not a throw — the tool layer and the IPC own the
+ *   wording. Invalid enum values are a caller bug and throw.
+ * A rejected or superseded confirmed root cause is ruled out and does not block a new one.
+ * Order of writes: DB row first, findings.md second — a crash between them leaves a correct row
+ * missing an evidence paragraph, never a body that claims a change the row does not have.
+ */
+export function updateFinding(
+  db: DatabaseSync,
+  argusHome: string,
+  id: number,
+  patch: FindingPatch,
+  opts: { actor: 'agent' | 'human'; onUpdated?: (row: FindingRow) => void }
+): UpdateResult {
+  const cur = db
+    .prepare(
+      `SELECT f.*, c.slug AS slug FROM findings f JOIN cases c ON c.id = f.case_id WHERE f.id = ?`
+    )
+    .get(id) as (Raw & { slug: string }) | undefined
+  if (!cur) return { ok: false, reason: 'unknown' }
+  const has = (k: keyof FindingPatch): boolean => patch[k] !== undefined
+  const text = (patch.appendMarkdown ?? '').trim()
+  if (!has('status') && !has('role') && !has('causedBy') && !text)
+    return { ok: false, reason: 'empty' }
+  if (has('status') && !isFindingStatus(patch.status))
+    throw new Error(`Invalid status: ${JSON.stringify(patch.status)}`)
+  if (has('role') && patch.role !== null && !isFindingRole(patch.role))
+    throw new Error(`Invalid role: ${JSON.stringify(patch.role)}`)
+  if (opts.actor === 'agent') {
+    // A human's accept is not the agent's to overturn (same rule as retraction): the claim
+    // and the role are settled; evidence and a cause may still be added.
+    if (cur.review_state === 'accepted' && (has('status') || has('role')))
+      return { ok: false, reason: 'accepted-locked' }
+    // The RCA report fixed this role; the agent may argue in chat, the human may override.
+    if (has('role') && cur.role_source === 'rca' && isFindingRole(cur.role))
+      return { ok: false, reason: 'rca-frozen' }
+  }
+  if (has('causedBy') && patch.causedBy !== null) {
+    const target = patch.causedBy as number
+    if (target === id) return { ok: false, reason: 'self-cause' }
+    const t = db
+      .prepare(`SELECT id, caused_by FROM findings WHERE id = ? AND case_id = ?`)
+      .get(target, cur.case_id) as { id: number; caused_by: number | null } | undefined
+    if (!t) return { ok: false, reason: 'bad-cause' }
+    // Walk toward the root from the target: reaching `id` would close a loop. `seen` stops a
+    // walk through a loop that is already there (it cannot be written here, but a hand-edited
+    // DB must not hang the writer).
+    const parentOf = db.prepare(`SELECT caused_by FROM findings WHERE id = ?`)
+    const seen = new Set<number>([t.id])
+    let p = t.caused_by
+    while (p !== null) {
+      if (p === id) return { ok: false, reason: 'cycle' }
+      if (seen.has(p)) break
+      seen.add(p)
+      p = (parentOf.get(p) as { caused_by: number | null } | undefined)?.caused_by ?? null
+    }
+  }
+  const nextRole = has('role') ? patch.role : isFindingRole(cur.role) ? cur.role : null
+  const nextStatus = has('status')
+    ? patch.status
+    : isFindingStatus(cur.status)
+      ? cur.status
+      : 'confirmed'
+  if (nextRole === 'root-cause' && nextStatus === 'confirmed') {
+    const other = db
+      .prepare(
+        `SELECT id FROM findings
+          WHERE case_id = ? AND id != ? AND role = 'root-cause'
+            AND COALESCE(status, 'confirmed') = 'confirmed'
+            AND review_state != 'rejected' AND superseded_by IS NULL
+          ORDER BY id LIMIT 1`
+      )
+      .get(cur.case_id, id) as { id: number } | undefined
+    if (other) return { ok: false, reason: 'second-root', existingRoot: other.id }
+  }
+  const sets: string[] = []
+  const vals: (string | number | null)[] = []
+  if (has('status')) {
+    sets.push('status = ?')
+    vals.push(patch.status as string)
+  }
+  if (has('role')) {
+    sets.push('role = ?', 'role_source = ?')
+    vals.push(patch.role ?? null, patch.role === null ? null : opts.actor)
+  }
+  if (has('causedBy')) {
+    sets.push('caused_by = ?')
+    vals.push(patch.causedBy ?? null)
+  }
+  if (sets.length > 0)
+    db.prepare(`UPDATE findings SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)
+  if (text) {
+    const mdPath = path.join(caseDir(argusHome, cur.slug), 'findings.md')
+    let md: string
+    try {
+      md = fs.readFileSync(mdPath, 'utf8')
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+      md = `# Findings — ${cur.slug}\n`
+    }
+    fs.writeFileSync(mdPath, appendToFindingBody(md, id, text, cur.summary))
+  }
+  const row = toRow(
+    db
+      .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
+      .get(id) as unknown as Raw
+  )
+  try {
+    opts.onUpdated?.(row)
+  } catch (err) {
+    console.error('[findings] onUpdated failed', err)
+  }
+  return { ok: true, row }
+}
+
 /** findings.md minus the marker segments for `ids` — mode-scoped clear must leave the other
  *  mode's bodies intact. Everything before the first `<!-- finding:N -->` marker (the seeded
  *  header, any pre-marker prose) is always kept. */
@@ -345,8 +492,16 @@ export function clearFindings(
       )
       .all(kase.id, DEFAULT_MODE, mode) as { id: number }[]
   ).map((r) => r.id)
-  if (ids.length > 0)
-    db.prepare(`DELETE FROM findings WHERE id IN (${ids.map(() => '?').join(', ')})`).run(...ids)
+  if (ids.length > 0) {
+    const marks = ids.map(() => '?').join(', ')
+    db.prepare(`DELETE FROM findings WHERE id IN (${marks})`).run(...ids)
+    // Spec §5.6: a surviving finding of the other mode may not point into the cleared set.
+    // (The no-mode branch above deletes every row of the case; no edge survives it.)
+    db.prepare(`UPDATE findings SET caused_by = NULL WHERE caused_by IN (${marks})`).run(...ids)
+    db.prepare(`UPDATE findings SET superseded_by = NULL WHERE superseded_by IN (${marks})`).run(
+      ...ids
+    )
+  }
   appendDeletionAudit(argusHome, 'findings.clear', caseSlug, { cleared: ids.length, mode })
   if (ids.length > 0) {
     try {
@@ -375,6 +530,9 @@ export function deleteFinding(db: DatabaseSync, argusHome: string, id: number): 
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
   }
+  // Spec §5.6: nothing may point at a finding that no longer exists. Children stay, unattached.
+  db.prepare(`UPDATE findings SET caused_by = NULL WHERE caused_by = ?`).run(id)
+  db.prepare(`UPDATE findings SET superseded_by = NULL WHERE superseded_by = ?`).run(id)
   db.prepare(`DELETE FROM findings WHERE id = ?`).run(id)
   appendDeletionAudit(argusHome, 'finding.delete', row.slug, { id, summary: row.summary })
   return { deleted: true }
@@ -404,7 +562,8 @@ export function recordFindingWrite(
   db.prepare(`UPDATE findings SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)
 }
 
-/** Sole writer of findings.role (spec §2). One transaction; throws atomically: a rejected
+/** The RCA report's writer of findings.role (spec 2026-10-26 §5.1: the other two are
+ *  updateFinding's actors). Stamps role_source = 'rca'. One transaction; throws atomically: a rejected
  *  call (invalid role, duplicate root-cause, a finding from another case) leaves every row's
  *  role exactly as it was before the call. Findings on the case that are absent from
  *  `assignments` are cleared to null — this is a full replace, not a merge. */
@@ -428,9 +587,13 @@ export function applyReportRoles(
     for (const a of assignments)
       if (!own.has(a.findingId))
         throw new Error(`finding ${a.findingId} does not belong to case ${caseId}`)
-    db.prepare(`UPDATE findings SET role = NULL WHERE case_id = ?`).run(caseId)
+    db.prepare(`UPDATE findings SET role = NULL, role_source = NULL WHERE case_id = ?`).run(caseId)
     for (const a of assignments)
-      db.prepare(`UPDATE findings SET role = ? WHERE id = ?`).run(a.role, a.findingId)
+      db.prepare(`UPDATE findings SET role = ?, role_source = ? WHERE id = ?`).run(
+        a.role,
+        a.role === null ? null : 'rca',
+        a.findingId
+      )
     db.exec('COMMIT')
   } catch (err) {
     db.exec('ROLLBACK')

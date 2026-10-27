@@ -1,0 +1,295 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import type { DatabaseSync } from 'node:sqlite'
+import { openDb } from '../db'
+import { createCase } from '../caseService'
+import { caseDir } from '../paths'
+import {
+  appendToFindingBody,
+  applyReportRoles,
+  clearFindings,
+  deleteFinding,
+  listFindings,
+  updateFinding
+} from '../findings'
+import { parseHumanFindingPatch } from '../../../shared/findingPatch'
+
+let home: string
+let db: DatabaseSync
+let caseId: number
+let otherCaseId: number
+
+function seed(extra: Record<string, string | number | null> = {}, cid = caseId): number {
+  const now = new Date().toISOString()
+  const base: Record<string, string | number | null> = {
+    case_id: cid,
+    session_id: null,
+    summary: 'Race in parser',
+    review_state: 'pending',
+    created_at: now,
+    ...extra
+  }
+  const cols = Object.keys(base)
+  const res = db
+    .prepare(`INSERT INTO findings (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
+    .run(...Object.values(base))
+  return Number(res.lastInsertRowid)
+}
+
+const col = (id: number, name: string): unknown =>
+  (db.prepare(`SELECT ${name} AS v FROM findings WHERE id = ?`).get(id) as { v: unknown }).v
+
+beforeEach(() => {
+  home = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-update-'))
+  db = openDb(path.join(home, 'argus.db'))
+  caseId = createCase(db, home, { slug: 'CASE-A', title: 'A' }).id
+  otherCaseId = createCase(db, home, { slug: 'CASE-B', title: 'B' }).id
+})
+
+afterEach(() => {
+  db.close()
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
+describe('updateFinding', () => {
+  it('refuses an unknown id and an empty patch, writing nothing', () => {
+    expect(updateFinding(db, home, 999, { status: 'confirmed' }, { actor: 'agent' })).toEqual({
+      ok: false,
+      reason: 'unknown'
+    })
+    const id = seed()
+    expect(updateFinding(db, home, id, {}, { actor: 'agent' })).toEqual({
+      ok: false,
+      reason: 'empty'
+    })
+    expect(updateFinding(db, home, id, { appendMarkdown: '  \n' }, { actor: 'agent' })).toEqual({
+      ok: false,
+      reason: 'empty'
+    })
+  })
+
+  it('writes status, role with the actor as source, and caused_by; fires onUpdated with the row', () => {
+    const parent = seed()
+    const id = seed({ status: 'hypothesis' })
+    const onUpdated = vi.fn()
+    const res = updateFinding(
+      db,
+      home,
+      id,
+      { status: 'confirmed', role: 'symptom', causedBy: parent },
+      { actor: 'agent', onUpdated }
+    )
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.row.status).toBe('confirmed')
+    expect(res.row.role).toBe('symptom')
+    expect(res.row.roleSource).toBe('agent')
+    expect(res.row.causedBy).toBe(parent)
+    expect(onUpdated).toHaveBeenCalledWith(res.row)
+    const h = updateFinding(db, home, id, { role: 'contributing' }, { actor: 'human' })
+    expect(h.ok && h.row.roleSource).toBe('human')
+    const cleared = updateFinding(db, home, id, { role: null, causedBy: null }, { actor: 'human' })
+    expect(cleared.ok && cleared.row.role).toBeNull()
+    expect(col(id, 'role_source')).toBeNull()
+    expect(col(id, 'caused_by')).toBeNull()
+  })
+
+  it('appends a dated Update section inside the finding block of findings.md', () => {
+    const id = seed()
+    const md = path.join(caseDir(home, 'CASE-A'), 'findings.md')
+    fs.writeFileSync(
+      md,
+      `# Findings — CASE-A\n\n<!-- finding:${id} -->\n## Race in parser\n_t · session 1_\n\nFirst body.\n\n<!-- finding:${id + 50} -->\n## Other\n\nOther body.\n`
+    )
+    const res = updateFinding(
+      db,
+      home,
+      id,
+      { appendMarkdown: 'Seen again at [evidence/log.txt:9].' },
+      { actor: 'agent' }
+    )
+    expect(res.ok).toBe(true)
+    const out = fs.readFileSync(md, 'utf8')
+    const mine = out.split(`<!-- finding:${id + 50} -->`)[0]
+    expect(mine).toMatch(
+      /### Update \d{4}-\d{2}-\d{2}T[^\n]+\n\nSeen again at \[evidence\/log\.txt:9\]\.\n/
+    )
+    expect(out.split('<!-- finding:')).toHaveLength(3) // no block added, none lost
+    expect(listFindings(db, home, 'CASE-A').find((f) => f.id === id)?.body).toContain('Seen again')
+  })
+
+  it('refuses a self cause, a cross-case cause and a cycle', () => {
+    const a = seed()
+    const b = seed({ caused_by: a })
+    const c = seed({ caused_by: b })
+    const foreign = seed({}, otherCaseId)
+    expect(updateFinding(db, home, a, { causedBy: a }, { actor: 'human' })).toEqual({
+      ok: false,
+      reason: 'self-cause'
+    })
+    expect(updateFinding(db, home, a, { causedBy: foreign }, { actor: 'human' })).toEqual({
+      ok: false,
+      reason: 'bad-cause'
+    })
+    expect(updateFinding(db, home, a, { causedBy: 4242 }, { actor: 'human' })).toEqual({
+      ok: false,
+      reason: 'bad-cause'
+    })
+    // a ← b ← c; making a caused by c closes the loop
+    expect(updateFinding(db, home, a, { causedBy: c }, { actor: 'agent' })).toEqual({
+      ok: false,
+      reason: 'cycle'
+    })
+    expect(col(a, 'caused_by')).toBeNull()
+  })
+
+  it('allows one confirmed root cause; a rejected or superseded one does not block', () => {
+    const first = seed({ role: 'root-cause', role_source: 'agent' }) // status NULL = confirmed
+    const second = seed()
+    expect(updateFinding(db, home, second, { role: 'root-cause' }, { actor: 'agent' })).toEqual({
+      ok: false,
+      reason: 'second-root',
+      existingRoot: first
+    })
+    // A root-cause HYPOTHESIS may coexist.
+    const hyp = updateFinding(
+      db,
+      home,
+      second,
+      { role: 'root-cause', status: 'hypothesis' },
+      { actor: 'agent' }
+    )
+    expect(hyp.ok).toBe(true)
+    // Promoting it is the same refusal.
+    expect(
+      updateFinding(db, home, second, { status: 'confirmed' }, { actor: 'agent' })
+    ).toMatchObject({
+      ok: false,
+      reason: 'second-root'
+    })
+    db.prepare(`UPDATE findings SET review_state = 'rejected' WHERE id = ?`).run(first)
+    expect(updateFinding(db, home, second, { status: 'confirmed' }, { actor: 'agent' }).ok).toBe(
+      true
+    )
+  })
+
+  it('a superseded confirmed root cause does not block a new one', () => {
+    const replacement = seed()
+    seed({ role: 'root-cause', role_source: 'agent', superseded_by: replacement })
+    const res = updateFinding(db, home, replacement, { role: 'root-cause' }, { actor: 'agent' })
+    expect(res.ok && res.row.role).toBe('root-cause')
+  })
+
+  it("locks an accepted finding's status and role to the agent, not its cause or evidence; the human is free", () => {
+    const parent = seed()
+    const id = seed({
+      review_state: 'accepted',
+      review_actor: 'human',
+      role: 'symptom',
+      role_source: 'agent'
+    })
+    expect(updateFinding(db, home, id, { status: 'hypothesis' }, { actor: 'agent' })).toEqual({
+      ok: false,
+      reason: 'accepted-locked'
+    })
+    expect(updateFinding(db, home, id, { role: 'contributing' }, { actor: 'agent' })).toEqual({
+      ok: false,
+      reason: 'accepted-locked'
+    })
+    expect(updateFinding(db, home, id, { causedBy: parent }, { actor: 'agent' }).ok).toBe(true)
+    expect(updateFinding(db, home, id, { role: 'contributing' }, { actor: 'human' }).ok).toBe(true)
+  })
+
+  it('refuses the agent, not the human, on an rca-sourced role', () => {
+    const id = seed({ role: 'contributing', role_source: 'rca' })
+    expect(updateFinding(db, home, id, { role: 'symptom' }, { actor: 'agent' })).toEqual({
+      ok: false,
+      reason: 'rca-frozen'
+    })
+    expect(updateFinding(db, home, id, { status: 'hypothesis' }, { actor: 'agent' }).ok).toBe(true)
+    const h = updateFinding(db, home, id, { role: 'symptom' }, { actor: 'human' })
+    expect(h.ok && h.row.roleSource).toBe('human')
+  })
+})
+
+describe('edges are nulled when their target goes', () => {
+  it('deleteFinding clears caused_by and superseded_by that pointed at it', () => {
+    const gone = seed()
+    const child = seed({ caused_by: gone })
+    const old = seed({ superseded_by: gone })
+    fs.writeFileSync(path.join(caseDir(home, 'CASE-A'), 'findings.md'), '# Findings\n')
+    deleteFinding(db, home, gone)
+    expect(col(child, 'caused_by')).toBeNull()
+    expect(col(old, 'superseded_by')).toBeNull()
+  })
+
+  it('a mode-scoped clear clears edges into the cleared set only', () => {
+    const now = new Date().toISOString()
+    const inv = Number(
+      db
+        .prepare(
+          `INSERT INTO sessions (case_id, mode, created_at, updated_at) VALUES (?, 'investigation', ?, ?)`
+        )
+        .run(caseId, now, now).lastInsertRowid
+    )
+    const rev = Number(
+      db
+        .prepare(
+          `INSERT INTO sessions (case_id, mode, created_at, updated_at) VALUES (?, 'review', ?, ?)`
+        )
+        .run(caseId, now, now).lastInsertRowid
+    )
+    const invRoot = seed({ session_id: inv })
+    const invChild = seed({ session_id: inv, caused_by: invRoot })
+    const revRoot = seed({ session_id: rev })
+    const revChild = seed({ session_id: rev, caused_by: revRoot })
+    // A surviving finding whose edges point INTO the cleared set loses them.
+    const crossChild = seed({ session_id: inv, caused_by: revRoot, superseded_by: revChild })
+    clearFindings(db, home, 'CASE-A', 'review')
+    expect(col(invChild, 'caused_by')).toBe(invRoot)
+    expect(db.prepare(`SELECT id FROM findings WHERE id = ?`).get(revChild)).toBeUndefined()
+    expect(col(crossChild, 'caused_by')).toBeNull()
+    expect(col(crossChild, 'superseded_by')).toBeNull()
+  })
+})
+
+describe('applyReportRoles provenance', () => {
+  it('stamps role_source rca on every assigned role and clears it with the role', () => {
+    const a = seed({ role: 'symptom', role_source: 'human' })
+    const b = seed()
+    applyReportRoles(db, caseId, [{ findingId: b, role: 'root-cause' }])
+    expect(col(b, 'role_source')).toBe('rca')
+    expect(col(a, 'role')).toBeNull()
+    expect(col(a, 'role_source')).toBeNull()
+  })
+})
+
+describe('appendToFindingBody', () => {
+  it('adds a block when the finding has none', () => {
+    const out = appendToFindingBody(
+      '# Findings\n',
+      7,
+      'New evidence.',
+      'Race',
+      new Date('2026-10-26T10:00:00Z')
+    )
+    expect(out).toBe(
+      '# Findings\n\n<!-- finding:7 -->\n## Race\n_2026-10-26T10:00:00.000Z_\n\n### Update 2026-10-26T10:00:00.000Z\n\nNew evidence.\n'
+    )
+  })
+})
+
+describe('parseHumanFindingPatch', () => {
+  it('accepts role and causedBy only, null included, and throws on anything else', () => {
+    expect(parseHumanFindingPatch({ role: 'symptom' })).toEqual({ role: 'symptom' })
+    expect(parseHumanFindingPatch({ role: null, causedBy: 3 })).toEqual({ role: null, causedBy: 3 })
+    expect(parseHumanFindingPatch({ causedBy: null })).toEqual({ causedBy: null })
+    expect(() => parseHumanFindingPatch({ status: 'hypothesis' })).toThrow(/status/)
+    expect(() => parseHumanFindingPatch({ role: 'boss' })).toThrow(/role/)
+    expect(() => parseHumanFindingPatch({ causedBy: 1.5 })).toThrow(/causedBy/)
+    expect(() => parseHumanFindingPatch({})).toThrow(/empty/)
+    expect(() => parseHumanFindingPatch('x')).toThrow()
+  })
+})

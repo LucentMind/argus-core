@@ -1,0 +1,52 @@
+import {
+  isFindingRole,
+  type FindingRole,
+  type FindingRow,
+  type FindingStatus
+} from './observability'
+
+/** What `updateFinding` can change. Only the keys present are written; `role: null` and
+ *  `causedBy: null` clear. `appendMarkdown` adds a dated `### Update` section to the body. */
+export interface FindingPatch {
+  status?: FindingStatus
+  role?: FindingRole | null
+  causedBy?: number | null
+  appendMarkdown?: string
+}
+
+/** Why `updateFinding` wrote nothing. The tool layer and the IPC each own their wording. */
+export type UpdateRefusal =
+  | 'unknown'
+  | 'empty'
+  | 'bad-cause'
+  | 'self-cause'
+  | 'cycle'
+  | 'second-root'
+  | 'accepted-locked'
+  | 'rca-frozen'
+
+export type UpdateResult =
+  { ok: true; row: FindingRow } | { ok: false; reason: UpdateRefusal; existingRoot?: number }
+
+/** IPC-boundary validation of a HUMAN chain edit (spec 2026-10-26 §5.4): role and cause only —
+ *  status is the agent's claim about evidence and has no human editor. Throws on any other key,
+ *  on a bad value, and on an empty patch, before anything is written. */
+export function parseHumanFindingPatch(v: unknown): Pick<FindingPatch, 'role' | 'causedBy'> {
+  if (!v || typeof v !== 'object') throw new Error(`Invalid finding patch: ${JSON.stringify(v)}`)
+  const out: Pick<FindingPatch, 'role' | 'causedBy'> = {}
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (k === 'role') {
+      if (val !== null && !isFindingRole(val))
+        throw new Error(`Invalid role: ${JSON.stringify(val)}`)
+      out.role = val
+    } else if (k === 'causedBy') {
+      if (val !== null && !Number.isInteger(val))
+        throw new Error(`Invalid causedBy: ${JSON.stringify(val)}`)
+      out.causedBy = val as number | null
+    } else {
+      throw new Error(`Unknown finding patch key: ${k}`)
+    }
+  }
+  if (Object.keys(out).length === 0) throw new Error('Invalid finding patch: empty')
+  return out
+}
