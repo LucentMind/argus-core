@@ -1,4 +1,9 @@
-import type { FindingRow, FindingRejectReason, ReviewState } from '../../../shared/observability'
+import type {
+  FindingRejectReason,
+  FindingRole,
+  FindingRow,
+  ReviewState
+} from '../../../shared/observability'
 
 export interface CaseFindings {
   rows: FindingRow[]
@@ -61,6 +66,18 @@ class FindingsStore {
     return row
   }
 
+  /** The human's chain edit (role / cause). The refusal text from main is rethrown for the card
+   *  to show; the local row is untouched on a refusal. Same merge rule as `review`. */
+  async update(
+    slug: string,
+    id: number,
+    patch: { role?: FindingRole | null; causedBy?: number | null }
+  ): Promise<FindingRow | null> {
+    const row = await window.argus.findings.update(id, patch)
+    if (row) this.merge(slug, row)
+    return row
+  }
+
   /** The main process has already spliced findings.md, deleted the row and audited it by the
    *  time this resolves; only then is the row dropped locally. The confirm stays in the caller. */
   async remove(slug: string, id: number): Promise<void> {
@@ -68,11 +85,16 @@ class FindingsStore {
     this.set(slug, { ...this.get(slug), rows: this.get(slug).rows.filter((f) => f.id !== id) })
   }
 
+  /** A row from main carries no `body` (it lives in findings.md), and an `undefined` key is not
+   *  a value to clear with: only defined fields land, so the body on screen survives. */
   merge(slug: string, row: FindingRow): void {
     const cur = this.get(slug)
+    const defined = Object.fromEntries(
+      Object.entries(row).filter(([, v]) => v !== undefined)
+    ) as Partial<FindingRow>
     this.set(slug, {
       ...cur,
-      rows: cur.rows.map((f) => (f.id === row.id ? { ...f, ...row } : f))
+      rows: cur.rows.map((f) => (f.id === row.id ? { ...f, ...defined } : f))
     })
   }
 
