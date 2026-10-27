@@ -11,6 +11,11 @@ const row = (over: Partial<FindingRow>): FindingRow =>
     summary: 's',
     reviewState: 'pending',
     mode: 'investigation',
+    role: null,
+    status: 'confirmed',
+    roleSource: null,
+    causedBy: null,
+    supersededBy: null,
     body: 'b',
     ...over
   }) as FindingRow
@@ -18,6 +23,7 @@ const row = (over: Partial<FindingRow>): FindingRow =>
 let list: ReturnType<typeof vi.fn>
 let review: ReturnType<typeof vi.fn>
 let del: ReturnType<typeof vi.fn>
+let update: ReturnType<typeof vi.fn>
 let onEvent: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
@@ -25,9 +31,10 @@ beforeEach(() => {
   list = vi.fn()
   review = vi.fn()
   del = vi.fn().mockResolvedValue({ deleted: true })
+  update = vi.fn()
   onEvent = vi.fn(() => () => {})
   window.argus = {
-    findings: { list, review, delete: del },
+    findings: { list, review, delete: del, update },
     agent: { onEvent }
   } as never
 })
@@ -67,6 +74,26 @@ describe('findingsStore', () => {
     await findingsStore.review('c1', 1, 'rejected', { tag: 'wrong' })
     expect(review).toHaveBeenCalledWith(1, 'rejected', { tag: 'wrong' })
     expect(findingsStore.get('c1').rows[0].rejectTag).toBe('wrong')
+  })
+
+  it('update sends the patch and merges the returned row onto the local one', async () => {
+    list.mockResolvedValue([row({ id: 1, role: null, causedBy: null })])
+    await findingsStore.load('c1')
+    update.mockResolvedValue({ ...row({ id: 1 }), role: 'symptom', causedBy: 4, body: undefined })
+    const out = await findingsStore.update('c1', 1, { role: 'symptom', causedBy: 4 })
+    expect(update).toHaveBeenCalledWith(1, { role: 'symptom', causedBy: 4 })
+    expect(out?.role).toBe('symptom')
+    const local = findingsStore.get('c1').rows[0]
+    expect(local.causedBy).toBe(4)
+    expect(local.body).toBe('b') // merged, not swapped
+  })
+
+  it('update rethrows a refusal and leaves the row as it was', async () => {
+    list.mockResolvedValue([row({ id: 1 })])
+    await findingsStore.load('c1')
+    update.mockRejectedValue(new Error('That would make a loop in the chain.'))
+    await expect(findingsStore.update('c1', 1, { causedBy: 2 })).rejects.toThrow('loop')
+    expect(findingsStore.get('c1').rows[0].causedBy).toBeNull()
   })
 
   it('remove deletes through IPC and drops the row', async () => {
