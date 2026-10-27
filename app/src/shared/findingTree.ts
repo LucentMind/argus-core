@@ -22,12 +22,16 @@ export interface FindingTree {
 /** Rejected (by anyone), ruled out, a duplicate, or replaced by a newer finding. An edge that
  *  points at an inactive finding is treated as no edge: the children stay visible, unattached,
  *  which is exactly the gap a withdrawn cause leaves (spec §5.6). */
-export function isInactiveFinding(f: FindingRow): boolean {
+export function isInactiveFinding(f: {
+  reviewState: string
+  role: string | null
+  supersededBy?: number | null
+}): boolean {
   return (
     f.reviewState === 'rejected' ||
     f.role === 'ruled-out' ||
     f.role === 'duplicate' ||
-    f.supersededBy !== null
+    f.supersededBy != null
   )
 }
 
