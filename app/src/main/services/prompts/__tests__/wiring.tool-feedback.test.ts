@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { TOOL_FEEDBACK } from '../../agent/nativeTools'
+import { FINDING_TREE_HEADINGS } from '../../findingTreeHeadings'
 import { PROMPT_ENTRIES, entryById } from '../registry'
 import { fillPrompt } from '../fill'
 import { applyMemoryWrite, MEMORY_FEEDBACK } from '../../memory'
@@ -12,6 +13,19 @@ import { classifyToolCall, RISK_DENY_REASONS, type RiskContext } from '../../age
 const stub = (id: string): string => `<<${id}>>`
 
 describe('tool-feedback registry entries', () => {
+  it('registers the three tree headings under their original ids from findingTreeHeadings.ts', () => {
+    for (const key of [
+      'list_findings.root-cause',
+      'list_findings.unexplained',
+      'list_findings.ruled-out'
+    ]) {
+      const e = entryById(`tool-feedback.${key}`)
+      expect(e?.source).toBe('app/src/main/services/findingTreeHeadings.ts')
+      expect(e?.default()).toBe(FINDING_TREE_HEADINGS[key].text)
+    }
+    expect(TOOL_FEEDBACK['list_findings.root-cause']).toBeUndefined()
+  })
+
   it('registers one entry per TOOL_FEEDBACK key', () => {
     const ids = PROMPT_ENTRIES.filter(
       (e) => e.category === 'tool-feedback' && e.source.endsWith('nativeTools.ts')

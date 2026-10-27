@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildFindingTree, isInactiveFinding } from '../findingTree'
+import { buildFindingTree, isInactiveFinding, renderFindingTree } from '../findingTree'
 import type { FindingRow } from '../observability'
 
 function row(over: Partial<FindingRow>): FindingRow {
@@ -98,5 +98,89 @@ describe('buildFindingTree', () => {
     // Proper roots first; then each cycle member is reached exactly once, the lower id as the root.
     expect(ids(t.unexplained)).toEqual(['#3', '#1', '  #2'])
     expect(t.pending).toBe(2)
+  })
+})
+
+const H = { rootCause: 'ROOT CAUSE', unexplained: 'UNEXPLAINED', ruledOut: 'RULED OUT' }
+
+describe('renderFindingTree', () => {
+  const rows = (): FindingRow[] => [
+    row({
+      id: 6,
+      summary: 'tilesVersion blocked',
+      role: 'root-cause',
+      reviewState: 'accepted',
+      body: 'root body'
+    }),
+    row({
+      id: 4,
+      summary: 'Install rejected',
+      role: 'contributing',
+      causedBy: 6,
+      body: 'mid body'
+    }),
+    row({ id: 2, summary: 'NoRoute offline', role: 'symptom', causedBy: 4, body: 'leaf body' }),
+    row({ id: 7, summary: 'Fallback never tried', status: 'hypothesis', body: 'hyp body' }),
+    row({
+      id: 3,
+      summary: 'Server rejects every install',
+      role: 'root-cause',
+      reviewState: 'rejected',
+      reviewActor: 'agent',
+      reviewReason: 'superseded by #6',
+      supersededBy: 6,
+      body: 'old body'
+    }),
+    row({
+      id: 5,
+      summary: 'Clock skew',
+      role: 'ruled-out',
+      reviewState: 'rejected',
+      reviewActor: 'human',
+      rejectTag: 'wrong',
+      rejectNote: 'old build',
+      body: 'skew body'
+    })
+  ]
+
+  it('renders the three sections as the list_findings lines, without bodies', () => {
+    expect(renderFindingTree(rows(), { headings: H })).toBe(
+      [
+        'ROOT CAUSE',
+        '#6 · confirmed · accepted · root-cause · tilesVersion blocked',
+        '  ↳ #4 · confirmed · pending · contributing · Install rejected',
+        '    ↳ #2 · confirmed · pending · symptom · NoRoute offline',
+        '',
+        'UNEXPLAINED',
+        '#7 · hypothesis · pending · no role · Fallback never tried',
+        '',
+        'RULED OUT',
+        '#5 · confirmed · rejected · wrong: old build · ruled-out · Clock skew',
+        '#3 · superseded by #6 · root-cause · Server rejects every install'
+      ].join('\n')
+    )
+  })
+
+  it('with bodies, each body follows its line unindented and a superseded row keeps no body', () => {
+    const out = renderFindingTree(rows(), { headings: H, bodies: true })
+    expect(out).toContain(
+      '#6 · confirmed · accepted · root-cause · tilesVersion blocked\nroot body\n\n  ↳ #4 · confirmed · pending · contributing · Install rejected\nmid body\n'
+    )
+    expect(out).toContain(
+      '#5 · confirmed · rejected · wrong: old build · ruled-out · Clock skew\nskew body'
+    )
+    expect(out).toContain('#3 · superseded by #6 · root-cause · Server rejects every install\n')
+    expect(out).not.toContain('old body')
+  })
+
+  it('renders a legacy snapshot row (no id, no chain fields) as a flat unexplained line in the old wording', () => {
+    const legacy = [{ summary: 'F1', reviewState: 'accepted', role: null, body: 'body1' }]
+    expect(renderFindingTree(legacy, { headings: H, bodies: true })).toBe(
+      'UNEXPLAINED\naccepted · no role · F1\nbody1\n'
+    )
+  })
+
+  it('returns the empty string for no rows', () => {
+    expect(renderFindingTree([], { headings: H })).toBe('')
   })
 })
