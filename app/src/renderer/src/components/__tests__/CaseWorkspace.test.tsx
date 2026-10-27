@@ -288,6 +288,10 @@ function findingRow(over: Partial<FindingRow>): FindingRow {
     rejectNote: null,
     mode: 'investigation',
     role: null,
+    status: 'confirmed',
+    roleSource: null,
+    causedBy: null,
+    supersededBy: null,
     ...over
   }
 }
