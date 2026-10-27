@@ -9,7 +9,11 @@ import {
 } from 'lucide-react'
 import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
 import type { ReviewSeverity } from '../../../shared/reviewLayers'
-import { FINDING_REJECT_LABELS } from '../../../shared/observability'
+import {
+  FINDING_REJECT_LABELS,
+  FINDING_ROLE_LABELS,
+  FINDING_ROLES
+} from '../../../shared/observability'
 import { REWIND_REVIEW_REASON } from '../../../shared/branching'
 import type { FindingRole, FindingRow } from '../../../shared/observability'
 import type { CiteTarget } from '../lib/citations'
@@ -46,18 +50,6 @@ const SEVERITY_RAIL: Record<ReviewSeverity, string> = {
   minor: 'bg-mute'
 }
 
-/** Report-written role (spec §2), passive display only — applyReportRoles is the sole writer.
- *  root-cause is the one role worth calling out at a glance, so it alone gets the accent
- *  treatment; everything else is a plain dim chip, same vocabulary as the `commented`/`pushed`
- *  chips below. */
-const ROLE_LABEL: Record<FindingRole, string> = {
-  'root-cause': 'ROOT CAUSE',
-  contributing: 'contributing',
-  symptom: 'symptom',
-  duplicate: 'duplicate',
-  'ruled-out': 'ruled out'
-}
-
 /** One finding in the sidebar list. Presentational: every mutation goes back up through a
  *  callback so FindingsPane keeps sole ownership of state and IPC. */
 export function FindingCard({
@@ -77,7 +69,10 @@ export function FindingCard({
   onCite,
   onDelete,
   onWhy,
-  footer
+  footer,
+  depth = 0,
+  onEdit,
+  causeOptions = []
 }: {
   finding: FindingRow
   slug: string
@@ -98,15 +93,27 @@ export function FindingCard({
   onWhy?: () => void
   /** Rendered as the card's last child — the reject strip when this card is being labelled. */
   footer?: React.ReactNode
+  /** Tree depth in the rail's chain index; 14px per level. */
+  depth?: number
+  /** Human chain edit (investigation only). Absent → no editors. */
+  onEdit?: (patch: { role?: FindingRole | null; causedBy?: number | null }) => void
+  /** Candidates for the cause picker: the case's active investigation findings (self is
+   *  filtered here). */
+  causeOptions?: readonly { id: number; summary: string }[]
 }): React.JSX.Element {
   const accepted = f.reviewState === 'accepted'
   const rejected = f.reviewState === 'rejected'
   const [actFocus, setActFocus] = useState(false)
+  // The agent's evidence claim (spec 2026-10-26 §5.1). Investigation only: a review card
+  // renders as before.
+  const hypothesis = f.mode === 'investigation' && f.status === 'hypothesis'
   return (
     <li
+      data-status={f.status}
+      style={depth > 0 ? { marginLeft: depth * 14 } : undefined}
       className={`group/f relative rounded-r2 border bg-panel ${
         accepted ? 'border-review/35' : rejected ? 'border-danger/35' : 'border-hair'
-      }`}
+      } ${hypothesis ? 'border-dashed' : ''}`}
     >
       {f.severity && (
         <span
@@ -130,13 +137,23 @@ export function FindingCard({
         >
           {f.summary}
         </button>
+        {hypothesis && (
+          <span
+            data-testid="status-chip"
+            title="Hypothesis — stated by the agent, not yet evidence-backed"
+            className="mt-0.5 shrink-0 rounded-r1 border border-dashed border-hair2 px-1 text-[10px] whitespace-nowrap text-mute"
+          >
+            ? hypothesis
+          </span>
+        )}
         {f.role && (
           <span
+            title={f.roleSource ? `set by ${f.roleSource}` : undefined}
             className={`mt-0.5 shrink-0 rounded-r1 border px-1 text-[10px] whitespace-nowrap ${
               f.role === 'root-cause' ? 'border-signal/35 text-signal' : 'border-hair2 text-mute'
             }`}
           >
-            {ROLE_LABEL[f.role]}
+            {FINDING_ROLE_LABELS[f.role]}
           </span>
         )}
       </div>
@@ -183,6 +200,14 @@ export function FindingCard({
               why?
             </button>
           ))}
+        {f.mode === 'investigation' && f.causedBy !== null && (
+          <span
+            data-testid="caused-by-chip"
+            className="shrink-0 font-mono text-[10px] whitespace-nowrap text-mute"
+          >
+            caused by #{f.causedBy}
+          </span>
+        )}
         {selectable && (
           <input
             type="checkbox"
@@ -339,6 +364,51 @@ export function FindingCard({
             repoNames={repoNames}
             repoCiteSha={f.mode === 'review' ? (f.headSha ?? undefined) : undefined}
           />
+        </div>
+      )}
+      {open && f.mode === 'investigation' && onEdit && (
+        <div
+          data-testid="chain-editors"
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-hair px-3 py-1.5 text-[10.5px] text-mute"
+        >
+          <label className="flex items-center gap-1">
+            role
+            <select
+              aria-label="Role"
+              value={f.role ?? ''}
+              onChange={(e) =>
+                onEdit({ role: e.target.value === '' ? null : (e.target.value as FindingRole) })
+              }
+              className="rounded-r1 border border-hair bg-transparent px-1 py-0.5 text-[10.5px] text-ink"
+            >
+              <option value="">none</option>
+              {FINDING_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {FINDING_ROLE_LABELS[r]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1">
+            caused by
+            <select
+              aria-label="Caused by"
+              value={f.causedBy ?? ''}
+              onChange={(e) =>
+                onEdit({ causedBy: e.target.value === '' ? null : Number(e.target.value) })
+              }
+              className="max-w-48 rounded-r1 border border-hair bg-transparent px-1 py-0.5 text-[10.5px] text-ink"
+            >
+              <option value="">none</option>
+              {causeOptions
+                .filter((o) => o.id !== f.id)
+                .map((o) => (
+                  <option key={o.id} value={o.id}>
+                    #{o.id} {o.summary}
+                  </option>
+                ))}
+            </select>
+          </label>
         </div>
       )}
       {footer}

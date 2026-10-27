@@ -211,14 +211,15 @@ describe('colour token guard', () => {
     return names
   }
 
-  // Utilities that share a colour prefix but name something other than a colour: font-size
-  // keywords, text-alignment keywords, and border-side keywords. Everything else surviving
-  // the arbitrary-value filter (`text-[10px]`) and the opacity-suffix strip (`/35`) must name
-  // a real token.
+  // Utilities that share a colour prefix but name something other than a theme colour:
+  // font-size keywords, text-alignment keywords, border-side and border-style keywords (the
+  // hypothesis card's `border-dashed`), and Tailwind's built-in `transparent` (the chain
+  // editors' selects). Everything else surviving the arbitrary-value filter (`text-[10px]`) and
+  // the opacity-suffix strip (`/35`) must name a real token.
   const NON_COLOR_SUFFIX: Record<string, Set<string>> = {
     text: new Set(['xs', 'sm', 'base', 'lg', 'xl', 'left', 'right', 'center']),
-    border: new Set(['t', 'b', 'l', 'r', 'x', 'y']),
-    bg: new Set(),
+    border: new Set(['t', 'b', 'l', 'r', 'x', 'y', 'dashed']),
+    bg: new Set(['transparent']),
     ring: new Set(),
     fill: new Set(),
     accent: new Set()

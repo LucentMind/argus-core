@@ -45,12 +45,17 @@ const finding = (over: Partial<FindingRow>): FindingRow =>
     rejectNote: null,
     mode: 'investigation',
     role: null,
+    status: 'confirmed',
+    roleSource: null,
+    causedBy: null,
+    supersededBy: null,
     body: 'See [evidence/log.txt:7]',
     ...over
   }) as FindingRow
 
 const list = vi.fn()
 const review = vi.fn()
+const update = vi.fn()
 
 beforeEach(() => {
   sessionId += 1
@@ -58,6 +63,7 @@ beforeEach(() => {
   findingsStore.clearForTests()
   list.mockReset()
   review.mockReset()
+  update.mockReset()
   uiStore.setShowToolCalls(true)
   window.argus = {
     agent: { send: vi.fn(), interrupt: vi.fn(), onEvent: vi.fn(() => () => undefined) },
@@ -80,23 +86,25 @@ beforeEach(() => {
     },
     evidence: { list: vi.fn(async () => []), onChanged: vi.fn(() => () => {}) },
     providers: { statuses: vi.fn(async () => []), onChanged: vi.fn(() => () => {}) },
-    findings: { list, review, delete: vi.fn() },
+    findings: { list, review, update, delete: vi.fn() },
     review: { worktreeHead: vi.fn().mockResolvedValue(null) },
     workspaces: { list: vi.fn(async () => []), refs: vi.fn(async () => []) }
   } as never
 })
 
-function mountWithFinding(output = 'finding appended as #7', row = finding({})): void {
+function mountWithFinding(
+  output = 'finding appended as #7',
+  row = finding({}),
+  name = 'mcp__argus__append_finding'
+): void {
   list.mockResolvedValue([row])
   act(() => {
     agentStore.apply(ev('turn.started', { userText: 'go' }))
-    agentStore.apply(
-      ev('tool.call.started', { toolCallId: 't1', name: 'mcp__argus__append_finding' })
-    )
+    agentStore.apply(ev('tool.call.started', { toolCallId: 't1', name }))
     agentStore.apply(
       ev('tool.call.completed', {
         toolCallId: 't1',
-        name: 'mcp__argus__append_finding',
+        name,
         outputPreview: output,
         isError: false
       })
@@ -112,6 +120,30 @@ describe('ChatPane inline finding', () => {
     expect(await screen.findByText('Tile region blocked server-side')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /mark finding good/i })).toBeInTheDocument()
     expect(screen.queryByText('argus:append_finding')).not.toBeInTheDocument()
+  })
+  it('renders an update_finding item as the same finding card', async () => {
+    mountWithFinding(
+      'finding #7 updated',
+      finding({ status: 'confirmed', role: 'symptom' }),
+      'mcp__argus__update_finding'
+    )
+    await act(() => findingsStore.load('NAV-1'))
+    expect(await screen.findByTestId('inline-finding')).toBeInTheDocument()
+    expect(screen.getByText('Tile region blocked server-side')).toBeInTheDocument()
+    expect(screen.queryByText(/argus:update_finding/)).toBeNull()
+  })
+  it('a refused chain edit shows the reason on the card and leaves the row as it was', async () => {
+    mountWithFinding()
+    await act(() => findingsStore.load('NAV-1'))
+    update.mockRejectedValue(new Error('That would make a loop in the chain.'))
+    const card = await screen.findByRole('button', { name: 'Tile region blocked server-side' })
+    await userEvent.click(card)
+    expect(card).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'symptom')
+    expect(update).toHaveBeenCalledWith(7, { role: 'symptom' })
+    expect(await screen.findByText('That would make a loop in the chain.')).toBeInTheDocument()
+    expect((screen.getByLabelText('Role') as HTMLSelectElement).value).toBe('')
+    expect(findingsStore.get('NAV-1').rows[0].role).toBeNull()
   })
   it('a thumbs-up reviews through the store, so the rail would see it too', async () => {
     mountWithFinding()

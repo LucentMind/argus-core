@@ -589,8 +589,8 @@ export function ChatPane({
         </div>
       )
     }
-    // A recorded finding is content, not plumbing: it renders even with tool cards hidden.
-    if (item.name === 'mcp__argus__append_finding') {
+    // A recorded or updated finding is content, not plumbing: it renders even with tool cards hidden.
+    if (item.name === 'mcp__argus__append_finding' || item.name === 'mcp__argus__update_finding') {
       return (
         <InlineFinding
           key={item.toolCallId}
