@@ -44,4 +44,43 @@ describe('reviewTag', () => {
       })
     ).toBe('rejected · other: n')
   })
+  it('prefixes the status when the row carries one (spec 2026-10-26 §9.2)', () => {
+    expect(reviewTag({ reviewState: 'pending', status: 'hypothesis' })).toBe('hypothesis · pending')
+    expect(reviewTag({ reviewState: 'accepted', status: 'confirmed' })).toBe('confirmed · accepted')
+    expect(
+      reviewTag({
+        reviewState: 'rejected',
+        reviewActor: 'human',
+        rejectTag: 'wrong',
+        rejectNote: 'old build',
+        status: 'confirmed'
+      })
+    ).toBe('confirmed · rejected · wrong: old build')
+    expect(
+      reviewTag({
+        reviewState: 'rejected',
+        reviewActor: 'agent',
+        reviewReason: 'why',
+        status: 'hypothesis'
+      })
+    ).toBe('hypothesis · rejected · retracted by agent: why')
+  })
+  it('renders a superseded row as superseded by #N and nothing else', () => {
+    expect(
+      reviewTag({
+        reviewState: 'rejected',
+        reviewActor: 'agent',
+        reviewReason: 'superseded by #9',
+        status: 'hypothesis',
+        supersededBy: 9
+      })
+    ).toBe('superseded by #9')
+    expect(reviewTag({ reviewState: 'accepted', status: 'confirmed', supersededBy: 3 })).toBe(
+      'superseded by #3'
+    )
+  })
+  it('a null or absent status adds no prefix (legacy snapshots, review rows)', () => {
+    expect(reviewTag({ reviewState: 'accepted', status: null })).toBe('accepted')
+    expect(reviewTag({ reviewState: 'pending', supersededBy: null })).toBe('pending')
+  })
 })

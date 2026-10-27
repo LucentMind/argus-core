@@ -46,6 +46,11 @@ describe('isInactiveFinding', () => {
     expect(isInactiveFinding(row({ supersededBy: 9 }))).toBe(true)
     expect(isInactiveFinding(row({ reviewState: 'accepted', role: 'symptom' }))).toBe(false)
   })
+  it('treats an undefined supersededBy (a projection row) as not superseded', () => {
+    const r = row({}) as Partial<FindingRow> as FindingRow
+    delete (r as { supersededBy?: number | null }).supersededBy
+    expect(isInactiveFinding(r)).toBe(false)
+  })
 })
 
 describe('buildFindingTree', () => {
