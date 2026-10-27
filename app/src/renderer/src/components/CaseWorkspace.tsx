@@ -6,6 +6,7 @@ import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
 import { ReviewRunButton } from './ReviewRunButton'
 import { FindingsPane } from './FindingsPane'
+import { FindingsDocument } from './FindingsDocument'
 import { RcaPanel } from './RcaPanel'
 import { JiraSection } from './JiraSection'
 import { ReposSection } from './ReposSection'
@@ -843,6 +844,17 @@ export function CaseWorkspace({
                     prefill={prefill}
                     findOpen={findOpen}
                     onFindOpenChange={setFindOpen}
+                  />
+                )}
+              </div>
+              <div
+                className={`flex h-full min-h-0 flex-col ${panels.activeTab === FINDINGS_TAB ? '' : 'hidden'}`}
+              >
+                {panels.activeTab === FINDINGS_TAB && (
+                  <FindingsDocument
+                    slug={slug}
+                    sessionId={sessionId}
+                    onCite={(c) => void handleCite(c)}
                   />
                 )}
               </div>
