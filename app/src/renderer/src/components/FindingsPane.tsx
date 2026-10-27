@@ -185,9 +185,11 @@ export function FindingsPane({
   // Investigation only: the chain index (spec 2026-10-26 §5.4). `buildFindingTree` is the only
   // ordering — `list_findings` reads the same one. Review mode keeps the flat severity list.
   const tree = activeMode === 'investigation' ? buildFindingTree(modeFindings) : null
-  const causeOptions = modeFindings
-    .filter((f) => !isInactiveFinding(f))
-    .map((f) => ({ id: f.id, summary: f.summary }))
+  const causeOptions = modeFindings.map((f) => ({
+    id: f.id,
+    summary: f.summary,
+    ...(isInactiveFinding(f) ? { inactive: true } : {})
+  }))
 
   /** A refusal (a loop, a second root cause…) is the edited card's own line of text, never a
    *  dialog — the same as the inline chat card. */

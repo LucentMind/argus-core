@@ -13,7 +13,7 @@ import {
   type NativeToolDeps
 } from '../nativeTools'
 import { NATIVE_RISK } from '../risk'
-import { listFindings } from '../../findings'
+import { listFindings, reviewFinding } from '../../findings'
 import { FINDING_TREE_HEADINGS } from '../../findingTreeHeadings'
 import type { Detection } from '../../packs/detection'
 
@@ -241,4 +241,12 @@ it('a review session may append evidence to its own finding but not set status, 
   const spec = NATIVE_TOOL_SPECS.find((s) => s.name === 'update_finding')!
   expect(spec.description).toContain('ruled-out | duplicate; null clears')
   expect(spec.description).toContain('investigation sessions only')
+})
+it('names the accept in its result when a human had accepted the finding', async () => {
+  const h = handlersFor(sessionFor())
+  const id = idOf(await h.append_finding({ title: 'Accepted', markdown: 'b' }))
+  reviewFinding(db, id, 'accepted')
+  expect(await h.update_finding({ finding_id: id, append_markdown: 'more' })).toBe(
+    `finding #${id} updated — a human had accepted it; their accept stands and only the cause or evidence changed`
+  )
 })

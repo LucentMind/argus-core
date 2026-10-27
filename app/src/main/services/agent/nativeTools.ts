@@ -377,6 +377,11 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
     text: 'finding #{id} updated',
     placeholders: ['id']
   },
+  'update_finding.ok-accepted': {
+    title: 'update_finding — success on a finding a human accepted',
+    text: 'finding #{id} updated — a human had accepted it; their accept stands and only the cause or evidence changed',
+    placeholders: ['id']
+  },
   'update_finding.empty': {
     title: 'update_finding — nothing to change',
     text: 'Pass at least one of status, role, caused_by, append_markdown, replace_markdown. Nothing was changed.'
@@ -1059,6 +1064,9 @@ export function argusToolHandlers(
       const findingId = num(args.finding_id, 'finding_id')
       // Same scoping as retract_finding: this case AND this session's mode, one opaque error.
       assertVisibleFinding(findingId)
+      const wasAccepted = db
+        .prepare('SELECT review_state AS s FROM findings WHERE id = ?')
+        .get(findingId) as { s: string } | undefined
       const patch: FindingPatch = {}
       if (args.status !== undefined) {
         if (!isFindingStatus(args.status))
@@ -1117,7 +1125,12 @@ export function argusToolHandlers(
       deps.emitFindingUpdated?.(findingId)
       // `#{id}` is what the chat transcript's inline card resolves the row by (shared/findingRef)
       // — an override of this text must keep it for that to work.
-      return fb('update_finding.ok', { id: String(findingId) })
+      return fb(
+        wasAccepted?.s === 'accepted' ? 'update_finding.ok-accepted' : 'update_finding.ok',
+        {
+          id: String(findingId)
+        }
+      )
     },
 
     async post_review_comment(args) {
