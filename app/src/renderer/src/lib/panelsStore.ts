@@ -3,12 +3,14 @@ import { panelKeyStr } from '../../../shared/panels'
 
 /** The always-present first tab. Panel tabs use panelKeyStr(info) as their id. */
 export const CHAT_TAB = 'chat'
+/** The second fixed tab (spec 2026-10-26 §9.6): the findings read as a document. Investigation mode only. */
+export const FINDINGS_TAB = 'findings'
 
 export interface PanelsState {
   /** The case these panels belong to; null before the first setCase. */
   caseSlug: string | null
   panels: PanelInfo[]
-  /** CHAT_TAB or a panelKeyStr. */
+  /** CHAT_TAB, FINDINGS_TAB or a panelKeyStr. */
   activeTab: string
   /** A modal/dialog occludes the center region, or the case is not the front view. */
   occluded: boolean
@@ -60,10 +62,17 @@ export class PanelsStore {
   setPanels(panels: PanelInfo[]): void {
     const active =
       this.state.activeTab === CHAT_TAB ||
+      this.state.activeTab === FINDINGS_TAB ||
       panels.some((p) => panelKeyStr(p) === this.state.activeTab)
         ? this.state.activeTab
         : CHAT_TAB
     this.set({ panels, activeTab: active })
+  }
+
+  /** Review mode has no chain: the findings tab is withdrawn and, if it was active, Chat takes
+   *  over — the same fallback a vanished panel gets. */
+  setFindingsAvailable(available: boolean): void {
+    if (!available && this.state.activeTab === FINDINGS_TAB) this.set({ activeTab: CHAT_TAB })
   }
 
   setActiveTab(tab: string): void {
@@ -115,7 +124,7 @@ export class PanelsStore {
 
   /** The PanelKey of the active panel tab, or null when Chat is active. */
   activeKey(): PanelKey | null {
-    if (this.state.activeTab === CHAT_TAB) return null
+    if (this.state.activeTab === CHAT_TAB || this.state.activeTab === FINDINGS_TAB) return null
     const p = this.state.panels.find((x) => panelKeyStr(x) === this.state.activeTab)
     return p ? { caseSlug: p.caseSlug, packId: p.packId, windowId: p.windowId } : null
   }
