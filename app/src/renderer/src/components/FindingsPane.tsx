@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { FileText, PanelRight, Trash2 } from 'lucide-react'
 import { usePendingDisplay } from '../lib/usePendingDisplay'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
@@ -6,7 +6,8 @@ import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
 import { uiStore } from '../lib/uiStore'
 import { findingsStore } from '../lib/findingsStore'
-import type { FindingRejectReason, FindingRow } from '../../../shared/observability'
+import type { FindingRejectReason, FindingRole, FindingRow } from '../../../shared/observability'
+import { buildFindingTree, isInactiveFinding, type TreeNode } from '../../../shared/findingTree'
 import { REVIEW_LAYERS, REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { ReviewLayerId } from '../../../shared/reviewLayers'
 import type { ModeId } from '../../../shared/modes'
@@ -14,6 +15,8 @@ import type { CiteTarget } from '../lib/citations'
 import { FindingCard } from './FindingCard'
 import { FindingRejectStrip } from './FindingRejectStrip'
 import { IconBtn, SectionLabel, SkeletonRows } from './ui'
+
+type Walk = { ids: number[]; i: number }
 
 export function FindingsPane({
   slug,
@@ -47,6 +50,24 @@ export function FindingsPane({
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [worktreeHead, setWorktreeHead] = useState<string | null>(null)
   const [rcaBump, setRcaBump] = useState(0)
+  const [showRuledOut, setShowRuledOut] = useState(false)
+  const [editError, setEditError] = useState<{ id: number; message: string } | null>(null)
+  // The Review walk (spec 2026-10-26 §5.4): pending cards in tree order, one expanded at a time.
+  // Pane state over the existing cards — no modal. `null` = not walking. The ref mirrors the
+  // state so a key handler resolving after an await reads the walk as it is now.
+  const [walk, setWalk] = useState<Walk | null>(null)
+  const walkRef = useRef<Walk | null>(null)
+  useLayoutEffect(() => {
+    walkRef.current = walk
+  }, [walk])
+  const listRef = useRef<HTMLDivElement>(null)
+  // The pane survives a mode switch (it is keyed by slug), and the walk is investigation-only:
+  // a switch ends it, so review mode never shows the bar and a switch back does not resume it.
+  const [walkMode, setWalkMode] = useState(activeMode)
+  if (walkMode !== activeMode) {
+    setWalkMode(activeMode)
+    setWalk(null)
+  }
   const showSkeleton = usePendingDisplay(!loaded)
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -99,6 +120,9 @@ export function FindingsPane({
     // the strip open. Otherwise the strip is open only on a fresh reject with no reason yet.
     const keepOpen = reason ? row === null : row?.reviewState === 'rejected'
     setRejectingId(keepOpen ? id : null)
+    // A rejected investigation finding leaves its section for RULED OUT, which is collapsed by
+    // default: open it, or the strip this reject just opened would render nowhere.
+    if (keepOpen && !reason) setShowRuledOut(true)
   }
 
   /**
@@ -146,6 +170,93 @@ export function FindingsPane({
 
   // Findings are case-scoped in the DB but mode-scoped on screen (see the activeMode prop doc).
   const modeFindings = findings.filter((f) => f.mode === activeMode)
+  // Investigation only: the chain index (spec 2026-10-26 §5.4). `buildFindingTree` is the only
+  // ordering — `list_findings` reads the same one. Review mode keeps the flat severity list.
+  const tree = activeMode === 'investigation' ? buildFindingTree(modeFindings) : null
+  const causeOptions = modeFindings
+    .filter((f) => !isInactiveFinding(f))
+    .map((f) => ({ id: f.id, summary: f.summary }))
+
+  /** A refusal (a loop, a second root cause…) is the edited card's own line of text, never a
+   *  dialog — the same as the inline chat card. */
+  async function edit(
+    id: number,
+    patch: { role?: FindingRole | null; causedBy?: number | null }
+  ): Promise<void> {
+    setEditError(null)
+    try {
+      await findingsStore.update(slug, id, patch)
+    } catch (err) {
+      setEditError({ id, message: (err as Error).message })
+    }
+  }
+
+  /** Pending cards in tree order, captured once: a card the walk accepts or rejects keeps its
+   *  slot, so `i of n` never shifts under the user. */
+  function startWalk(): void {
+    if (!tree) return
+    const ids = [...tree.rootCause, ...tree.unexplained]
+      .filter((n) => n.row.reviewState === 'pending')
+      .map((n) => n.row.id)
+    if (ids.length === 0) return
+    setWalk({ ids, i: 0 })
+    setExpandedId(ids[0])
+    setRejectingId(null)
+    listRef.current?.focus()
+  }
+
+  /** Forward past the last card ends the walk; back stops at the first. */
+  function stepWalk(delta: number): void {
+    const w = walkRef.current
+    if (!w) return
+    const i = Math.max(0, w.i + delta)
+    setRejectingId(null)
+    if (i >= w.ids.length) {
+      setWalk(null)
+      setExpandedId(null)
+      return
+    }
+    setWalk({ ...w, i })
+    setExpandedId(w.ids[i])
+  }
+
+  function onWalkKey(e: React.KeyboardEvent): void {
+    const w = walkRef.current
+    // The reject strip handles its own Escape (skip) and marks it handled.
+    if (!w || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return
+    const target = e.target as HTMLElement
+    if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')
+      return
+    const cur = w.ids[w.i]
+    switch (e.key) {
+      case 'a':
+        e.preventDefault()
+        // Advance only if the walk is still on this card when the save lands (a fast `s` or
+        // Escape in between already moved it).
+        void setReview(cur, 'accepted').then(() => {
+          const now = walkRef.current
+          if (now && now.ids[now.i] === cur) stepWalk(1)
+        })
+        break
+      case 'r':
+        e.preventDefault()
+        void setReview(cur, 'rejected') // opens the strip; `s` moves on
+        break
+      case 's':
+      case 'j':
+        e.preventDefault()
+        stepWalk(1)
+        break
+      case 'k':
+        e.preventDefault()
+        stepWalk(-1)
+        break
+      case 'Escape':
+        e.preventDefault()
+        setWalk(null)
+        break
+    }
+  }
 
   async function clearAll(): Promise<void> {
     const count = modeFindings.length
@@ -159,6 +270,7 @@ export function FindingsPane({
     })
     if (!ok) return
     setClearError(null)
+    setWalk(null)
     try {
       await window.argus.findings.clear(slug, activeMode)
     } catch (err) {
@@ -241,6 +353,73 @@ export function FindingsPane({
     .slice()
     .sort((a, b) => rank(a) - rank(b))
 
+  function renderCard(f: FindingRow, depth = 0): React.JSX.Element {
+    const investigation = f.mode === 'investigation'
+    const err = investigation && editError?.id === f.id ? editError.message : null
+    const rejecting = investigation && rejectingId === f.id
+    return (
+      <FindingCard
+        key={f.id}
+        finding={f}
+        slug={slug}
+        open={expandedId === f.id}
+        selected={effectiveSelected.includes(f.id)}
+        selectable={selectable.has(f.id)}
+        sessionId={sessionId}
+        actingId={actingId}
+        worktreeHead={worktreeHead}
+        repoNames={repoNames}
+        onToggle={() => {
+          if (f.body) setExpandedId(expandedId === f.id ? null : f.id)
+        }}
+        onSelect={() =>
+          setSelected((prev) => {
+            const next = new Set(prev)
+            if (next.has(f.id)) next.delete(f.id)
+            else next.add(f.id)
+            return next
+          })
+        }
+        onReview={(next) => void setReview(f.id, next)}
+        onAction={(action) => void runAction(f.id, action)}
+        onCite={onCite}
+        onDelete={(id) => void onDelete(id)}
+        onWhy={() => setRejectingId(f.id)}
+        depth={depth}
+        onEdit={investigation ? (patch) => void edit(f.id, patch) : undefined}
+        causeOptions={investigation ? causeOptions : undefined}
+        footer={
+          err || rejecting ? (
+            <>
+              {err && (
+                <p role="alert" className="px-3 pb-1 text-[10.5px] text-danger">
+                  {err}
+                </p>
+              )}
+              {rejecting && (
+                <FindingRejectStrip
+                  onPick={(reason) => void setReview(f.id, 'rejected', reason)}
+                  onSkip={() => setRejectingId(null)}
+                />
+              )}
+            </>
+          ) : undefined
+        }
+      />
+    )
+  }
+
+  const section = (label: string, nodes: TreeNode[]): React.JSX.Element => (
+    <div className="flex flex-col gap-1">
+      <span aria-hidden="true" className="text-[10px] tracking-wide text-faint uppercase">
+        {label}
+      </span>
+      <ul aria-label={label} className="flex flex-col gap-2">
+        {nodes.map((n) => renderCard(n.row, n.depth))}
+      </ul>
+    </div>
+  )
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       {/* `h-8 shrink-0`, and first in the rail: this row is the findings rail's chrome row, and
@@ -253,9 +432,22 @@ export function FindingsPane({
           opposite number, exactly as CaseWorkspace's chrome row stays outside its scroll box. */}
       <div className="flex h-8 shrink-0 items-center justify-between">
         <SectionLabel>
-          {modeFindings.length > 0 ? `Findings · ${modeFindings.length}` : 'Findings'}
+          {modeFindings.length > 0
+            ? `Findings · ${modeFindings.length}${tree && tree.pending > 0 ? ` · ${tree.pending} to review` : ''}`
+            : 'Findings'}
         </SectionLabel>
         <div className="flex items-center gap-1">
+          {tree && tree.pending > 0 && !walk && (
+            <button
+              type="button"
+              aria-label="Review pending findings"
+              title="Walk the pending findings: a accept · r reject · s skip · k back · esc done"
+              className="rounded-r1 border border-signal/50 bg-signal/10 px-1.5 py-0.5 text-[10.5px] text-ink transition-colors hover:bg-signal/20"
+              onClick={startWalk}
+            >
+              Review
+            </button>
+          )}
           {modeFindings.length > 0 && (
             <>
               <button
@@ -331,7 +523,23 @@ export function FindingsPane({
             ))}
           </div>
         )}
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        {walk && (
+          <div
+            data-testid="review-walk"
+            className="flex shrink-0 items-center gap-2 rounded-r1 border border-signal/35 bg-signal/10 px-2 py-1 font-mono text-[10.5px] text-ink"
+          >
+            Reviewing {walk.i + 1} of {walk.ids.length}
+            <span className="text-mute">· a accept · r reject · s skip · k back · esc done</span>
+          </div>
+        )}
+        {/* Focusable (not tabbable) so the walk's keys land here; keys from a card's own controls
+            bubble up to it too. */}
+        <div
+          ref={listRef}
+          tabIndex={-1}
+          onKeyDown={onWalkKey}
+          className="min-h-0 flex-1 overflow-y-auto outline-none"
+        >
           {/* The skeleton is for the FIRST load of a slug only: `loaded` is store-owned and never
               resets, and the store keeps the rows it already has across a `bump`-triggered refetch,
               so a refetch cannot blank findings the user is reading. `shown.length === 0` is the
@@ -339,47 +547,36 @@ export function FindingsPane({
               ReposSection's `workspaces.length === 0` guard. */}
           {showSkeleton && shown.length === 0 ? (
             <SkeletonRows count={3} />
+          ) : tree ? (
+            modeFindings.length === 0 ? (
+              loaded ? (
+                <p className="text-xs text-mute">No findings yet.</p>
+              ) : null
+            ) : (
+              <div className="flex flex-col gap-2">
+                {tree.rootCause.length > 0 && section('ROOT CAUSE', tree.rootCause)}
+                {tree.unexplained.length > 0 && section('UNEXPLAINED', tree.unexplained)}
+                {tree.ruledOut.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <button
+                      type="button"
+                      aria-expanded={showRuledOut}
+                      className="self-start text-[10px] tracking-wide text-faint uppercase transition-colors hover:text-ink"
+                      onClick={() => setShowRuledOut((v) => !v)}
+                    >
+                      RULED OUT · {tree.ruledOut.length}
+                    </button>
+                    {showRuledOut && (
+                      <ul aria-label="RULED OUT" className="flex flex-col gap-2">
+                        {tree.ruledOut.map((f) => renderCard(f))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
           ) : shown.length > 0 ? (
-            <ul className="flex flex-col gap-2">
-              {shown.map((f) => (
-                <FindingCard
-                  key={f.id}
-                  finding={f}
-                  slug={slug}
-                  open={expandedId === f.id}
-                  selected={effectiveSelected.includes(f.id)}
-                  selectable={selectable.has(f.id)}
-                  sessionId={sessionId}
-                  actingId={actingId}
-                  worktreeHead={worktreeHead}
-                  repoNames={repoNames}
-                  onToggle={() => {
-                    if (f.body) setExpandedId(expandedId === f.id ? null : f.id)
-                  }}
-                  onSelect={() =>
-                    setSelected((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(f.id)) next.delete(f.id)
-                      else next.add(f.id)
-                      return next
-                    })
-                  }
-                  onReview={(next) => void setReview(f.id, next)}
-                  onAction={(action) => void runAction(f.id, action)}
-                  onCite={onCite}
-                  onDelete={(id) => void onDelete(id)}
-                  onWhy={() => setRejectingId(f.id)}
-                  footer={
-                    rejectingId === f.id && f.mode === 'investigation' ? (
-                      <FindingRejectStrip
-                        onPick={(reason) => void setReview(f.id, 'rejected', reason)}
-                        onSkip={() => setRejectingId(null)}
-                      />
-                    ) : undefined
-                  }
-                />
-              ))}
-            </ul>
+            <ul className="flex flex-col gap-2">{shown.map((f) => renderCard(f))}</ul>
           ) : loaded ? (
             <p className="text-xs text-mute">
               {modeFindings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}

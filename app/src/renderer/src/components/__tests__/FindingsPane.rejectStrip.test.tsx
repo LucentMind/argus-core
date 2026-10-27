@@ -101,7 +101,10 @@ describe('FindingsPane reject strip', () => {
     expect(await screen.findByRole('button', { name: 'Reject as other' })).toBeInTheDocument()
   })
   it('toggling the finding back to pending closes the strip', async () => {
-    await pane(row({ reviewState: 'rejected', reviewActor: 'human' }))
+    list.mockResolvedValue([row({ reviewState: 'rejected', reviewActor: 'human' })])
+    render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
+    // A rejected finding is ruled out: it lives in the collapsed RULED OUT section.
+    await userEvent.click(await screen.findByRole('button', { name: 'RULED OUT · 1' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add reject reason' }))
     expect(await screen.findByRole('button', { name: 'Skip' })).toBeInTheDocument()
     review.mockResolvedValueOnce({ id: 1, reviewState: 'pending', reviewActor: null })
