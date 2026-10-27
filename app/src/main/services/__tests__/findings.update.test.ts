@@ -12,6 +12,7 @@ import {
   clearFindings,
   deleteFinding,
   listFindings,
+  reviewFinding,
   updateFinding
 } from '../findings'
 import { parseHumanFindingPatch } from '../../../shared/findingPatch'
@@ -180,6 +181,89 @@ describe('updateFinding', () => {
     seed({ role: 'root-cause', role_source: 'agent', superseded_by: replacement })
     const res = updateFinding(db, home, replacement, { role: 'root-cause' }, { actor: 'agent' })
     expect(res.ok && res.row.role).toBe('root-cause')
+  })
+
+  it('second-root is a transition check: a finding that already is the confirmed root keeps taking evidence', () => {
+    const a = seed({ role: 'root-cause', role_source: 'agent' })
+    const b = seed()
+    const c = seed()
+    // The human rules A out; the agent confirms B as the root; the human takes A back.
+    reviewFinding(db, a, 'rejected')
+    expect(updateFinding(db, home, b, { role: 'root-cause' }, { actor: 'agent' }).ok).toBe(true)
+    reviewFinding(db, a, 'pending')
+    // Two confirmed roots now stand, but a patch that moves neither into the role is not refused.
+    expect(
+      updateFinding(db, home, b, { appendMarkdown: 'More evidence.' }, { actor: 'agent' }).ok
+    ).toBe(true)
+    expect(
+      updateFinding(db, home, a, { appendMarkdown: 'More evidence.' }, { actor: 'agent' }).ok
+    ).toBe(true)
+    // A third finding moving INTO the confirmed root role is still refused.
+    expect(
+      updateFinding(db, home, c, { role: 'root-cause', status: 'confirmed' }, { actor: 'agent' })
+    ).toMatchObject({ ok: false, reason: 'second-root' })
+    expect(col(c, 'role')).toBeNull()
+  })
+
+  it('still calls onUpdated, then throws, when the findings.md write fails after the row changed', () => {
+    const id = seed({ status: 'hypothesis' })
+    const md = path.join(caseDir(home, 'CASE-A'), 'findings.md')
+    fs.rmSync(md, { force: true })
+    fs.mkdirSync(md) // a directory at the path: the read throws EISDIR, not ENOENT
+    const onUpdated = vi.fn()
+    expect(() =>
+      updateFinding(
+        db,
+        home,
+        id,
+        { status: 'confirmed', appendMarkdown: 'Evidence.' },
+        { actor: 'agent', onUpdated }
+      )
+    ).toThrow()
+    expect(col(id, 'status')).toBe('confirmed')
+    expect(onUpdated).toHaveBeenCalledTimes(1)
+    expect(onUpdated.mock.calls[0][0]).toMatchObject({ id, status: 'confirmed' })
+  })
+
+  it('a refusal or an invalid value writes nothing: row and findings.md are unchanged', () => {
+    const md = path.join(caseDir(home, 'CASE-A'), 'findings.md')
+    const accepted = seed({ review_state: 'accepted', review_actor: 'human', status: 'confirmed' })
+    const mdBefore = fs.readFileSync(md)
+    expect(
+      updateFinding(
+        db,
+        home,
+        accepted,
+        { status: 'hypothesis', appendMarkdown: 'x' },
+        { actor: 'agent' }
+      )
+    ).toEqual({ ok: false, reason: 'accepted-locked' })
+    expect(fs.readFileSync(md).equals(mdBefore)).toBe(true)
+    expect(col(accepted, 'status')).toBe('confirmed')
+
+    const id = seed({ status: 'hypothesis' })
+    expect(() =>
+      updateFinding(
+        db,
+        home,
+        id,
+        { status: 'bogus' as never, appendMarkdown: 'x' },
+        { actor: 'agent' }
+      )
+    ).toThrow(/Invalid status/)
+    expect(() =>
+      updateFinding(
+        db,
+        home,
+        id,
+        { role: 'bogus' as never, appendMarkdown: 'x' },
+        { actor: 'human' }
+      )
+    ).toThrow(/Invalid role/)
+    expect(fs.readFileSync(md).equals(mdBefore)).toBe(true)
+    expect(col(id, 'status')).toBe('hypothesis')
+    expect(col(id, 'role')).toBeNull()
+    expect(col(id, 'role_source')).toBeNull()
   })
 
   it("locks an accepted finding's status and role to the agent, not its cause or evidence; the human is free", () => {

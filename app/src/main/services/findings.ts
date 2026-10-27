@@ -397,7 +397,11 @@ export function updateFinding(
     : isFindingStatus(cur.status)
       ? cur.status
       : 'confirmed'
-  if (nextRole === 'root-cause' && nextStatus === 'confirmed') {
+  // A transition check: a finding that already IS the confirmed root cause may take evidence
+  // or a cause without being refused because of its own (or a resurrected sibling's) standing.
+  const alreadyConfirmedRoot =
+    cur.role === 'root-cause' && (cur.status === null || cur.status === 'confirmed')
+  if (nextRole === 'root-cause' && nextStatus === 'confirmed' && !alreadyConfirmedRoot) {
     const other = db
       .prepare(
         `SELECT id FROM findings
@@ -425,27 +429,38 @@ export function updateFinding(
   }
   if (sets.length > 0)
     db.prepare(`UPDATE findings SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id)
-  if (text) {
-    const mdPath = path.join(caseDir(argusHome, cur.slug), 'findings.md')
-    let md: string
+  const readRow = (): FindingRow =>
+    toRow(
+      db
+        .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
+        .get(id) as unknown as Raw
+    )
+  const notify = (row: FindingRow): void => {
     try {
-      md = fs.readFileSync(mdPath, 'utf8')
+      opts.onUpdated?.(row)
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
-      md = `# Findings — ${cur.slug}\n`
+      console.error('[findings] onUpdated failed', err)
     }
-    fs.writeFileSync(mdPath, appendToFindingBody(md, id, text, cur.summary))
   }
-  const row = toRow(
-    db
-      .prepare(`SELECT f.*, s.mode AS mode FROM ${FINDINGS_WITH_MODE} WHERE f.id = ?`)
-      .get(id) as unknown as Raw
-  )
-  try {
-    opts.onUpdated?.(row)
-  } catch (err) {
-    console.error('[findings] onUpdated failed', err)
+  if (text) {
+    // The row has already changed; a failing body write must not hide that from the hook.
+    try {
+      const mdPath = path.join(caseDir(argusHome, cur.slug), 'findings.md')
+      let md: string
+      try {
+        md = fs.readFileSync(mdPath, 'utf8')
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+        md = `# Findings — ${cur.slug}\n`
+      }
+      fs.writeFileSync(mdPath, appendToFindingBody(md, id, text, cur.summary))
+    } catch (err) {
+      notify(readRow())
+      throw err
+    }
   }
+  const row = readRow()
+  notify(row)
   return { ok: true, row }
 }
 
