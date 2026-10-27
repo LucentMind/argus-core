@@ -75,6 +75,15 @@ describe('buildDossierPrompt', () => {
     )
     expect(DOSSIER_LITE_CONTRACT).toContain('An active [hypothesis · …] finding')
   })
+  it('the contract names the cause by finding line, since bodies are unindented', () => {
+    const sentence =
+      "The findings are listed as the investigation's causal chain: a ↳ finding line is caused by the nearest less-indented finding line (one starting with #) above it; the text under a finding line is its body, and diagnostic_path follows that chain rather than re-deriving it from the transcript."
+    expect(DOSSIER_CONTRACT).toContain(sentence)
+    expect(DOSSIER_LITE_CONTRACT).toContain(sentence)
+    expect(DOSSIER_SECTIONS.findings.text).toContain(
+      '↳ = caused by the nearest less-indented finding line above;'
+    )
+  })
   it('renders evidence, sessions and user messages', () => {
     expect(p).toContain('- logs/a.txt (text, 10 bytes)')
     expect(p).toContain('- please check the flag')
