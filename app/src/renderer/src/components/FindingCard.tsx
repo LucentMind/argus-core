@@ -109,6 +109,7 @@ export function FindingCard({
   const hypothesis = f.mode === 'investigation' && f.status === 'hypothesis'
   return (
     <li
+      data-finding-id={f.id}
       data-status={f.mode === 'investigation' ? f.status : undefined}
       style={f.mode === 'investigation' && depth > 0 ? { marginLeft: depth * 14 } : undefined}
       className={`group/f relative rounded-r2 border bg-panel ${
