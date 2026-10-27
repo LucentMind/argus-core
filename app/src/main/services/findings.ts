@@ -21,6 +21,7 @@ import { getCase } from './caseService'
 import { appendDeletionAudit } from './deletionAudit'
 import { overrideFromRetraction, overrideFromFindingReject } from './distill/overrides'
 import type { AttributionRow } from '../../shared/attribution'
+import { escapeFindingMarkers } from '../../shared/findingRef'
 
 export type { FindingRow, ReviewState, FindingPatch, UpdateResult }
 const REVIEW_STATES: ReviewState[] = ['pending', 'accepted', 'rejected']
@@ -407,8 +408,8 @@ export function updateFinding(
     .get(id) as (Raw & { slug: string }) | undefined
   if (!cur) return { ok: false, reason: 'unknown' }
   const has = (k: keyof FindingPatch): boolean => patch[k] !== undefined
-  const text = (patch.appendMarkdown ?? '').trim()
-  const replace = (patch.replaceMarkdown ?? '').trim()
+  const text = escapeFindingMarkers((patch.appendMarkdown ?? '').trim())
+  const replace = escapeFindingMarkers((patch.replaceMarkdown ?? '').trim())
   if (!has('status') && !has('role') && !has('causedBy') && !text && !replace)
     return { ok: false, reason: 'empty' }
   if (text && replace) return { ok: false, reason: 'both-bodies' }

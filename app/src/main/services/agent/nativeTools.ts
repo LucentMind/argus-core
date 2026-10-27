@@ -40,6 +40,7 @@ import {
   type ReviewSeverity
 } from '../../../shared/reviewLayers'
 import { firstCitation } from '../../../shared/citations'
+import { escapeFindingMarkers } from '../../../shared/findingRef'
 import {
   postReviewComment,
   prWorktreeHead,
@@ -518,7 +519,7 @@ export function appendFinding(
       input.causedBy ?? null
     )
   const findingId = Number(res.lastInsertRowid)
-  const block = `\n<!-- finding:${findingId} -->\n## ${title}\n_${new Date().toISOString()} · session ${ctx.sessionId}_\n\n${input.markdown}\n`
+  const block = `\n<!-- finding:${findingId} -->\n## ${title}\n_${new Date().toISOString()} · session ${ctx.sessionId}_\n\n${escapeFindingMarkers(input.markdown)}\n`
   fs.appendFileSync(path.join(dir, 'findings.md'), block)
   return { findingId, block }
 }
