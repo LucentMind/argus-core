@@ -103,8 +103,17 @@ export function InlineFinding({
         onWhy={() => setRejecting(true)}
         onEdit={(patch) => void edit(patch)}
         causeOptions={rows
-          .filter((r) => r.mode === 'investigation' && !isInactiveFinding(r))
-          .map((r) => ({ id: r.id, summary: r.summary }))}
+          .filter((r) => r.mode === 'investigation')
+          .map((r) => ({
+            id: r.id,
+            summary: r.summary,
+            ...(isInactiveFinding(r) ? { inactive: true } : {})
+          }))}
+        note={
+          item.name === 'mcp__argus__update_finding' && finding.reviewState === 'accepted'
+            ? 'the agent changed this finding; your accept stands'
+            : undefined
+        }
         footer={
           editError || rejecting ? (
             <>

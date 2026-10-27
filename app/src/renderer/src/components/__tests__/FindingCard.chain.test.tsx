@@ -158,4 +158,32 @@ describe('FindingCard — chain', () => {
     mount(row({ mode: 'review' }), { depth: 2 })
     expect(screen.getByText('Race in parser').closest('li')!.style.marginLeft).toBe('')
   })
+  it('names the cause on the chip and lists an inactive stored cause with its summary', async () => {
+    mount(row({ causedBy: 3 }), {
+      open: true,
+      onEdit: () => {},
+      causeOptions: [
+        { id: 2, summary: 'Live cause' },
+        { id: 3, summary: 'Withdrawn cause', inactive: true }
+      ]
+    })
+    expect(screen.getByTestId('caused-by-chip')).toHaveTextContent(
+      'caused by #3 · Withdrawn cause (inactive)'
+    )
+    const select = screen.getByLabelText('Caused by') as HTMLSelectElement
+    expect([...select.options].map((o) => o.textContent)).toEqual([
+      'none',
+      '#2 Live cause',
+      '#3 · Withdrawn cause (inactive)'
+    ])
+    expect(select.value).toBe('3')
+  })
+  it('renders a note line when given one', () => {
+    mount(row({ reviewState: 'accepted' }), {
+      note: 'the agent changed this finding; your accept stands'
+    })
+    expect(screen.getByTestId('finding-note')).toHaveTextContent(
+      'the agent changed this finding; your accept stands'
+    )
+  })
 })

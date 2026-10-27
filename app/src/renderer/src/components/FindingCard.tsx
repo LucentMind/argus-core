@@ -50,6 +50,27 @@ const SEVERITY_RAIL: Record<ReviewSeverity, string> = {
   minor: 'bg-mute'
 }
 
+/** `caused by #4 · Install rejected`, with `(inactive)` when the cause is no longer active; just
+ *  `#4` when the options carry no such row (a cause from a row the store has not loaded). */
+function causeLabel(
+  id: number,
+  options: readonly { id: number; summary: string; inactive?: boolean }[]
+): string {
+  const o = options.find((x) => x.id === id)
+  if (!o) return `caused by #${id}`
+  return `caused by #${id} · ${o.summary}${o.inactive ? ' (inactive)' : ''}`
+}
+
+/** The select's option text for a stored cause that is no longer active; `#6 (inactive)` when the
+ *  options carry no such row. */
+function inactiveCauseLabel(
+  id: number,
+  options: readonly { id: number; summary: string }[]
+): string {
+  const summary = options.find((o) => o.id === id)?.summary
+  return `#${id} ${summary ? `· ${summary} ` : ''}(inactive)`
+}
+
 /** One finding in the sidebar list. Presentational: every mutation goes back up through a
  *  callback so FindingsPane keeps sole ownership of state and IPC. */
 export function FindingCard({
@@ -72,7 +93,8 @@ export function FindingCard({
   footer,
   depth = 0,
   onEdit,
-  causeOptions = []
+  causeOptions = [],
+  note
 }: {
   finding: FindingRow
   slug: string
@@ -99,7 +121,9 @@ export function FindingCard({
   onEdit?: (patch: { role?: FindingRole | null; causedBy?: number | null }) => void
   /** Candidates for the cause picker: the case's active investigation findings (self is
    *  filtered here). */
-  causeOptions?: readonly { id: number; summary: string }[]
+  causeOptions?: readonly { id: number; summary: string; inactive?: boolean }[]
+  /** One muted line in the meta row — the inline card's "changed after your accept". */
+  note?: string
 }): React.JSX.Element {
   const accepted = f.reviewState === 'accepted'
   const rejected = f.reviewState === 'rejected'
@@ -159,6 +183,14 @@ export function FindingCard({
         )}
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pr-2 pb-1.5 pl-3">
+        {note && (
+          <span
+            data-testid="finding-note"
+            className="min-w-0 text-[10px] leading-snug text-mute italic"
+          >
+            {note}
+          </span>
+        )}
         {rejected && f.reviewActor === 'agent' && (
           <>
             <span className="shrink-0 rounded-r1 border border-danger/35 px-1 text-[10px] whitespace-nowrap text-mute">
@@ -204,9 +236,9 @@ export function FindingCard({
         {f.mode === 'investigation' && f.causedBy !== null && (
           <span
             data-testid="caused-by-chip"
-            className="shrink-0 font-mono text-[10px] whitespace-nowrap text-mute"
+            className="min-w-0 truncate font-mono text-[10px] text-mute"
           >
-            caused by #{f.causedBy}
+            {causeLabel(f.causedBy, causeOptions)}
           </span>
         )}
         {selectable && (
@@ -402,7 +434,7 @@ export function FindingCard({
             >
               <option value="">none</option>
               {causeOptions
-                .filter((o) => o.id !== f.id)
+                .filter((o) => o.id !== f.id && !o.inactive)
                 .map((o) => (
                   <option key={o.id} value={o.id}>
                     #{o.id} {o.summary}
@@ -412,11 +444,12 @@ export function FindingCard({
                   rejected / ruled-out / duplicate / superseded row): a controlled select with no
                   matching option shows "none" while the chip says otherwise, and picking "none"
                   would fire no change event, so the dead cause could never be cleared. */}
-              {f.causedBy !== null && !causeOptions.some((o) => o.id === f.causedBy) && (
-                <option key={f.causedBy} value={f.causedBy}>
-                  #{f.causedBy} (inactive)
-                </option>
-              )}
+              {f.causedBy !== null &&
+                !causeOptions.some((o) => o.id === f.causedBy && !o.inactive) && (
+                  <option key={f.causedBy} value={f.causedBy}>
+                    {inactiveCauseLabel(f.causedBy, causeOptions)}
+                  </option>
+                )}
             </select>
           </label>
         </div>
