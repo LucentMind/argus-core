@@ -4,7 +4,8 @@ import type {
   CaseDistillSummary
 } from '../../../shared/distill'
 import type { PromptTextSpecs } from '../../../shared/promptSpec'
-import { reviewTag } from '../../../shared/findingTag'
+import { renderFindingTree } from '../../../shared/findingTree'
+import { treeHeadings } from '../findingTreeHeadings'
 
 export { CASE_DISTILL_CONTRACT } from './caseDistillContract'
 import { CASE_DISTILL_CONTRACT } from './caseDistillContract'
@@ -15,7 +16,7 @@ export const CASE_DISTILL_SECTIONS: PromptTextSpecs = {
   case: { title: 'Case-distill section — case metadata', text: '# Case' },
   findings: {
     title: 'Case-distill section — findings',
-    text: '# Findings (with review states)'
+    text: "# Findings (the investigation's causal chain; ↳ = caused by the line above; each line is #id · status · review · role · summary, then its body)"
   },
   evidence: { title: 'Case-distill section — evidence', text: '# Evidence inventory' },
   sessions: { title: 'Case-distill section — chat sessions', text: '# Chat sessions' },
@@ -58,9 +59,10 @@ export function buildCaseDistillPrompt(
   resolve?: (id: string) => string
 ): string {
   const m = input.caseMeta
-  const findings = input.findings
-    .map((f) => `### [${reviewTag(f)}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`)
-    .join('\n\n')
+  const findings = renderFindingTree(input.findings, {
+    headings: treeHeadings(resolve),
+    bodies: true
+  })
   const captured =
     input.alreadyCaptured.proposals
       .map((p) => `- proposal [${p.state}] ${p.type} → ${p.target} — ${p.title}`)

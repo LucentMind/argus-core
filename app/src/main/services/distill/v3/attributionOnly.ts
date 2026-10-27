@@ -4,6 +4,7 @@ import type { AttributionOutput } from '../../../../shared/attribution'
 import type { HeadlessUsage, TrajectoryEntry } from '../../agent/driver'
 import { DistillAgentRunError, type DistillAgentRunMeta } from '../caseDistiller'
 import { DistillParseError } from '../contract'
+import { FINDING_TREE_HEADINGS } from '../../findingTreeHeadings'
 import { createDistillMcpServer, toolCallSummary } from '../mcp'
 import { DISTILL_ALLOWED_TOOLS, DISTILL_MAX_ITERATIONS } from '../worldTools'
 import {
@@ -43,6 +44,9 @@ function liteResolve(resolve?: (id: string) => string): (id: string) => string {
       ? (m[1] === 'dossier' ? DOSSIER_SECTIONS : ATTRIBUTION_SECTIONS)[m[2]]
       : undefined
     if (spec) return spec.text
+    // The finding-tree headings the dossier prompt renders through (`treeHeadings`).
+    const heading = /^tool-feedback\.(list_findings\..+)$/.exec(id)
+    if (heading && FINDING_TREE_HEADINGS[heading[1]]) return FINDING_TREE_HEADINGS[heading[1]].text
     throw new Error(`liteResolve: unknown prompt id ${id}`)
   }
 }

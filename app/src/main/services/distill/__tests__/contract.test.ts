@@ -61,7 +61,9 @@ describe('prompt builder', () => {
   it('includes contract, annotated findings, and already-captured section', () => {
     const p = buildCaseDistillPrompt(INPUT)
     expect(p).toContain(CASE_DISTILL_CONTRACT)
-    expect(p).toContain('[accepted] F1')
+    expect(p).toContain(
+      'UNEXPLAINED (no recorded cause — the chain stops here)\naccepted · no role · F1\nbody1'
+    )
     expect(p).toContain('Knowledge already captured')
     expect(p).toContain('dlt-cmds')
   })
@@ -105,21 +107,67 @@ describe('prompt builder', () => {
       rcaStructure: SAMPLE_DRAFT
     }
     const p = buildCaseDistillPrompt(withRoleAndStructure)
-    expect(p).toContain('[accepted · root-cause] F1')
+    expect(p).toContain(
+      'ROOT CAUSE (each ↳ line is caused by the nearest less-indented line above it)\naccepted · root-cause · F1\nbody1'
+    )
     expect(p).toContain('# Confirmed RCA structure (human-reviewed)')
     expect(p).toContain(JSON.stringify(SAMPLE_DRAFT, null, 2))
   })
 
-  it('without a role or a confirmed RCA structure, the prompt is byte-identical to before', () => {
-    const p = buildCaseDistillPrompt(INPUT)
-    // No role → no ' · ' annotation in the finding header itself (the contract's rule 2 now
-    // legitimately mentions ' · ' in its retraction-tag example, so the check is scoped to the
-    // findings section rather than the whole prompt).
-    expect(p).toContain('[accepted] F1')
-    const findingsSection = p.slice(p.indexOf('# Findings'), p.indexOf('# Evidence inventory'))
-    expect(findingsSection).not.toContain(' · ')
+  it('renders the chain with ids, status, cause and a bodiless superseded line (spec 2026-10-26 §9.1/§9.3)', () => {
+    const chain: CaseDistillInput = {
+      ...INPUT,
+      findings: [
+        {
+          id: 6,
+          summary: 'Root',
+          reviewState: 'accepted',
+          role: 'root-cause',
+          status: 'confirmed',
+          body: 'root body'
+        },
+        {
+          id: 2,
+          summary: 'Symptom',
+          reviewState: 'pending',
+          role: 'symptom',
+          status: 'confirmed',
+          causedBy: 6,
+          body: 'sym body'
+        },
+        {
+          id: 3,
+          summary: 'Old root',
+          reviewState: 'rejected',
+          reviewActor: 'agent',
+          reviewReason: 'superseded by #6',
+          role: 'root-cause',
+          status: 'hypothesis',
+          supersededBy: 6,
+          body: 'old body'
+        }
+      ]
+    }
+    const p = buildCaseDistillPrompt(chain)
+    const section = p.slice(p.indexOf('# Findings'), p.indexOf('# Evidence inventory'))
+    expect(section).toContain(
+      '#6 · confirmed · accepted · root-cause · Root\nroot body\n\n  ↳ #2 · confirmed · pending · symptom · Symptom\nsym body'
+    )
+    expect(section).toContain('RULED OUT\n#3 · superseded by #6 · root-cause · Old root')
+    expect(section).not.toContain('old body')
     // No confirmed structure → the section is omitted entirely, not rendered as "(none)".
     expect(p).not.toContain('Confirmed RCA structure')
+  })
+
+  it('the contract names the status prefix, the superseded form and the chain', () => {
+    expect(CASE_DISTILL_CONTRACT).toContain(
+      '[hypothesis · …] is never the basis of a summary or a proposal'
+    )
+    expect(CASE_DISTILL_CONTRACT).toContain('[superseded by #N]')
+    expect(CASE_DISTILL_CONTRACT).toContain(
+      'a ↳ line is caused by the nearest less-indented line above it'
+    )
+    expect(CASE_DISTILL_CONTRACT).toContain('[confirmed · accepted] or [confirmed · pending]')
   })
 
   it('renders status: closed and the closed timestamp for a closed case', () => {
