@@ -574,33 +574,6 @@ describe('FindingsPane', () => {
     })
   })
 
-  it('refetches findings when rca:changed fires for this case, but not for another case', async () => {
-    const slug = 'RCA-1'
-    let rcaCb: ((p: { caseSlug: string }) => void) | null = null
-    ;(window.argus.rca as unknown as { onRcaChanged: ReturnType<typeof vi.fn> }).onRcaChanged =
-      vi.fn((cb: (p: { caseSlug: string }) => void) => {
-        rcaCb = cb
-        return () => {
-          rcaCb = null
-        }
-      })
-    list.mockResolvedValue([])
-    render(<FindingsPane slug={slug} sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
-    await waitFor(() => expect(list).toHaveBeenCalledTimes(1))
-
-    act(() => {
-      rcaCb?.({ caseSlug: 'OTHER-CASE' })
-    })
-    // no case-slug match: does not refetch
-    await new Promise((r) => setTimeout(r, 0))
-    expect(list).toHaveBeenCalledTimes(1)
-
-    act(() => {
-      rcaCb?.({ caseSlug: slug })
-    })
-    await waitFor(() => expect(list).toHaveBeenCalledTimes(2))
-  })
-
   it('does not claim there are no findings while the list is still loading', async () => {
     let release: (rows: FindingRow[]) => void = () => {}
     window.argus.findings.list = vi.fn(

@@ -121,6 +121,23 @@ describe('findingsStore', () => {
     handler({ type: 'content.delta', caseSlug: 'c9', sessionId: 1, payload: { text: '' } })
     expect(list).toHaveBeenCalledTimes(1)
   })
+  it('wireFindingsStore reloads the case an RCA change names, and only that case', async () => {
+    // RcaJobs.confirm writes roles straight to the DB (applyReportRoles): no agent event fires.
+    let rcaCb: ((p: { caseSlug: string }) => void) | null = null
+    ;(window.argus as unknown as { rca: unknown }).rca = {
+      onRcaChanged: vi.fn((cb: (p: { caseSlug: string }) => void) => {
+        rcaCb = cb
+        return () => {}
+      })
+    }
+    list.mockResolvedValue([row({ id: 3, role: 'root-cause' })])
+    wireFindingsStore()
+    expect(rcaCb).not.toBeNull()
+    rcaCb!({ caseSlug: 'c4' })
+    await vi.waitFor(() => expect(findingsStore.get('c4').rows[0]?.role).toBe('root-cause'))
+    expect(list).toHaveBeenCalledTimes(1)
+    expect(list).toHaveBeenCalledWith('c4')
+  })
   it('a thumbs-down on an agent-retracted row writes a human reject instead of toggling it back to pending', async () => {
     list.mockResolvedValue([
       row({ id: 1, reviewState: 'rejected', reviewActor: 'agent', reviewReason: 'old build' })

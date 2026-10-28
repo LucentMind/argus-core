@@ -47,7 +47,6 @@ export function FindingsPane({
   const [actingId, setActingId] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [worktreeHead, setWorktreeHead] = useState<string | null>(null)
-  const [rcaBump, setRcaBump] = useState(0)
   // Review mode has no RULED OUT section, so a review-mode reject must not open it for later.
   const actions = useFindingActions(slug, {
     sessionId,
@@ -77,20 +76,9 @@ export function FindingsPane({
     // agentStore directly. Loaded once per findingsBump (not per finding) — the stale check
     // compares every row's recorded head_sha against this one shared value.
     void findingsStore.load(slug)
+    // An RCA confirm's role writes reach the store through wireFindingsStore, not this pane.
     void window.argus.review.worktreeHead(slug).then(setWorktreeHead)
-  }, [slug, sessionId, bump, rcaBump])
-
-  // `RcaJobs.confirm` writes role assignments straight to the DB (findings.ts's
-  // applyReportRoles), which no `bump` (agentStore's findingsBump, fired only for
-  // agent-emitted findings) ever observes — without this, role chips/pinning only appear
-  // after a manual refetch (switching mode, remounting the pane). Same subscribe/bump
-  // pattern as `agentStore` above, scoped to this pane's own slug.
-  useEffect(() => {
-    const unsub = window.argus.rca.onRcaChanged((p) => {
-      if (p.caseSlug === slug) setRcaBump((n) => n + 1)
-    })
-    return unsub
-  }, [slug])
+  }, [slug, sessionId, bump])
 
   /**
    * Composition happens in main (it owns the PR binding and the worktree path) and the composed
