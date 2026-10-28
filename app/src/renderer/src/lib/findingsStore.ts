@@ -102,10 +102,11 @@ class FindingsStore {
     })
   }
 
-  /** Test hook. */
+  /** Test hook: also unwires, so a test's fresh `window.argus` mocks can be wired again. */
   clearForTests(): void {
     this.byCase.clear()
     this.listeners.clear()
+    wired = false
   }
 
   private set(slug: string, next: CaseFindings): void {
@@ -118,7 +119,10 @@ export const findingsStore = new FindingsStore()
 
 let wired = false
 /** A finding the agent appends or updates refetches its case — the same two events that bump
- *  `agentStore.findingsBump`, read here directly so no component has to relay them. */
+ *  `agentStore.findingsBump`, read here directly so no component has to relay them. So does an
+ *  RCA change: `RcaJobs.confirm` writes roles straight to the DB (findings.ts's
+ *  applyReportRoles), which no agent event observes, and every surface reading this store — the
+ *  rail, the Findings document, the inline chat card — must show those roles at once. */
 export function wireFindingsStore(): void {
   if (wired || typeof window === 'undefined' || !window.argus?.agent) return
   wired = true
@@ -126,4 +130,5 @@ export function wireFindingsStore(): void {
     if (e.type === 'case.finding.added' || e.type === 'case.finding.updated')
       void findingsStore.load(e.caseSlug)
   })
+  window.argus.rca?.onRcaChanged((p) => void findingsStore.load(p.caseSlug))
 }
