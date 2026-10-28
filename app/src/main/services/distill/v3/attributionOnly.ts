@@ -33,8 +33,9 @@ const ATTRIBUTION_CONTRACT_ID = 'headless.case-distill.attribution.contract'
 /** Resolver for the lite run: the dossier contract id answers with the lite contract; every other
  *  id goes to the caller's resolver, or to the static defaults when there is none. (The builders
  *  only consult a resolver when one is passed, so the no-resolver case must still answer every id
- *  they ask for.) */
-function liteResolve(resolve?: (id: string) => string): (id: string) => string {
+ *  they ask for.) Exported so the fake runner's fixture prompts are built with this resolver, not
+ *  a copy of it. */
+export function liteResolve(resolve?: (id: string) => string): (id: string) => string {
   return (id) => {
     if (id === DOSSIER_CONTRACT_ID) return DOSSIER_LITE_CONTRACT
     if (resolve) return resolve(id)
