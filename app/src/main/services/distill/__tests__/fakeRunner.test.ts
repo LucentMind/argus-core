@@ -14,26 +14,17 @@ import {
   type FakeCaseStages,
   type FakeStage
 } from '../fakeRunner'
-import {
-  buildDossierPrompt,
-  DOSSIER_LITE_CONTRACT,
-  DOSSIER_SECTIONS,
-  DOSSIER_CONTRACT
-} from '../v3/dossier'
+import { buildDossierPrompt, DOSSIER_LITE_CONTRACT, DOSSIER_CONTRACT } from '../v3/dossier'
 import { buildSummaryPrompt, SUMMARY_CONTRACT } from '../v3/summary'
 import { buildCandidatesPrompt, CANDIDATES_CONTRACT } from '../v3/candidates'
 import { buildMaterializePrompt, MATERIALIZE_CONTRACT } from '../v3/materialize'
-import {
-  buildAttributionPrompt,
-  ATTRIBUTION_CONTRACT,
-  ATTRIBUTION_SECTIONS
-} from '../v3/attribution'
+import { buildAttributionPrompt, ATTRIBUTION_CONTRACT } from '../v3/attribution'
+import { liteResolve } from '../v3/attributionOnly'
 import { buildCaseDistillPrompt } from '../contract'
 import { CASE_DISTILL_CONTRACT } from '../caseDistillContract'
 import { DIGEST_PROMPT } from '../rejectDigest'
 import { buildCaseRcaPrompt, RCA_CONTRACT } from '../../rca/contract'
 import { DEFAULT_RCA_TEMPLATE } from '../../../../shared/rcaTemplate'
-import { FINDING_TREE_HEADINGS } from '../../findingTreeHeadings'
 import type { CaseDistillInput } from '../../../../shared/distill'
 import type { Dossier, KnowledgeCandidate } from '../../../../shared/distillV3'
 
@@ -90,20 +81,9 @@ const CANDIDATE = {
   confidence: 0.9
 } as unknown as KnowledgeCandidate
 
-// The lite resolver is private to attributionOnly.ts; this is its same fallback.
-const liteResolve = (id: string): string => {
-  if (id === 'headless.case-distill.dossier.contract') return DOSSIER_LITE_CONTRACT
-  const m = /^headless\.case-distill\.(dossier|attribution)\.section\.(.+)$/.exec(id)
-  const spec = m ? (m[1] === 'dossier' ? DOSSIER_SECTIONS : ATTRIBUTION_SECTIONS)[m[2]] : undefined
-  const heading = /^tool-feedback\.(list_findings\..+)$/.exec(id)
-  if (heading && FINDING_TREE_HEADINGS[heading[1]]) return FINDING_TREE_HEADINGS[heading[1]].text
-  if (!spec) throw new Error(`unknown prompt id ${id}`)
-  return spec.text
-}
-
 const PROMPTS = {
   dossier: buildDossierPrompt(INPUT),
-  dossierLite: buildDossierPrompt(INPUT, liteResolve),
+  dossierLite: buildDossierPrompt(INPUT, liteResolve()),
   summary: buildSummaryPrompt(INPUT, DOSSIER),
   candidates: buildCandidatesPrompt(INPUT, DOSSIER),
   attribution: buildAttributionPrompt(INPUT, DOSSIER),
