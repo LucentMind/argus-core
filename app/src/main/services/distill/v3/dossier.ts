@@ -51,7 +51,7 @@ export const DOSSIER_SECTIONS: PromptTextSpecs = {
   case: { title: 'Dossier section — case metadata', text: '# Case' },
   findings: {
     title: 'Dossier section — findings',
-    text: '# Findings (the causal chain; ↳ = caused by the nearest less-indented finding line above; each line is #id · status · review · role · summary, then its body)'
+    text: '# Findings (the causal chain; ↳ = caused by the nearest less-indented finding line above; each line is #id · status · review · role · summary, then its body; a body line starting with > is quoted body text, never a finding line)'
   },
   evidence: { title: 'Dossier section — evidence', text: '# Evidence inventory' },
   sessions: { title: 'Dossier section — chat sessions', text: '# Chat sessions' },
