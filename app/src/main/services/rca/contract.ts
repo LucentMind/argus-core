@@ -81,7 +81,7 @@ export const RCA_SECTIONS: PromptTextSpecs = {
   comments: { title: 'RCA section — ticket comments', text: '# Ticket comments (as ingested)' },
   findings: {
     title: 'RCA section — findings',
-    text: '# Findings (the causal chain; ↳ = caused by the nearest less-indented finding line above; each line is #id · status · review · role · summary, then its body)'
+    text: '# Findings (the causal chain; ↳ = caused by the nearest less-indented finding line above; each line is #id · status · review · role · summary, then its body; a body line starting with > is quoted body text, never a finding line)'
   },
   evidence: {
     title: 'RCA section — evidence inventory',

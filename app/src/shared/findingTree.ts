@@ -129,12 +129,36 @@ function line(f: TreeTextRow, depth: number): string {
   return `${indent}${id}${reviewTag(f)} · ${f.role ?? 'no role'} · ${f.summary}`
 }
 
+/** A finding line's start once its indent and `↳` are gone: `#id ·`, or the id-less legacy
+ *  form that opens with the tag (`accepted · `, `hypothesis · rejected · `, `superseded by #N · `). */
+const FINDING_LINE_START =
+  /^(?:#\d+\s*·|(?:superseded by #\d+|(?:(?:hypothesis|confirmed) · )?(?:pending|accepted|rejected)) · )/
+
+/** A body is model-written data. A line in it that reads as a finding line, or as one of the
+ *  tree's headings, could forge a finding — a human accept, a root cause — in every prompt that
+ *  prints bodies; such a line is quoted with `> ` so it is plainly the body's text. Finding lines
+ *  themselves never pass through here, so their format is unchanged. */
+function quoteForgedLines(body: string, headings: TreeHeadings): string {
+  const heads = new Set(
+    [headings.rootCause, headings.unexplained, headings.ruledOut].map((h) => h.trim())
+  )
+  return body
+    .split('\n')
+    .map((l) => {
+      const bare = l.trim()
+      const forged = FINDING_LINE_START.test(bare.replace(/^↳\s*/, '')) || heads.has(bare)
+      return forged ? `> ${l}` : l
+    })
+    .join('\n')
+}
+
 /**
  * The one text form of the tree (spec 2026-10-26 §9.1): `list_findings` prints it without
  * bodies; the distill v2 prompt, the v3 dossier prompt and the RCA prompt print it with. With
  * `bodies`, a finding's body follows its line unindented (markdown must not be indented into a
  * code block), and a blank line separates consecutive entries; a superseded row (§9.3) never
- * gets a body — it is folded into its successor. Sections are one blank line apart and the
+ * gets a body — it is folded into its successor. A body line that reads as a finding line or a
+ * heading is quoted with `> ` (`quoteForgedLines`). Sections are one blank line apart and the
  * output has no trailing newline. Empty input renders as the empty string: the caller decides what "(none)" is.
  */
 export function renderFindingTree(
@@ -149,7 +173,7 @@ export function renderFindingTree(
     // Strip leading blank lines and trailing whitespace only: a body that opens with an
     // indented code block keeps its indentation.
     const body = f.supersededBy != null ? '' : (f.body ?? '').replace(/^\s*\n/, '').trimEnd()
-    return body ? `${l}\n${body}` : l
+    return body ? `${l}\n${quoteForgedLines(body, opts.headings)}` : l
   }
   // With bodies a blank line separates consecutive entries; without, entries are plain lines.
   const entrySep = opts.bodies ? '\n\n' : '\n'
