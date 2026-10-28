@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { findingsStore } from '../lib/findingsStore'
 import { useReviewWalk } from '../lib/useReviewWalk'
-import { confirm } from '../lib/confirmStore'
+import { useFindingActions } from '../lib/useFindingActions'
 import { reposStore } from '../lib/reposStore'
-import type { FindingRejectReason, FindingRole, FindingRow } from '../../../shared/observability'
+import type { FindingRow } from '../../../shared/observability'
 import { buildFindingTree, isInactiveFinding, type TreeNode } from '../../../shared/findingTree'
 import type { CiteTarget } from '../lib/citations'
 import { FindingCard } from './FindingCard'
-import { FindingRejectStrip } from './FindingRejectStrip'
 import { stageCorrection } from '../lib/correctFinding'
 import { SectionLabel } from './ui'
 
@@ -40,9 +39,8 @@ export function FindingsDocument({
   }, [slug])
   // Bodies are open unless the user collapsed one; the walk's "expand" re-opens the current.
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
-  const [rejectingId, setRejectingId] = useState<number | null>(null)
-  const [showRuledOut, setShowRuledOut] = useState(false)
-  const [editError, setEditError] = useState<{ id: number; message: string } | null>(null)
+  const actions = useFindingActions(slug, { sessionId, ruledOut: true })
+  const { showRuledOut, setShowRuledOut } = actions
   const listRef = useRef<HTMLDivElement>(null)
 
   const findings = rows.filter((f) => f.mode === 'investigation')
@@ -53,44 +51,6 @@ export function FindingsDocument({
     ...(isInactiveFinding(f) ? { inactive: true } : {})
   }))
 
-  async function setReview(
-    id: number,
-    next: 'accepted' | 'rejected',
-    reason?: FindingRejectReason
-  ): Promise<FindingRow | null> {
-    const row = await findingsStore.review(slug, id, next, reason)
-    const keepOpen = reason ? row === null : row?.reviewState === 'rejected'
-    setRejectingId(keepOpen ? id : null)
-    if (keepOpen && !reason) setShowRuledOut(true)
-    return row
-  }
-  async function edit(
-    id: number,
-    patch: { role?: FindingRole | null; causedBy?: number | null }
-  ): Promise<void> {
-    setEditError(null)
-    try {
-      await findingsStore.update(slug, id, patch)
-    } catch (err) {
-      setEditError({ id, message: (err as Error).message })
-    }
-  }
-  async function remove(id: number): Promise<void> {
-    const f = findings.find((x) => x.id === id)
-    const ok = await confirm({
-      title: 'Delete finding?',
-      message: f?.summary ?? `Finding ${id}`,
-      danger: true
-    })
-    if (!ok) return
-    setEditError(null)
-    try {
-      await findingsStore.remove(slug, id)
-    } catch (err) {
-      // Shown under the card, as the pane's delete error is; the card stays.
-      setEditError({ id, message: (err as Error).message })
-    }
-  }
   const review = useReviewWalk({
     slug,
     tree,
@@ -103,25 +63,10 @@ export function FindingsDocument({
           return next
         })
     },
-    onAccept: (id) => {
-      setEditError(null)
-      return setReview(id, 'accepted')
-    },
-    onReject: (id) => {
-      setEditError(null)
-      return setReview(id, 'rejected')
-    },
-    onReopenStrip: (id) => {
-      setRejectingId(id)
-      setShowRuledOut(true)
-    },
-    onClearStrip: () => setRejectingId(null),
-    onError: (id, message) => setEditError({ id, message })
+    ...actions.walk
   })
 
   function card(f: FindingRow, depth = 0): React.JSX.Element {
-    const err = editError?.id === f.id ? editError.message : null
-    const rejecting = rejectingId === f.id
     return (
       <FindingCard
         key={f.id}
@@ -143,35 +88,16 @@ export function FindingsDocument({
           })
         }
         onSelect={() => {}}
-        onReview={(next) => void setReview(f.id, next)}
+        onReview={(next) => void actions.setReview(f.id, next)}
         onAction={() => {}}
         onCite={onCite}
-        onDelete={(id) => void remove(id)}
-        onWhy={() => setRejectingId(f.id)}
+        onDelete={(id) => void actions.remove(id)}
+        onWhy={() => actions.openStrip(f.id)}
         onCorrect={sessionId !== null ? () => stageCorrection(slug, sessionId, f.id) : undefined}
         depth={depth}
-        onEdit={(patch) => void edit(f.id, patch)}
+        onEdit={(patch) => void actions.edit(f.id, patch)}
         causeOptions={causeOptions}
-        footer={
-          err || rejecting ? (
-            <>
-              {err && (
-                <p role="alert" className="px-3 pb-1 text-[10.5px] text-danger">
-                  {err}
-                </p>
-              )}
-              {rejecting && (
-                <FindingRejectStrip
-                  onPick={(reason) => void setReview(f.id, 'rejected', reason)}
-                  onSkip={() => setRejectingId(null)}
-                  onCorrect={
-                    sessionId !== null ? () => stageCorrection(slug, sessionId, f.id) : undefined
-                  }
-                />
-              )}
-            </>
-          ) : undefined
-        }
+        footer={actions.footer(f)}
       />
     )
   }

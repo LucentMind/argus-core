@@ -7,14 +7,14 @@ import { reposStore } from '../lib/reposStore'
 import { uiStore } from '../lib/uiStore'
 import { findingsStore } from '../lib/findingsStore'
 import { useReviewWalk } from '../lib/useReviewWalk'
-import type { FindingRejectReason, FindingRole, FindingRow } from '../../../shared/observability'
+import { useFindingActions } from '../lib/useFindingActions'
+import type { FindingRow } from '../../../shared/observability'
 import { buildFindingTree, isInactiveFinding, type TreeNode } from '../../../shared/findingTree'
 import { REVIEW_LAYERS, REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { ReviewLayerId } from '../../../shared/reviewLayers'
 import type { ModeId } from '../../../shared/modes'
 import type { CiteTarget } from '../lib/citations'
 import { FindingCard } from './FindingCard'
-import { FindingRejectStrip } from './FindingRejectStrip'
 import { stageCorrection } from '../lib/correctFinding'
 import { IconBtn, SectionLabel, SkeletonRows } from './ui'
 
@@ -42,16 +42,18 @@ export function FindingsPane({
   )
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [clearError, setClearError] = useState<string | null>(null)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [layerFilter, setLayerFilter] = useState<ReviewLayerId | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actingId, setActingId] = useState<number | null>(null)
-  const [rejectingId, setRejectingId] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [worktreeHead, setWorktreeHead] = useState<string | null>(null)
   const [rcaBump, setRcaBump] = useState(0)
-  const [showRuledOut, setShowRuledOut] = useState(false)
-  const [editError, setEditError] = useState<{ id: number; message: string } | null>(null)
+  // Review mode has no RULED OUT section, so a review-mode reject must not open it for later.
+  const actions = useFindingActions(slug, {
+    sessionId,
+    ruledOut: activeMode === 'investigation'
+  })
+  const { showRuledOut, setShowRuledOut } = actions
   const listRef = useRef<HTMLDivElement>(null)
   const showSkeleton = usePendingDisplay(!loaded)
   const ui = useSyncExternalStore(
@@ -89,28 +91,6 @@ export function FindingsPane({
     })
     return unsub
   }, [slug])
-
-  // Toggle semantics (clicking the active thumb returns the finding to pending) and the
-  // merge onto the existing row (reviewFinding's row carries no `body`) live in the store.
-  /** Reject now, reason strip after (spec 2026-10-25 D3): a thumbs-down that lands on
-   *  `rejected` opens the strip under that card; anything else — accept, a toggle back to
-   *  pending, a reason pick — closes it. Nothing here blocks. */
-  async function setReview(
-    id: number,
-    next: 'accepted' | 'rejected',
-    reason?: FindingRejectReason
-  ): Promise<FindingRow | null> {
-    const row = await findingsStore.review(slug, id, next, reason)
-    // A failed save must not discard the typed note: a reason pick that comes back null keeps
-    // the strip open. Otherwise the strip is open only on a fresh reject with no reason yet.
-    const keepOpen = reason ? row === null : row?.reviewState === 'rejected'
-    setRejectingId(keepOpen ? id : null)
-    // A rejected investigation finding leaves its section for RULED OUT, which is collapsed by
-    // default: open it, or the strip this reject just opened would render nowhere. Review mode
-    // has no RULED OUT section, so a review-mode reject must not leave it open for later.
-    if (keepOpen && !reason && activeMode === 'investigation') setShowRuledOut(true)
-    return row
-  }
 
   /**
    * Composition happens in main (it owns the PR binding and the worktree path) and the composed
@@ -165,41 +145,13 @@ export function FindingsPane({
     tree,
     listRef,
     onExpand: setExpandedId,
-    onAccept: (id) => {
-      setEditError(null)
-      return setReview(id, 'accepted')
-    },
-    onReject: (id) => {
-      setEditError(null)
-      return setReview(id, 'rejected')
-    },
-    onReopenStrip: (id) => {
-      // Already rejected: reopen the strip (under RULED OUT), do not toggle it back.
-      setRejectingId(id)
-      setShowRuledOut(true)
-    },
-    onClearStrip: () => setRejectingId(null),
-    onError: (id, message) => setEditError({ id, message })
+    ...actions.walk
   })
   const causeOptions = modeFindings.map((f) => ({
     id: f.id,
     summary: f.summary,
     ...(isInactiveFinding(f) ? { inactive: true } : {})
   }))
-
-  /** A refusal (a loop, a second root cause…) is the edited card's own line of text, never a
-   *  dialog — the same as the inline chat card. */
-  async function edit(
-    id: number,
-    patch: { role?: FindingRole | null; causedBy?: number | null }
-  ): Promise<void> {
-    setEditError(null)
-    try {
-      await findingsStore.update(slug, id, patch)
-    } catch (err) {
-      setEditError({ id, message: (err as Error).message })
-    }
-  }
 
   async function clearAll(): Promise<void> {
     const count = modeFindings.length
@@ -220,28 +172,6 @@ export function FindingsPane({
       setClearError((err as Error).message)
     } finally {
       await findingsStore.load(slug)
-    }
-  }
-
-  /** Per-finding hard delete: findings.md splice, DB row, and audit all happen in the main
-   *  process (deleteFinding); this confirms, calls it, and only drops the row locally on
-   *  success — no refetch needed since the service has already committed the removal. Mirrors
-   *  `clearAll`'s try/catch → error-state shape: an unknown id, a second window's concurrent
-   *  delete, or an fs error must surface here rather than becoming an unhandled rejection with
-   *  the card silently staying on screen with no explanation. */
-  async function onDelete(id: number): Promise<void> {
-    const f = findings.find((x) => x.id === id)
-    const ok = await confirm({
-      title: 'Delete finding?',
-      message: f?.summary ?? `Finding ${id}`,
-      danger: true
-    })
-    if (!ok) return
-    setDeleteError(null)
-    try {
-      await findingsStore.remove(slug, id)
-    } catch (err) {
-      setDeleteError((err as Error).message)
     }
   }
 
@@ -298,8 +228,6 @@ export function FindingsPane({
 
   function renderCard(f: FindingRow, depth = 0): React.JSX.Element {
     const investigation = f.mode === 'investigation'
-    const err = investigation && editError?.id === f.id ? editError.message : null
-    const rejecting = investigation && rejectingId === f.id
     return (
       <FindingCard
         key={f.id}
@@ -323,39 +251,21 @@ export function FindingsPane({
             return next
           })
         }
-        onReview={(next) => void setReview(f.id, next)}
+        onReview={(next) => void actions.setReview(f.id, next)}
         onAction={(action) => void runAction(f.id, action)}
         onCite={onCite}
-        onDelete={(id) => void onDelete(id)}
-        onWhy={() => setRejectingId(f.id)}
+        onDelete={(id) => void actions.remove(id)}
+        onWhy={() => actions.openStrip(f.id)}
         onCorrect={
           investigation && sessionId !== null
             ? () => stageCorrection(slug, sessionId, f.id)
             : undefined
         }
         depth={depth}
-        onEdit={investigation ? (patch) => void edit(f.id, patch) : undefined}
+        onEdit={investigation ? (patch) => void actions.edit(f.id, patch) : undefined}
         causeOptions={investigation ? causeOptions : undefined}
-        footer={
-          err || rejecting ? (
-            <>
-              {err && (
-                <p role="alert" className="px-3 pb-1 text-[10.5px] text-danger">
-                  {err}
-                </p>
-              )}
-              {rejecting && (
-                <FindingRejectStrip
-                  onPick={(reason) => void setReview(f.id, 'rejected', reason)}
-                  onSkip={() => setRejectingId(null)}
-                  onCorrect={
-                    sessionId !== null ? () => stageCorrection(slug, sessionId, f.id) : undefined
-                  }
-                />
-              )}
-            </>
-          ) : undefined
-        }
+        // The reject strip is investigation-only; a failed delete shows under any card.
+        footer={actions.footer(f, { strip: investigation })}
       />
     )
   }
@@ -449,7 +359,6 @@ export function FindingsPane({
         className={`flex min-h-0 flex-1 flex-col gap-2 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : 'surface-card'}`}
       >
         {clearError && <p className="text-xs text-danger">{clearError}</p>}
-        {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
         {actionError && <p className="text-xs text-danger">{actionError}</p>}
         {/* A count suffix (the same "field · value" idiom as the " · sess N" stamp in
             FindingCard.tsx) makes the chip read as a control with its own state, not a copy of
