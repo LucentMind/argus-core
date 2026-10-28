@@ -98,6 +98,13 @@
 
 ### Fixed
 
+- The Findings tab did not show the roles a confirmed RCA report writes until it was reopened
+  (only the findings rail refetched). Every findings surface — the rail, the Findings tab and
+  the chat card — now updates as soon as the report is confirmed.
+- A finding's body could forge a finding line in headless prompts: a body line reading like
+  `#9 · confirmed · accepted · root-cause · …` looked like a real, human-accepted finding to the
+  distiller (v2 and the v3 dossier) and the RCA drafter. Such a body line, or one that repeats a
+  tree heading, is now quoted with `> `, and the prompts say a `> ` body line is never a finding.
 - Session traces from different installs merged into one trace on a shared observability
   backend: the trace seed was the bare session row id, which every Argus home numbers from 1
   (seen live on a shared Langfuse project — a July session and a smoke session under one trace
