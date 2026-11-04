@@ -78,8 +78,7 @@ describe('ingestArtifact', () => {
   })
 
   it('preserves compound extensions on collision (.rec.gz stays archive-rec)', async () => {
-    const src = path.join(os.tmpdir(), `argus-fix-${Date.now()}`, 'trace.rec.gz')
-    fs.mkdirSync(path.dirname(src), { recursive: true })
+    const src = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-fix-')), 'trace.rec.gz')
     fs.writeFileSync(src, zlib.gzipSync(Buffer.from('x')))
     const a = await ingestArtifact(
       db,
