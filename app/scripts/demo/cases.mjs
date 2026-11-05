@@ -78,10 +78,10 @@ const CASES = {
     findingHours: { review: 30 },
     content: false
   },
-  'NAV-212-route-flicker': {
+  'GW-212-retry-after-skew': {
     updatedHoursAgo: 52,
-    title: 'Route line flickers when re-routing mid-manoeuvre',
-    jiraKey: 'NAV-212',
+    title: 'Retry-After header is one second short at the window boundary',
+    jiraKey: 'GW-212',
     jiraStatus: 'In Progress',
     jiraPriority: 'Lowest',
     jiraComments: 3,
@@ -93,11 +93,11 @@ const CASES = {
     sessions: 'investigation',
     content: false
   },
-  'NAV-118-stopover-drop': {
+  'GW-118-keepalive-drop': {
     updatedHoursAgo: 96,
     title:
-      'CLONE - [NAV] Stopover reported as reached several hundred metres early and the remaining route is silently dropped',
-    jiraKey: 'NAV-118',
+      'CLONE - [GW] Upstream keep-alive connections dropped during a rolling deploy and in-flight requests return 502 instead of being retried',
+    jiraKey: 'GW-118',
     jiraStatus: 'Triage',
     jiraPriority: 'Escalated', // outside every mapped vocabulary → text-chip fallback
     jiraComments: 1,
@@ -111,9 +111,9 @@ const CASES = {
     findings: false,
     content: false
   },
-  'ADAS-77-lane-bias': {
+  'API-77-cursor-skip': {
     updatedHoursAgo: 140,
-    title: 'Lane centring biases right on crowned road surfaces',
+    title: 'Cursor pagination skips rows when two inserts share a timestamp',
     jiraKey: null,
     jiraStatus: null,
     jiraPriority: null, // no glyph and no chip
@@ -126,10 +126,10 @@ const CASES = {
     sessions: 'investigation',
     content: false
   },
-  'NAV-305-tile-cache': {
+  'GW-305-cache-cold-boot': {
     updatedHoursAgo: 400,
-    title: 'Tile cache warm-up races the first route request on cold boot',
-    jiraKey: 'NAV-305',
+    title: 'Schema cache warm-up races the first request on cold boot',
+    jiraKey: 'GW-305',
     jiraStatus: 'Done',
     jiraPriority: 'High',
     jiraComments: 9,
@@ -509,7 +509,7 @@ export function seedCases(ctx, { repos, anchors }) {
     }
 
     // Thin cases have no investigation session; point both keys at whatever exists so findings
-    // never get a null session_id. Null when the case has no session at all (NAV-118).
+    // never get a null session_id. Null when the case has no session at all (GW-118).
     sessionIds[slug] = {
       investigation: byMode.investigation ?? byMode.review ?? null,
       review: byMode.review ?? byMode.investigation ?? null

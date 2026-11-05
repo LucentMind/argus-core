@@ -64,7 +64,7 @@ function frontmatter(entries) {
 // ── The flywheel artifact: what HMT-9 taught, in the form the flagship reused. ──
 const RATE_LIMIT_PATTERNS = `# Rate limiting — patterns and failure modes
 
-What we have learned running fixed-window limiters in the tile and quota services. Written
+What we have learned running fixed-window limiters in the gateway and quota services. Written
 after HMT-9 (quota drift at window boundaries); extended on every case since.
 
 ## Position is not pacing
@@ -162,15 +162,15 @@ frequently repeated limiter bug (see \`rate-limit-patterns.md\`).
 \`openedAt\` alone, which is exactly why it gets substituted for pacing.
 `
 
-const TILE_ENDPOINTS = `# Tile endpoints
+const API_ENDPOINTS = `# API endpoints
 
-Reference for the tile service's public surface. Bundled with Argus; no frontmatter, no tier.
+Reference for the gateway's public surface. Bundled with Argus; no frontmatter, no tier.
 
 | Endpoint | Method | Auth | Notes |
 |---|---|---|---|
-| \`/tile/{z}/{x}/{y}\` | GET | none | Rate limited per client id |
-| \`/tile/meta\` | GET | none | Cache-warm status, not rate limited |
-| \`/admin/flush\` | POST | \`x-api-token\` | Drops the tile cache |
+| \`/v1/items/{id}\` | GET | none | Rate limited per client id |
+| \`/v1/meta\` | GET | none | Cache-warm status, not rate limited |
+| \`/admin/flush\` | POST | \`x-api-token\` | Drops the schema cache |
 | \`/admin/limits\` | GET | \`x-api-token\` | Echoes the live limiter config |
 
 Rate limiting applies per client id, not per IP. The client id is taken from the
@@ -349,7 +349,7 @@ gate falls through and the burst is granted. Observed: \`served=120/100 effectiv
       caseSlug: 'HMT-1-burst-token',
       title: 'Confirmed again: position gates invert under load',
       hoursAgo: P - 0.8,
-      content: `Second confirmation (HMT-1, tile-service). A burst gated on \`resetsIn >= windowMs / 2\`
+      content: `Second confirmation (HMT-1, api-gateway). A burst gated on \`resetsIn >= windowMs / 2\`
 granted 20 extra requests to a client that had exhausted its limit in the first 4 seconds,
 taking the effective cap to 120/100. The gate had no \`limitReachedAt\` state at all, so the
 documented pacing intent was not merely unimplemented — it was unimplementable as written.
@@ -427,7 +427,7 @@ boundary. Check what state the gate reads, not what its comment claims.
       caseSlug: 'HMT-9-quota-drift',
       title: 'The 2h gap in quota logs is a timezone artifact',
       hoursAgo: A - 1,
-      content: `The quota service logs local time while the tile service logs UTC, so a 2h gap
+      content: `The quota service logs local time while the gateway logs UTC, so a 2h gap
 between their timestamps for the same request is an artifact, not latency.
 `,
       status: 'accepted',
@@ -591,7 +591,7 @@ export function seedKnowledge(ctx, { repos }) {
   fs.rmSync(refDir, { recursive: true, force: true })
   fs.mkdirSync(refDir, { recursive: true })
   const refs = [
-    { file: 'tile-endpoints.md', body: TILE_ENDPOINTS },
+    { file: 'api-endpoints.md', body: API_ENDPOINTS },
     {
       file: 'glossary.md',
       body: frontmatter({ trust_tier: 'user', title: 'Glossary' }) + GLOSSARY
@@ -650,22 +650,22 @@ Effective cap is \`limit + burst\`, never \`limit\`.
       topic: 'clock-skew-note',
       caseSlug: 'HMT-9-quota-drift',
       hoursAgo: ctx.T.PRIOR_CLOSED - 1,
-      summary: 'quota service logs local time, tile service logs UTC',
+      summary: 'quota service logs local time, the gateway logs UTC',
       body: `# clock-skew-note
 
-The quota service logs local time while the tile service logs UTC. A 2h gap between their
+The quota service logs local time while the gateway logs UTC. A 2h gap between their
 timestamps for the same request is an artifact of that, not latency.
 `
     },
     {
-      topic: 'tile-cache-cold-boot',
+      topic: 'cache-cold-boot',
       caseSlug: 'HMT-9-quota-drift',
       hoursAgo: ctx.T.PRIOR_CLOSED - 2,
-      summary: 'route timeout on cold boot reproduces only with an empty tile cache',
-      body: `# tile-cache-cold-boot
+      summary: 'upstream timeout on cold boot reproduces only with an empty schema cache',
+      body: `# cache-cold-boot
 
-\`route calculation timeout\` on cold boot reproduces only when the tile cache is empty: the
-warm-up races the first route request. Compare the first-request timestamp against the
+\`upstream timeout\` on cold boot reproduces only when the schema cache is empty: the
+warm-up races the first request. Compare the first-request timestamp against the
 cache-ready line before looking anywhere else.
 `
     }
