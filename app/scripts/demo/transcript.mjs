@@ -118,24 +118,24 @@ export function investigationEvents({ caseId, caseSlug, sessionId, turnIds, mode
   s.tool(
     'mcp__argus__search_evidence',
     `query: "429 reason=" · 14 hits in evidence/app.log\n\n` +
-      `app.log:${L.first429}  WARN [req=1421 client=flood-7] GET /tile/14/8592/5592 429 reason=window-limit-exceeded\n` +
+      `app.log:${L.first429}  WARN [req=1421 client=flood-7] GET /v1/items/5592 429 reason=window-limit-exceeded\n` +
       `app.log:${L.first429 + 1}  WARN [req=1422 client=flood-7] ... 429 reason=window-limit-exceeded\n` +
-      `app.log:${L.starvedClient}  WARN [req=1454 client=quiet-9] GET /tile/12/2145/1400 429 reason=upstream-saturated\n` +
+      `app.log:${L.starvedClient}  WARN [req=1454 client=quiet-9] GET /v1/items/1400 429 reason=upstream-saturated\n` +
       `\n2 distinct reasons: window-limit-exceeded (13), upstream-saturated (1)`,
     t(47.98)
   )
   s.tool(
     'Read',
     `evidence/app.log lines ${L.limitReached}-${L.first429}\n\n` +
-      `${L.limitReached}  WARN tile-service [client=flood-7] window limit reached count=100/100 elapsed_ms=4021 remaining_ms=55979\n` +
-      `${L.first429}  WARN tile-service [req=1421 client=flood-7] GET /tile/14/8592/5592 429 reason=window-limit-exceeded`,
+      `${L.limitReached}  WARN api-gateway [client=flood-7] window limit reached count=100/100 elapsed_ms=4021 remaining_ms=55979\n` +
+      `${L.first429}  WARN api-gateway [req=1421 client=flood-7] GET /v1/items/5592 429 reason=window-limit-exceeded`,
     t(47.95)
   )
   s.tool(
     'Read',
     `evidence/app.log lines ${L.burstExhausted}-${L.starvedClient}\n\n` +
-      `${L.burstExhausted}  WARN tile-service [client=flood-7] burst exhausted served=120/100 effective_cap=120 window_elapsed_ms=32115\n` +
-      `${L.starvedClient}  WARN tile-service [req=1454 client=quiet-9] GET /tile/12/2145/1400 429 reason=upstream-saturated count=3/100`,
+      `${L.burstExhausted}  WARN api-gateway [client=flood-7] burst exhausted served=120/100 effective_cap=120 window_elapsed_ms=32115\n` +
+      `${L.starvedClient}  WARN api-gateway [req=1454 client=quiet-9] GET /v1/items/1400 429 reason=upstream-saturated count=3/100`,
     t(47.93)
   )
   s.say(

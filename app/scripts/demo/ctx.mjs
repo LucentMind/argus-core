@@ -23,10 +23,10 @@ export const REPO_SLUGS = [
  * above instead.
  */
 export const FILLER_SLUGS = [
-  'NAV-212-route-flicker',
-  'NAV-118-stopover-drop',
-  'ADAS-77-lane-bias',
-  'NAV-305-tile-cache'
+  'GW-212-retry-after-skew',
+  'GW-118-keepalive-drop',
+  'API-77-cursor-skip',
+  'GW-305-cache-cold-boot'
 ]
 
 export const SLUGS = [...REPO_SLUGS, ...FILLER_SLUGS]
