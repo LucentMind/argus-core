@@ -14,8 +14,9 @@ export class AuthCache {
   // being asked — turn evidence outranks a probe that was already in flight, so its result
   // is still handed back to its own caller but must not overwrite what came after it.
   private generation = 0
-  /** Evidence from a real turn. Outranks the probe in BOTH directions: the probe runs with
-   *  maxTurns:0 and never contacts the API, so it reports ok:true even when logged out.
+  /** Evidence from a real turn. Outranks the probe in BOTH directions: the probe is only the
+   *  CLI's initialize handshake and never contacts the API, so it reports ok:true even when
+   *  logged out.
    *  Cleared only by newer evidence (a verified turn), an explicit re-probe, or a settings change. */
   private turnVerdict: 'failed' | 'verified' | null = null
   /** The probe currently running, so concurrent callers share it instead of each spawning a

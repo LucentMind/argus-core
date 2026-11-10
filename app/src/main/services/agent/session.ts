@@ -1340,7 +1340,7 @@ export class CaseSession {
   // Per-turn DB accounting + auth verdict, driven by the driver-extracted TurnResult
   // (the token/cost/model resolution and the auth-shape discrimination now live in the
   // driver). The turn is the ONLY thing that actually authenticates against the API — the
-  // maxTurns:0 probe never does — so its outcome is the source of truth: an auth-shaped
+  // handshake-only probe never does — so its outcome is the source of truth: an auth-shaped
   // failure clears the cached credentials, a clean turn proves they work, and a plain
   // (non-auth) error leaves the auth state untouched.
   private handleTurnResult(r: TurnResult): void {
