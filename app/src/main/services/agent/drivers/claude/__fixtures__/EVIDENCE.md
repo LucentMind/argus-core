@@ -529,3 +529,22 @@ order.
 #### Redactions / Reproducing
 
 As for Q1 — same run, same harness, same account-name substitution.
+
+## Correction (2026-11-10): `prompt: 'hi'` / `'ping'` with `maxTurns: 0` is a billed turn
+
+The capture recipe above — and the auth probe and catalog fetch that copied it — assumed
+`maxTurns: 0` made the CLI initialize without running a turn. It does not. SDK 0.3.299 forwards
+the option as `if (maxTurns) args.push('--max-turns', …)`, so 0 is dropped and the turn runs
+unlimited: the probe's scratch-cwd transcripts on one machine held 1,935 "ping" sessions with a
+billed "pong" reply (median ~30K cache-read input tokens, mean ~2.4K cache-creation, ~40 output).
+
+Measured with `ANTHROPIC_BASE_URL` pointed at a local capture server (nothing reached Anthropic):
+
+| prompt stream | awaited | `/v1/messages` requests | result |
+|---|---|---|---|
+| yields `ping`, `maxTurns: 0` | `system/init` stream message | 1 per attempt | init after ~6s, turn billed |
+| never yields | `q.initializationResult()` | 0 (only `HEAD /api/hello`) | account + `claude_code_version` in ~0.7s |
+| never yields | `q.supportedModels()` | 0 (only `HEAD /api/hello`) | 5 models in ~0.7s |
+
+The `system/init` stream message is never emitted without a user message, so a silent prompt
+must read the control channel instead. Future captures: never yield a user message.

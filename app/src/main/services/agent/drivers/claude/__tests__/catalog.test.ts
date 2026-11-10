@@ -61,6 +61,53 @@ describe('fetchCatalog', () => {
     expect(models.length).toBeGreaterThan(0)
   })
 
+  // The fetch used to yield a literal "ping" user message with `maxTurns: 0` to coax the CLI
+  // into initializing. The SDK drops a falsy maxTurns, so that was an unlimited turn: the
+  // model answered "pong" against the full system prompt, billed, on every catalog fetch.
+  // `supportedModels()` is a control-channel call that resolves from `initialize` alone —
+  // measured live 2026-11-10: ~0.7s, no `/v1/messages` request — so the prompt must stay silent.
+  it('never yields a user message and passes no maxTurns — a user message is a billed turn', async () => {
+    let prompt: AsyncIterable<unknown> | undefined
+    let options: Record<string, unknown> | undefined
+    const inner = fakeQuery(fixture)
+    const spy: CreateQueryFn = (args) => {
+      prompt = args.prompt as AsyncIterable<unknown>
+      options = args.options as Record<string, unknown>
+      return inner(args)
+    }
+    await fetchCatalog(spy)
+    expect(prompt).toBeDefined()
+    const first = await Promise.race([
+      prompt!
+        [Symbol.asyncIterator]()
+        .next()
+        .then((r) => (r.done ? 'ended' : 'yielded')),
+      new Promise<'silent'>((r) => setTimeout(() => r('silent'), 50))
+    ])
+    expect(first).toBe('silent')
+    expect('maxTurns' in options!).toBe(false)
+  })
+
+  it('tears the handle down with close() when it has one — there is no turn to interrupt', async () => {
+    let closed = 0
+    let interrupted = 0
+    const q: CreateQueryFn = () => ({
+      supportedModels: async () => fixture,
+      interrupt: async () => {
+        interrupted++
+      },
+      close: () => {
+        closed++
+      },
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      [Symbol.asyncIterator]: async function* () {}
+    })
+    const models = await fetchCatalog(q)
+    expect(models.map((m) => m.value)).toContain('fable')
+    expect(closed).toBe(1)
+    expect(interrupted).toBe(0)
+  })
+
   it('caches, so a second call does not respawn the CLI', async () => {
     const q = fakeQuery(fixture)
     await fetchCatalog(q)

@@ -115,6 +115,12 @@
   the install id (`argus-session-<id>@<install id>`), the same `<id>@<qualifier>` shape as
   distill-job seeds. A session that already had a trace under the old seed starts a new trace
   after the upgrade.
+- The Claude provider-status probe and the model-catalog fetch each ran a real, billed model
+  turn: they sent a "ping" user message under `maxTurns: 0`, which the Agent SDK drops as falsy,
+  so the CLI answered "pong" against its full system prompt (~30K cached input tokens a time) —
+  every five minutes per enabled instance, on every settings write, and on each catalog fetch.
+  Both now send no user message at all and read the CLI's `initialize` handshake instead (account,
+  subscription, version, models), which leaves no request to the model.
 
 ## v2.6.0 — 2026-11-03
 

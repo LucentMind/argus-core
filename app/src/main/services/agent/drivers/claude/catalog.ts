@@ -2,6 +2,7 @@ import type { ModelOptionInfo } from '../../../../../shared/runOptions'
 import { CLAUDE_MODEL_INFO, resolveModelInfo } from '../../../../../shared/drivers'
 import type { CreateQueryFn } from './index'
 import { claudeSpawnEnv, resolveClaudeCliPath } from './cliPath'
+import { silentPrompt } from './probe'
 import { agentScratchCwd } from '../../scratchCwd'
 
 /**
@@ -68,22 +69,17 @@ async function ask(
   let q: ReturnType<CreateQueryFn> | null = null
   try {
     q = createQuery({
-      prompt: (async function* () {
-        yield {
-          type: 'user',
-          message: { role: 'user', content: [{ type: 'text', text: 'ping' }] },
-          parent_tool_use_id: null,
-          session_id: ''
-        }
-        await new Promise(() => undefined)
-      })(),
+      // Never yields. `supportedModels()` answers from the CLI's `initialize` handshake, which
+      // needs no user message — and a user message is a billed turn: this used to yield a
+      // literal "ping" under `maxTurns: 0`, which the SDK drops as falsy, so every catalog
+      // fetch ran a full "pong" turn against the model (see probe.ts for the measurements).
+      prompt: silentPrompt(),
       options: {
         // Same containment as probe.ts: without an explicit cwd the CLI inherits the
         // app's — "/" for a Finder-launched packaged build — and its boot-time discovery
         // walks into TCC-protected folders, prompting as Argus. Empty scratch dir rather
         // than the temp root, for the boot-walk cost measured in scratchCwd.ts.
         cwd: agentScratchCwd(),
-        maxTurns: 0,
         allowedTools: [],
         env: claudeSpawnEnv(),
         ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {})
@@ -104,10 +100,23 @@ async function ask(
     // settles (hung control channel) must not extend ask()'s total runtime past a short,
     // fixed deadline. Losing this race leaks the child process — acceptable — rather
     // than leaving every awaiter (including CaseSession.stop()) blocked forever.
-    await Promise.race([
-      q?.interrupt?.().catch(() => undefined),
-      new Promise<void>((r) => setTimeout(r, CLEANUP_TIMEOUT_MS))
-    ])
+    //
+    // close() first, as probe.ts does: no turn ever ran here, so interrupt() has nothing to
+    // stop, while close() is the SDK's documented teardown of the subprocess and its control
+    // channel. interrupt() remains for handles without close().
+    const handle = q as unknown as { close?: () => void } | null
+    if (typeof handle?.close === 'function') {
+      try {
+        handle.close()
+      } catch {
+        // a handle that is already gone is the outcome wanted
+      }
+    } else {
+      await Promise.race([
+        q?.interrupt?.().catch(() => undefined),
+        new Promise<void>((r) => setTimeout(r, CLEANUP_TIMEOUT_MS))
+      ])
+    }
   }
 }
 

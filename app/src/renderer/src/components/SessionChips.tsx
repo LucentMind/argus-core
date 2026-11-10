@@ -119,8 +119,8 @@ export function SessionChips({
         ? 'review'
         : 'neutral'
   // `verified` means "a real turn has proven these credentials work" (AuthCache.onAuthVerified).
-  // Until then the probe's green is provisional — it runs with maxTurns:0 and never contacts the
-  // API. The old wording said "confirmed on your first message", which reads as a completed fact
+  // Until then the probe's green is provisional — it is only the CLI's initialize handshake and
+  // never contacts the API. The old wording said "confirmed on your first message", which reads as a completed fact
   // and directly contradicted the "ready (unconfirmed)" line right above it. State the pending
   // condition instead, so both lines say the same thing.
   const authDetail = auth
