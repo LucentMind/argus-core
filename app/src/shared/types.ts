@@ -403,8 +403,8 @@ export interface AuthStatus {
   ok: boolean
   detail: string // "logged in as x@y (subscription)" | "not logged in" | error text
   /**
-   * True only once a real turn has authenticated against the API. The probe runs with
-   * maxTurns:0 and never contacts the API, so `ok: true, verified: false` means
+   * True only once a real turn has authenticated against the API. The probe is only the
+   * CLI's initialize handshake and never contacts the API, so `ok: true, verified: false` means
    * "CLI ready, account on file, sign-in not yet proven". Do not render this as
    * "logged in" (spec §4).
    */

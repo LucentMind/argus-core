@@ -22,107 +22,125 @@ function subscriptionLabel(
     .join(' ')
 }
 
-// The CLI only emits system/init after the prompt stream yields a first message,
-// so a never-yielding probe would always time out. One ping with maxTurns: 0
-// triggers init without running (or billing) a turn.
-async function* onePing(): AsyncGenerator<unknown> {
-  yield {
-    type: 'user',
-    message: { role: 'user', content: [{ type: 'text', text: 'ping' }] },
-    parent_tool_use_id: null,
-    session_id: ''
+/**
+ * The probe's prompt stream never yields. A user message — any user message — is a turn the
+ * CLI runs against the model, and the model bills it.
+ *
+ * This used to yield a literal "ping" with `maxTurns: 0`, believing that triggered the CLI's
+ * `system/init` without running a turn. It did not: the SDK forwards maxTurns as
+ * `if (maxTurns) args.push('--max-turns', …)`, so 0 was dropped and the turn ran unlimited.
+ * The model answered "pong" against the full system prompt and tool list, every five minutes
+ * per enabled instance plus every settings write — 1,935 billed probes, ~30K cached input
+ * tokens each, were found in the scratch-cwd transcripts of one machine (2026-11-10).
+ *
+ * Everything the probe needs arrives on the control channel instead: `initializationResult()`
+ * resolves from the CLI's `initialize` handshake (~0.7s after spawn, measured live against SDK
+ * 0.3.299 with the API base URL pointed at a capture server — only a `HEAD /api/hello`
+ * connectivity check left the process). The `system/init` STREAM message, by contrast, is
+ * only ever emitted once a user message arrives, so nothing here waits for it.
+ */
+export function silentPrompt(): AsyncIterable<never> {
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: () => new Promise<IteratorResult<never>>(() => undefined)
+    })
   }
-  await new Promise(() => undefined)
 }
 
 type Account = { email?: string; subscriptionType?: string; tokenSource?: string }
 
-// Ground truth (verified live against @anthropic-ai/claude-agent-sdk@0.3.205,
-// authenticated CLI): the system/init stream message carries NO `account`
-// field at all — only `claude_code_version` (not `version`). Account info
-// (email/subscriptionType/tokenSource/...) lives exclusively on the response
-// of the query handle's `initializationResult()` control-channel call. We
-// still fall back to reading `account`/`version` off the init message itself
-// for forward/backward compat with SDK builds that might carry it there.
-type InitHandle = { initializationResult?: () => Promise<{ account?: Account } | undefined> }
+/** The slice of the SDK's `SDKControlInitializeResponse` the probe reads. Verified live
+ *  (0.3.299): `account` carries email/subscriptionType/tokenSource/apiProvider and
+ *  `claude_code_version` is the same value `system/init` would carry. Both optional: older
+ *  CLIs predate the version field, and a logged-out CLI reports an empty account. */
+type InitResponse = { account?: Account; claude_code_version?: string }
+
+type ProbeHandle = AsyncIterable<unknown> & {
+  initializationResult?: () => Promise<InitResponse | undefined>
+  interrupt?: () => Promise<unknown>
+  close?: () => void
+}
 
 export async function probeAuth(
   createQuery: CreateQueryFn,
   opts: { timeoutMs?: number; cliPath?: string } = {}
 ): Promise<AuthStatus> {
   const timeoutMs = opts.timeoutMs ?? 10000
-  const deadline = Date.now() + timeoutMs
   // Same packaged-build escape as the session path (see resolveClaudeCliPath): without it the
   // probe reports a bogus "libc mismatch" instead of an auth verdict.
   const cliPath = opts.cliPath ?? resolveClaudeCliPath()
-  let q: ReturnType<CreateQueryFn> | null = null
+  let q: ProbeHandle | null = null
   try {
     q = createQuery({
-      prompt: onePing(),
+      prompt: silentPrompt(),
       options: {
         // Without an explicit cwd the CLI inherits the app's — "/" for a Finder-launched
         // packaged build — and its boot-time discovery walks into TCC-protected folders,
         // prompting as Argus. An empty scratch dir rather than the temp root itself: the
         // same boot walk over a large %TEMP% outran this timeout every time (scratchCwd.ts).
         cwd: agentScratchCwd(),
-        maxTurns: 0,
         allowedTools: [],
-        // Auth probe: keep it a pure ping, with no auto-memory read. See claudeSpawnEnv.
+        // Auth probe: keep it a pure handshake, with no auto-memory read. See claudeSpawnEnv.
         env: claudeSpawnEnv(),
         ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {})
       }
-    })
-    const first = await Promise.race([
-      (async (): Promise<unknown> => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        for await (const msg of q as AsyncIterable<any>) {
-          if (msg?.type === 'system' && msg.subtype === 'init') return msg
-        }
-        return null
+    }) as unknown as ProbeHandle
+    const getInit = q.initializationResult
+    if (typeof getInit !== 'function') {
+      return {
+        ok: false,
+        verified: false,
+        detail: 'claude SDK handle has no initializationResult()'
+      }
+    }
+    // The stream is raced alongside the handshake not for its messages — there are none
+    // without a user message — but for its failure modes: a spawn that fails rejects it, and
+    // a CLI that dies at boot ends it. Either would otherwise surface only as the timeout.
+    const outcome = await Promise.race([
+      getInit.call(q).then((init): { init: InitResponse } => ({ init: init ?? {} })),
+      (async (): Promise<'exited'> => {
+        for await (const _ of q) void _
+        return 'exited'
       })(),
       new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), timeoutMs))
     ])
-    if (first === 'timeout') {
+    if (outcome === 'timeout') {
       return {
         ok: false,
         verified: false,
         detail: 'probe timed out — is the claude CLI installed and logged in?'
       }
     }
-    if (first && typeof first === 'object') {
-      const m = first as {
-        model?: string
-        claude_code_version?: string
-        version?: string
-        account?: Account
-      }
-
-      let account = m.account
-      const getInitResult = (q as unknown as InitHandle).initializationResult
-      if (typeof getInitResult === 'function') {
-        const remaining = Math.max(0, deadline - Date.now())
-        const initResult = await Promise.race([
-          getInitResult.call(q).catch(() => undefined),
-          new Promise<undefined>((r) => setTimeout(() => r(undefined), remaining))
-        ])
-        if (initResult?.account) account = initResult.account
-      }
-
-      const subscription = subscriptionLabel(account?.subscriptionType, account?.tokenSource)
-      const version = m.claude_code_version ?? m.version
-      return {
-        ok: true,
-        verified: false,
-        detail: `claude ready (${m.model ?? 'unknown model'})`,
-        ...(account?.email ? { email: account.email } : {}),
-        ...(subscription ? { subscription } : {}),
-        ...(version ? { version } : {})
-      }
+    if (outcome === 'exited') {
+      return { ok: false, verified: false, detail: 'claude CLI exited before initializing' }
     }
-    return { ok: false, verified: false, detail: 'claude CLI exited before initializing' }
+    const { init } = outcome
+    const subscription = subscriptionLabel(
+      init.account?.subscriptionType,
+      init.account?.tokenSource
+    )
+    const version = init.claude_code_version
+    return {
+      ok: true,
+      verified: false,
+      detail: version ? `claude ready (Claude Code ${version})` : 'claude ready',
+      ...(init.account?.email ? { email: init.account.email } : {}),
+      ...(subscription ? { subscription } : {}),
+      ...(version ? { version } : {})
+    }
   } catch (err) {
     return { ok: false, verified: false, detail: (err as Error).message }
   } finally {
-    await q?.interrupt().catch(() => undefined)
+    // close() ends the subprocess outright. An interrupt() alone has nothing to interrupt
+    // here — no turn ever ran — and a CLI left waiting on stdin would linger per probe.
+    if (typeof q?.close === 'function') {
+      try {
+        q.close()
+      } catch {
+        // a handle that is already gone is the outcome wanted
+      }
+    } else {
+      await q?.interrupt?.().catch(() => undefined)
+    }
   }
 }
