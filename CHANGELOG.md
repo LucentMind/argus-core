@@ -122,6 +122,22 @@
   Both now send no user message at all and read the CLI's `initialize` handshake instead (account,
   subscription, version, models), which leaves no request to the model.
 
+## v2.6.1 — 2026-11-10
+
+1 commit since v2.6.0, 9 files changed (+304 / −204). Hotfix on top of v2.6.0; the v2.7.0 beta
+line is unaffected by what this changes and carries the same fix.
+
+### Fixed
+
+- The Claude provider-status probe and the model-catalog fetch each ran a real, billed model
+  turn: they sent a "ping" user message under `maxTurns: 0`, which the Agent SDK drops as falsy,
+  so the CLI answered "pong" against its full system prompt (~30K cached input tokens a time) —
+  every five minutes per enabled instance, on every settings write, and on each catalog fetch.
+  This showed up as Claude token usage while nothing was happening in Argus. Both now send no
+  user message at all and read the CLI's `initialize` handshake instead (account, subscription,
+  version, models), which leaves no request to the model; the probe also answers in well under a
+  second instead of several.
+
 ## v2.6.0 — 2026-11-03
 
 87 commits since v2.5.0, 201 files changed (+19,819 / −370).
