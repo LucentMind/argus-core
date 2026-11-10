@@ -1227,7 +1227,7 @@ describe('JiraCases source tickets', () => {
     const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'zsrc-'))
     fs.writeFileSync(path.join(srcDir, 'a.txt'), 'a')
     fs.writeFileSync(path.join(srcDir, 'b.txt'), 'b')
-    const zipTmp = path.join(os.tmpdir(), `dedup-${Date.now()}.zip`)
+    const zipTmp = path.join(srcDir, 'dedup.zip')
     const zip = new Zip()
     zip.addFile(path.join(srcDir, 'a.txt'), 'a.txt')
     zip.addFile(path.join(srcDir, 'b.txt'), 'b.txt')

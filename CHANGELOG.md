@@ -2,21 +2,125 @@
 
 ## Unreleased
 
-## v2.6.1 — 2026-11-10
+97 commits since v2.6.0, 180 files changed (+16,568 / −1,088).
 
-1 commit since v2.6.0, 9 files changed (+304 / −204). Hotfix on top of v2.6.0; the v2.7.0 beta
-line is unaffected by what this changes and carries the same fix.
+### Added
+
+**Observability providers**
+
+- Observability is now provider-based. Settings → Observability shows one section per
+  provider — Langfuse (unchanged) and a new **OpenTelemetry (OTLP/HTTP)** exporter that
+  speaks the GenAI semantic conventions and works with any OTLP/HTTP collector (OpenTelemetry
+  Collector, Grafana, Langfuse's OTLP endpoint; Datadog via its Agent/Collector). Several
+  providers can be enabled at once; each has its own content-capture switch, secret and health
+  row ("Test connection"). OTLP backends cannot upsert scores: deduplicate re-emitted
+  `asset.contribution` scores on `argus.score.id`.
+- Adapter contract tests and a credential-free live gate (`npm run gate:observability-otlp`)
+  run in CI against a local OTLP receiver.
+
+**Distillation-health events**
+
+- Every finished distill job attempt (case, attribution-only, reject digest, dry run) is now one
+  trace at the configured observability provider(s): outcome, cost, prompt hash and per-stage
+  usage/errors, plus drop counters; a retry is a new trace. Accepting, editing or rejecting a
+  proposal emits a `proposal.outcome` score (reject reason included) on the trace of the job that
+  produced it, or on the case's latest session for a human-authored proposal. Nothing new leaves
+  the machine unless a provider is enabled; stage raw output is gated by the provider's
+  content-capture switch, and error strings are always cut at their first quote.
+
+**Findings review**
+
+- **Findings review where you read.** A finding the agent records now appears as a card in the
+  chat transcript, with the same thumbs as the findings rail; both read one store, so a review
+  made in either place shows in both. On the ACP drivers (Codex, Gemini, Qwen) the transcript
+  still shows the plain tool row because those drivers do not canonicalise Argus tool names; the
+  rail, the reason strip and the agent-side review note work on every driver.
+- **One-click reject reasons.** Thumbs-down rejects on the spot; a strip under the card then
+  offers `Wrong` / `Not useful` / `Other` with an optional one-line note (or Skip). A `Wrong` note
+  that names a skill, reference or memory of the case marks that asset as having misled it. The
+  tag reaches the distiller, the RCA draft and the agent's `list_findings`.
+- **The agent hears your reviews.** Findings you accept or reject between turns are summarised
+  at the top of the agent's next turn, so it stops defending a rejected finding and treats an
+  accepted one as settled.
+- `finding_accepted` observability scores now upsert per finding and carry the label metadata
+  (actor, tag, mode, role); the agent's own retractions are scored too.
+
+**Findings as a causal chain (increment 2)**
+
+- Every investigation finding now carries the agent's claim status (`hypothesis` / `confirmed`),
+  a role in the chain with its provenance (agent, you, or the confirmed RCA report) and a
+  `caused by` edge. The agent records them with `append_finding` and changes them with the new
+  `update_finding` tool (promote a hypothesis, set a role or cause, append dated evidence);
+  `append_finding(supersedes)` replaces a finding with a sharper one, rules the old one out and
+  re-attaches its children.
+- The findings rail is a chain index: `ROOT CAUSE` trees with children indented, `UNEXPLAINED`
+  findings with no recorded cause, and `RULED OUT` collapsed; hypotheses have a dashed border;
+  the header counts what is still to review and **Review** walks those cards one at a time
+  (`a` accept / `r` reject / `s` or `j` skip / `k` back / `Esc` done), scrolling each into view.
+- You can set a finding's role and cause on the open card (rail or chat); the agent hears those
+  edits at its next turn, the way it hears your reviews. Only one confirmed root cause per
+  case; the agent cannot change the status or role of a finding you accepted, nor a role set by
+  a confirmed RCA report.
+- `list_findings` shows the agent the same tree. The distill snapshot and the RCA input carry
+  the chain fields (consumer rules follow in increment 3).
+- PR review sessions are unchanged: their findings stay a flat list, and the agent's chain
+  fields (`status`, `role`, `caused_by`, `supersedes`) are refused there.
+
+**Findings as a causal chain (increment 3) — the chain's consumers**
+
+- Distillation (v2 and the v3 dossier) and the RCA drafter now read a case's findings as the
+  reviewed causal chain: every line carries the agent's status and your review
+  (`confirmed · accepted`, `hypothesis · pending`, …), children sit under their cause, and a
+  finding replaced by a sharper one reads `superseded by #N` with no body — it is folded into
+  its successor, never counted as a ruled-out hypothesis. A hypothesis is admissible only in
+  the diagnostic path; the dossier's root cause anchors on the root-cause finding you accepted,
+  or on the agent's confirmed root with an explicit "unreviewed" note.
+- The RCA draft is seeded from the chain and the RCA panel now says what the draft left
+  unanchored: `N statements without a finding · M findings not used`.
+- A **Findings** tab beside Chat reads the chain as a document — bodies open, thumbs, reject
+  reasons, role and cause editors on every card, and the same `Review` walk as the rail.
+- `Correct` on a card or the reject strip opens the chat with the finding's handle typed for
+  you; thumbs-down on a finding the agent retracted records your own reject instead of undoing
+  the retraction; the cause chip names the cause; an update the agent makes to a finding you
+  accepted says so on the card and in the agent's result.
+- `update_finding` gains `replace_markdown` for a body whose claim stands but whose citation or
+  number was wrong (refused on an accepted finding); a model-written body can no longer split
+  `findings.md`. `finding_accepted` scores carry `status` and `roleSource`;
+  `search_case_history` says whether a solved case's root cause was accepted.
+
+### Changed
+
+- Settings: `observability.langfuse` moved to `observability.providers.langfuse` (migrated
+  once on first start; the Langfuse secret is unchanged).
+- Rewind and fork stay native more often on Claude. A turn with no stored provider anchor (every
+  turn that survived an earlier native rewind, every inherited turn of a fork, and turns recorded
+  before anchors were captured) used to force a summary-only branch, so a second rewind or a fork
+  of a fork silently lost full context. The anchor is now derived from the session's own
+  transcript when it is missing; any doubt (a pruned transcript, a failed attempt beside an
+  identical retry, a turn with no reply) still falls back to the summary, as before.
 
 ### Fixed
 
+- The Findings tab did not show the roles a confirmed RCA report writes until it was reopened
+  (only the findings rail refetched). Every findings surface — the rail, the Findings tab and
+  the chat card — now updates as soon as the report is confirmed.
+- A finding's body could forge a finding line in headless prompts: a body line reading like
+  `#9 · confirmed · accepted · root-cause · …` looked like a real, human-accepted finding to the
+  distiller (v2 and the v3 dossier) and the RCA drafter. Such a body line, or one that repeats a
+  tree heading, is now quoted with `> `, and the prompts say a `> ` body line is never a finding.
+- Session traces from different installs merged into one trace on a shared observability
+  backend: the trace seed was the bare session row id, which every Argus home numbers from 1
+  (seen live on a shared Langfuse project — a July session and a smoke session under one trace
+  id, 2161 h of "latency", scores attached to another install's work). Session seeds now carry
+  the install id (`argus-session-<id>@<install id>`), the same `<id>@<qualifier>` shape as
+  distill-job seeds. A session that already had a trace under the old seed starts a new trace
+  after the upgrade.
 - The Claude provider-status probe and the model-catalog fetch each ran a real, billed model
   turn: they sent a "ping" user message under `maxTurns: 0`, which the Agent SDK drops as falsy,
   so the CLI answered "pong" against its full system prompt (~30K cached input tokens a time) —
   every five minutes per enabled instance, on every settings write, and on each catalog fetch.
-  This showed up as Claude token usage while nothing was happening in Argus. Both now send no
-  user message at all and read the CLI's `initialize` handshake instead (account, subscription,
-  version, models), which leaves no request to the model; the probe also answers in well under a
-  second instead of several.
+  Both now send no user message at all and read the CLI's `initialize` handshake instead (account,
+  subscription, version, models), which leaves no request to the model.
 
 ## v2.6.0 — 2026-11-03
 

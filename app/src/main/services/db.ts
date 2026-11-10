@@ -645,6 +645,35 @@ export function openDb(file: string): DatabaseSync {
   if (!findingCols.some((c) => c.name === 'review_actor')) {
     db.exec(`ALTER TABLE findings ADD COLUMN review_actor TEXT`)
   }
+  // Human reject reasons (spec 2026-10-25). `reject_tag` is one of FINDING_REJECT_TAGS and
+  // `reject_note` its optional one-line note. Both are HUMAN-only and NULL on every accepted,
+  // pending and agent-retracted row, and on every human reject written before this column
+  // existed (unlabelled). `review_reason` stays the agent's: a column whose meaning flips on
+  // `review_actor` is the two-representations shape that has bitten before.
+  if (!findingCols.some((c) => c.name === 'reject_tag')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN reject_tag TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'reject_note')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN reject_note TEXT`)
+  }
+  // The causal chain (spec 2026-10-26 §5.1). `status` is the agent's claim (hypothesis |
+  // confirmed; NULL = legacy = confirmed), `role_source` the provenance of `role` (agent | human
+  // | rca; NULL with role), `caused_by` the edge toward the root cause and `superseded_by` the
+  // finding that replaced this one. Both id columns point at findings of the SAME case and are
+  // nulled by deleteFinding/clearFindings when their target goes — no FK, same as every other
+  // finding-to-finding reference, so a half-written migration cannot lock the table.
+  if (!findingCols.some((c) => c.name === 'status')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN status TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'role_source')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN role_source TEXT`)
+  }
+  if (!findingCols.some((c) => c.name === 'caused_by')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN caused_by INTEGER`)
+  }
+  if (!findingCols.some((c) => c.name === 'superseded_by')) {
+    db.exec(`ALTER TABLE findings ADD COLUMN superseded_by INTEGER`)
+  }
   const turnCols = db.prepare(`PRAGMA table_info(turns)`).all() as { name: string }[]
   if (!turnCols.some((c) => c.name === 'model')) {
     db.exec(`ALTER TABLE turns ADD COLUMN model TEXT`)

@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FindingsPane } from '../FindingsPane'
+import { findingsStore } from '../../lib/findingsStore'
 import type { FindingRow } from '../../../../shared/observability'
 
 function row(over: Partial<FindingRow>): FindingRow {
@@ -27,8 +28,14 @@ function row(over: Partial<FindingRow>): FindingRow {
     headSha: null,
     reviewReason: null,
     reviewActor: null,
+    rejectTag: null,
+    rejectNote: null,
     mode: 'investigation',
     role: null,
+    status: 'confirmed',
+    roleSource: null,
+    causedBy: null,
+    supersededBy: null,
     ...over
   }
 }
@@ -36,6 +43,7 @@ function row(over: Partial<FindingRow>): FindingRow {
 const list = vi.fn()
 
 beforeEach(() => {
+  findingsStore.clearForTests()
   list.mockReset()
   window.argus = {
     findings: { list, review: vi.fn(), clear: vi.fn() },
@@ -240,8 +248,12 @@ describe('FindingsPane review flavor', () => {
     } as never
 
     render(<FindingsPane slug="c1" sessionId={1} activeMode="investigation" onCite={vi.fn()} />)
-    const item = (await screen.findByText('Retracted by the agent')).closest('li') as HTMLElement
-    expect(within(item).getByText('retracted by agent')).toBeInTheDocument()
+    // A rejected finding is ruled out (collapsed section), and each review below moves the card
+    // between sections — a fresh <li> each time, so it is re-queried rather than held.
+    await userEvent.click(await screen.findByRole('button', { name: 'RULED OUT · 1' }))
+    const card = (): HTMLElement =>
+      screen.getByText('Retracted by the agent').closest('li') as HTMLElement
+    expect(within(card()).getByText('retracted by agent')).toBeInTheDocument()
 
     // First click: toggle the active (rejected) thumb back to pending.
     review.mockResolvedValueOnce(
@@ -253,9 +265,9 @@ describe('FindingsPane review flavor', () => {
         reviewReason: null
       })
     )
-    await userEvent.click(within(item).getByRole('button', { name: 'Mark finding not useful' }))
+    await userEvent.click(within(card()).getByRole('button', { name: 'Mark finding not useful' }))
     await waitFor(() =>
-      expect(within(item).queryByText('retracted by agent')).not.toBeInTheDocument()
+      expect(within(card()).queryByText('retracted by agent')).not.toBeInTheDocument()
     )
 
     // Second click: human rejects it for real. The server PRESERVES review_reason in the DB
@@ -271,15 +283,14 @@ describe('FindingsPane review flavor', () => {
         reviewReason: 'the guard is in the caller'
       })
     )
-    await userEvent.click(within(item).getByRole('button', { name: 'Mark finding not useful' }))
+    await userEvent.click(within(card()).getByRole('button', { name: 'Mark finding not useful' }))
     await waitFor(() =>
-      expect(within(item).getByRole('button', { name: 'Mark finding not useful' })).toHaveAttribute(
-        'aria-pressed',
-        'true'
-      )
+      expect(
+        within(card()).getByRole('button', { name: 'Mark finding not useful' })
+      ).toHaveAttribute('aria-pressed', 'true')
     )
-    expect(within(item).queryByText('retracted by agent')).not.toBeInTheDocument()
-    expect(within(item).queryByText('the guard is in the caller')).not.toBeInTheDocument()
+    expect(within(card()).queryByText('retracted by agent')).not.toBeInTheDocument()
+    expect(within(card()).queryByText('the guard is in the caller')).not.toBeInTheDocument()
   })
 
   it('keeps the expand affordance enabled (body survives) after a review click', async () => {

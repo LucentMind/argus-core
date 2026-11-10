@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { PanelsStore, CHAT_TAB } from '../panelsStore'
+import { PanelsStore, CHAT_TAB, FINDINGS_TAB } from '../panelsStore'
 import { panelKeyStr, type PanelInfo } from '../../../../shared/panels'
 
 const info = (over: Partial<PanelInfo> = {}): PanelInfo => ({
@@ -17,6 +17,24 @@ beforeEach(() => {
 })
 
 describe('PanelsStore', () => {
+  it('keeps the findings tab active through setPanels and reports no active panel key for it', () => {
+    store.setCase('CASE-A')
+    store.setActiveTab(FINDINGS_TAB)
+    store.setPanels([info()])
+    expect(store.get().activeTab).toBe(FINDINGS_TAB)
+    expect(store.activeKey()).toBeNull()
+  })
+  it('setFindingsAvailable(false) falls back to Chat only when the findings tab is active', () => {
+    store.setCase('CASE-A')
+    store.setActiveTab(FINDINGS_TAB)
+    store.setFindingsAvailable(false)
+    expect(store.get().activeTab).toBe(CHAT_TAB)
+    store.setPanels([info()])
+    store.setActiveTab(panelKeyStr(info()))
+    store.setFindingsAvailable(false)
+    expect(store.get().activeTab).toBe(panelKeyStr(info()))
+  })
+
   it('starts empty on the Chat tab', () => {
     expect(store.get()).toMatchObject({
       caseSlug: null,

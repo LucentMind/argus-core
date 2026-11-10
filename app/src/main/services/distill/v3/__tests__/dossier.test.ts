@@ -53,8 +53,36 @@ const VALID = `\`\`\`json
 describe('buildDossierPrompt', () => {
   const p = buildDossierPrompt(INPUT)
   it('renders findings with ids, states and roles', () => {
-    expect(p).toContain('### [#7 · accepted · root-cause] flag stranded')
-    expect(p).toContain('### [#8 · rejected · ruled-out] gps drift')
+    expect(p).toContain('#7 · accepted · root-cause · flag stranded\nbody')
+    expect(p).toContain('RULED OUT\n#8 · rejected · ruled-out · gps drift')
+  })
+  it('the contract anchors root_cause on an accepted or pending confirmed root and never on a hypothesis', () => {
+    expect(DOSSIER_CONTRACT).toContain(
+      '[confirmed · accepted] (human-confirmed) or [confirmed · pending]'
+    )
+    expect(DOSSIER_CONTRACT).toContain('A [hypothesis] root-cause does not anchor')
+    expect(DOSSIER_CONTRACT).toContain('A [superseded by #N] finding was replaced by finding #N')
+    expect(DOSSIER_CONTRACT).not.toContain('assigned by a human-confirmed RCA')
+    // The lite contract is derived by replacement and must carry the same rules.
+    expect(DOSSIER_LITE_CONTRACT).toContain('A [hypothesis] root-cause does not anchor')
+  })
+  it('the contract reads a later-rejected hypothesis under its later state, not as an active hypothesis', () => {
+    expect(DOSSIER_CONTRACT).toContain(
+      'An active [hypothesis · …] finding (pending or accepted) is admissible only in diagnostic_path'
+    )
+    expect(DOSSIER_CONTRACT).not.toContain(
+      'A [hypothesis · …] finding is admissible only in diagnostic_path.'
+    )
+    expect(DOSSIER_LITE_CONTRACT).toContain('An active [hypothesis · …] finding')
+  })
+  it('the contract names the cause by finding line, since bodies are unindented', () => {
+    const sentence =
+      "The findings are listed as the investigation's causal chain: a ↳ finding line is caused by the nearest less-indented finding line (one starting with #) above it; the text under a finding line is its body, and diagnostic_path follows that chain rather than re-deriving it from the transcript."
+    expect(DOSSIER_CONTRACT).toContain(sentence)
+    expect(DOSSIER_LITE_CONTRACT).toContain(sentence)
+    expect(DOSSIER_SECTIONS.findings.text).toContain(
+      '↳ = caused by the nearest less-indented finding line above;'
+    )
   })
   it('renders evidence, sessions and user messages', () => {
     expect(p).toContain('- logs/a.txt (text, 10 bytes)')

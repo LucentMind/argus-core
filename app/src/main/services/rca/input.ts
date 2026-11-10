@@ -115,11 +115,19 @@ export function assembleRcaInput(
       .map((f) => ({
         id: f.id,
         summary: f.summary,
-        body: f.body ?? '',
+        // A superseded finding is folded into its successor (spec 2026-10-26 §9.3): its line
+        // stays in the prompt, its body does not.
+        body: f.supersededBy != null ? '' : (f.body ?? ''),
         reviewState: f.reviewState,
         reviewReason: f.reviewReason,
         reviewActor: f.reviewActor,
-        role: f.role
+        rejectTag: f.rejectTag,
+        rejectNote: f.rejectNote,
+        role: f.role,
+        status: f.status,
+        roleSource: f.roleSource,
+        causedBy: f.causedBy,
+        supersededBy: f.supersededBy
       })),
     evidence: evidenceRows.map((e) => ({
       relPath: e.relPath,

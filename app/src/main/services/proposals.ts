@@ -630,6 +630,15 @@ function writeSkillDirAtomically(
   }
 }
 
+/**
+ * The single "was this accept an edit?" rule: the trimmed edited text differs from the agent's
+ * draft. Shared by acceptProposal (the `edited: true` archive stamp) and the accept IPC handler
+ * (the `proposal.outcome` score) so the two can never disagree.
+ */
+export function isEditedAccept(draft: string, editedContent: string | undefined): boolean {
+  return Boolean(editedContent?.trim()) && editedContent!.trim() !== draft.trim()
+}
+
 /** Apply to the USER tier (a proposal against a bundled asset shadows it — §1.4), then archive. */
 export function acceptProposal(
   argusHome: string,
@@ -803,8 +812,7 @@ export function acceptProposal(
   // editedContent merely round-trips the draft (e.g. the UI always sends the textarea value)
   // must not gain an `edited: true` stamp it doesn't deserve, and the archived byte content
   // must not diverge from an unedited accept's for change-detection tooling and existing tests.
-  const edited =
-    Boolean(opts.editedContent?.trim()) && opts.editedContent!.trim() !== p.content.trim()
+  const edited = isEditedAccept(p.content, opts.editedContent)
   archive(
     argusHome,
     file,

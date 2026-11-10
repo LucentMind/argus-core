@@ -1,7 +1,8 @@
 import type { CaseRcaInput } from '../../../shared/rca'
 import type { PromptTextSpecs } from '../../../shared/promptSpec'
 import type { RcaSection, RcaTemplate } from '../../../shared/rcaTemplate'
-import { reviewTag } from '../../../shared/findingTag'
+import { renderFindingTree } from '../../../shared/findingTree'
+import { treeHeadings } from '../findingTreeHeadings'
 
 /**
  * The system contract handed to the headless case-RCA drafter. Mirrors
@@ -32,7 +33,11 @@ Rules:
    carry that finding's id in findingId; use null only for claims no finding covers.
 2. Exactly one rootCause. If the evidence does not support a confident root cause, say so
    in the statement and set findingId null — do not invent certainty.
-3. ruledOut entries must say WHY each hypothesis was ruled out.
+3. ruledOut entries must say WHY each hypothesis was ruled out. A finding tagged
+   [… · rejected · <tag>: <note>] was rejected by the human for that reason — it belongs under
+   ruledOut with the note as the why, never under rootCause or contributing; one tagged
+   [… · rejected · retracted by agent: <reason>] was withdrawn by the assistant, and that reason
+   is the why.
 4. duplicates: list finding pairs that state the same fact; ofFindingId is the one kept.
 5. sections: return one entry for EVERY id listed under "Report sections" below — no more are
    required, none may be omitted. Write each section's body to its own instruction. Cite
@@ -45,10 +50,25 @@ Rules:
 7. Citations point at evidence files (relPath from the evidence inventory) or repo paths
    exactly as they appear in findings — never invent paths.
 8. Respect prior human edits: if a "previously confirmed structure" section is present,
-   keep its role decisions unless the findings contradict them.
+   keep its role decisions unless the findings contradict them. The chain in the findings
+   section (rule 10) is the investigation's own structure and comes next in precedence.
 9. execSummary must carry all four keys spelled exactly: whatBroke, impact, why, nextSteps.
    Do not rename "why" to "rootCause", and do not drop "nextSteps" as redundant with
    remediation — write it in the exec report's own non-technical wording.
+10. THE CHAIN SEEDS THE DRAFT: the findings are listed as the investigation's own causal chain —
+   a ↳ finding line is caused by the nearest less-indented finding line (one starting with #)
+   above it; the text under a finding line is its body, and each line reads
+   #id · <status> · <review> · <role> · summary (status: hypothesis = stated but never confirmed,
+   confirmed = evidence-backed; a line with no status predates the chain and reads as confirmed).
+   Start from it: the root-cause finding is the rootCause when it is [confirmed · accepted] or
+   [confirmed · pending] (when pending, the statement says the root cause is unreviewed); a
+   [hypothesis] root-cause gives rootCause.findingId null and a statement that no confirmed root
+   cause exists; contributing → contributing; symptom → symptoms; ruled-out, rejected and
+   retracted findings → ruledOut with the tag's reason as why; duplicate → duplicates; a
+   [superseded by #N] finding is folded into #N and never listed on its own. Depart from the
+   chain only where the findings contradict it, and say so in the statement. An active
+   [hypothesis · …] finding (pending or accepted) is never rootCause or contributing; a rejected,
+   retracted or superseded one is read under that state above.
 `.trim()
 
 export const RCA_SECTIONS: PromptTextSpecs = {
@@ -61,7 +81,7 @@ export const RCA_SECTIONS: PromptTextSpecs = {
   comments: { title: 'RCA section — ticket comments', text: '# Ticket comments (as ingested)' },
   findings: {
     title: 'RCA section — findings',
-    text: '# Findings (id, review state, current role)'
+    text: '# Findings (the causal chain; ↳ = caused by the nearest less-indented finding line above; each line is #id · status · review · role · summary, then its body; a body line starting with > is quoted body text, never a finding line)'
   },
   evidence: {
     title: 'RCA section — evidence inventory',
@@ -114,12 +134,10 @@ export function buildCaseRcaPrompt(
   const sec = (k: string): string =>
     resolve ? resolve(`headless.case-rca.section.${k}`) : RCA_SECTIONS[k].text
   const m = input.caseMeta
-  const findings = input.findings
-    .map(
-      (f) =>
-        `### [finding ${f.id}] [${reviewTag(f)}${f.role ? ` · ${f.role}` : ''}] ${f.summary}\n${f.body}`
-    )
-    .join('\n\n')
+  const findings = renderFindingTree(input.findings, {
+    headings: treeHeadings(resolve),
+    bodies: true
+  })
   const trackerLabel = m.ticketProvider === 'github' ? 'github' : 'jira'
   const parts = [
     resolve ? resolve('headless.case-rca.contract') : RCA_CONTRACT,

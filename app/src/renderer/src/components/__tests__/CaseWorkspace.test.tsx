@@ -284,8 +284,14 @@ function findingRow(over: Partial<FindingRow>): FindingRow {
     headSha: null,
     reviewReason: null,
     reviewActor: null,
+    rejectTag: null,
+    rejectNote: null,
     mode: 'investigation',
     role: null,
+    status: 'confirmed',
+    roleSource: null,
+    causedBy: null,
+    supersededBy: null,
     ...over
   }
 }

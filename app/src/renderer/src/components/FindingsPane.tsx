@@ -1,16 +1,21 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { FileText, PanelRight, Trash2 } from 'lucide-react'
 import { usePendingDisplay } from '../lib/usePendingDisplay'
 import { agentStore, EMPTY_CASE_AGENT_STATE } from '../lib/agentStore'
 import { confirm } from '../lib/confirmStore'
 import { reposStore } from '../lib/reposStore'
 import { uiStore } from '../lib/uiStore'
-import type { FindingRow, ReviewState } from '../../../shared/observability'
+import { findingsStore } from '../lib/findingsStore'
+import { useReviewWalk } from '../lib/useReviewWalk'
+import { useFindingActions } from '../lib/useFindingActions'
+import type { FindingRow } from '../../../shared/observability'
+import { buildFindingTree, isInactiveFinding, type TreeNode } from '../../../shared/findingTree'
 import { REVIEW_LAYERS, REVIEW_LAYER_ORDER } from '../../../shared/reviewLayers'
 import type { ReviewLayerId } from '../../../shared/reviewLayers'
 import type { ModeId } from '../../../shared/modes'
 import type { CiteTarget } from '../lib/citations'
 import { FindingCard } from './FindingCard'
+import { stageCorrection } from '../lib/correctFinding'
 import { IconBtn, SectionLabel, SkeletonRows } from './ui'
 
 export function FindingsPane({
@@ -31,17 +36,24 @@ export function FindingsPane({
    *  report is built from investigation findings, and review mode has no such concept. */
   onOpenRca?: () => void
 }): React.JSX.Element {
-  const [findings, setFindings] = useState<FindingRow[]>([])
+  const { rows: findings, loaded } = useSyncExternalStore(
+    (cb) => findingsStore.subscribe(cb),
+    () => findingsStore.get(slug)
+  )
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [clearError, setClearError] = useState<string | null>(null)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [layerFilter, setLayerFilter] = useState<ReviewLayerId | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actingId, setActingId] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [worktreeHead, setWorktreeHead] = useState<string | null>(null)
-  const [loaded, setLoaded] = useState(false)
-  const [rcaBump, setRcaBump] = useState(0)
+  // Review mode has no RULED OUT section, so a review-mode reject must not open it for later.
+  const actions = useFindingActions(slug, {
+    sessionId,
+    ruledOut: activeMode === 'investigation'
+  })
+  const { showRuledOut, setShowRuledOut } = actions
+  const listRef = useRef<HTMLDivElement>(null)
   const showSkeleton = usePendingDisplay(!loaded)
   const ui = useSyncExternalStore(
     (cb) => uiStore.subscribe(cb),
@@ -58,56 +70,15 @@ export function FindingsPane({
     () => reposStore.get(slug)
   ).names
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoaded(false)
-    void window.argus.findings.list(slug).then(
-      (rows) => {
-        setFindings(rows)
-        setLoaded(true)
-      },
-      (err) => {
-        // `loaded` on rejection too, so a failed fetch does not leave the pane skeletal forever.
-        // The findings are deliberately NOT cleared: a rejected fetch has not established that
-        // there are none, and a `bump`-triggered refetch that fails would otherwise wipe findings
-        // already on screen and replace them with "No findings yet." — the exact false claim this
-        // task exists to remove. (Cross-case leak of those stale findings is prevented by the
-        // `key={slug}` at the CaseWorkspace call site, not by anything here.)
-        console.warn(`[findings] list failed for ${slug}: ${(err as Error).message}`)
-        setLoaded(true)
-      }
-    )
-    // Loaded once per findingsBump (not per finding) — the stale check compares every row's
-    // recorded head_sha against this one shared value. Deliberately NOT part of `loaded`:
-    // it drives a staleness badge and must not hold the whole pane.
+    // The store keeps the last-known rows on a failed refetch (see findingsStore.load), so a
+    // `bump`-triggered reload never blanks findings already on screen. The bump is kept beside
+    // wireFindingsStore's own event wiring so this pane refetches in tests that drive
+    // agentStore directly. Loaded once per findingsBump (not per finding) — the stale check
+    // compares every row's recorded head_sha against this one shared value.
+    void findingsStore.load(slug)
+    // An RCA confirm's role writes reach the store through wireFindingsStore, not this pane.
     void window.argus.review.worktreeHead(slug).then(setWorktreeHead)
-  }, [slug, sessionId, bump, rcaBump])
-
-  // `RcaJobs.confirm` writes role assignments straight to the DB (findings.ts's
-  // applyReportRoles), which no `bump` (agentStore's findingsBump, fired only for
-  // agent-emitted findings) ever observes — without this, role chips/pinning only appear
-  // after a manual refetch (switching mode, remounting the pane). Same subscribe/bump
-  // pattern as `agentStore` above, scoped to this pane's own slug.
-  useEffect(() => {
-    const unsub = window.argus.rca.onRcaChanged((p) => {
-      if (p.caseSlug === slug) setRcaBump((n) => n + 1)
-    })
-    return unsub
-  }, [slug])
-
-  // Toggle semantics: clicking the active thumb returns the finding to pending.
-  async function setReview(id: number, next: 'accepted' | 'rejected'): Promise<void> {
-    const cur = findings.find((f) => f.id === id)?.reviewState
-    const state: ReviewState = cur === next ? 'pending' : next
-    const row = await window.argus.findings.review(id, state)
-    // Merge onto the existing local finding rather than replacing it wholesale: the row
-    // reviewFinding returns comes straight from the findings table, with no `body` (only
-    // listFindings joins findings.md to attach one). A wholesale replace would silently drop
-    // the body from every finding the instant it's reviewed. Server-authoritative fields
-    // (reviewState/reviewActor/reviewReason/reviewedAt) still win via the spread order — a
-    // human review also changes reviewActor/reviewReason (e.g. overwriting an agent
-    // retraction), and this keeps that while preserving body and anything else local-only.
-    if (row) setFindings((prev) => prev.map((f) => (f.id === id ? { ...f, ...row } : f)))
-  }
+  }, [slug, sessionId, bump])
 
   /**
    * Composition happens in main (it owns the PR binding and the worktree path) and the composed
@@ -154,6 +125,21 @@ export function FindingsPane({
 
   // Findings are case-scoped in the DB but mode-scoped on screen (see the activeMode prop doc).
   const modeFindings = findings.filter((f) => f.mode === activeMode)
+  // Investigation only: the chain index (spec 2026-10-26 §5.4). `buildFindingTree` is the only
+  // ordering — `list_findings` reads the same one. Review mode keeps the flat severity list.
+  const tree = activeMode === 'investigation' ? buildFindingTree(modeFindings) : null
+  const review = useReviewWalk({
+    slug,
+    tree,
+    listRef,
+    onExpand: setExpandedId,
+    ...actions.walk
+  })
+  const causeOptions = modeFindings.map((f) => ({
+    id: f.id,
+    summary: f.summary,
+    ...(isInactiveFinding(f) ? { inactive: true } : {})
+  }))
 
   async function clearAll(): Promise<void> {
     const count = modeFindings.length
@@ -167,35 +153,13 @@ export function FindingsPane({
     })
     if (!ok) return
     setClearError(null)
+    review.end()
     try {
       await window.argus.findings.clear(slug, activeMode)
     } catch (err) {
       setClearError((err as Error).message)
     } finally {
-      await window.argus.findings.list(slug).then(setFindings)
-    }
-  }
-
-  /** Per-finding hard delete: findings.md splice, DB row, and audit all happen in the main
-   *  process (deleteFinding); this confirms, calls it, and only drops the row locally on
-   *  success — no refetch needed since the service has already committed the removal. Mirrors
-   *  `clearAll`'s try/catch → error-state shape: an unknown id, a second window's concurrent
-   *  delete, or an fs error must surface here rather than becoming an unhandled rejection with
-   *  the card silently staying on screen with no explanation. */
-  async function onDelete(id: number): Promise<void> {
-    const f = findings.find((x) => x.id === id)
-    const ok = await confirm({
-      title: 'Delete finding?',
-      message: f?.summary ?? `Finding ${id}`,
-      danger: true
-    })
-    if (!ok) return
-    setDeleteError(null)
-    try {
-      await window.argus.findings.delete(id)
-      setFindings((prev) => prev.filter((x) => x.id !== id))
-    } catch (err) {
-      setDeleteError((err as Error).message)
+      await findingsStore.load(slug)
     }
   }
 
@@ -250,6 +214,61 @@ export function FindingsPane({
     .slice()
     .sort((a, b) => rank(a) - rank(b))
 
+  function renderCard(f: FindingRow, depth = 0): React.JSX.Element {
+    const investigation = f.mode === 'investigation'
+    return (
+      <FindingCard
+        key={f.id}
+        finding={f}
+        slug={slug}
+        open={expandedId === f.id}
+        selected={effectiveSelected.includes(f.id)}
+        selectable={selectable.has(f.id)}
+        sessionId={sessionId}
+        actingId={actingId}
+        worktreeHead={worktreeHead}
+        repoNames={repoNames}
+        onToggle={() => {
+          if (f.body) setExpandedId(expandedId === f.id ? null : f.id)
+        }}
+        onSelect={() =>
+          setSelected((prev) => {
+            const next = new Set(prev)
+            if (next.has(f.id)) next.delete(f.id)
+            else next.add(f.id)
+            return next
+          })
+        }
+        onReview={(next) => void actions.setReview(f.id, next)}
+        onAction={(action) => void runAction(f.id, action)}
+        onCite={onCite}
+        onDelete={(id) => void actions.remove(id)}
+        onWhy={() => actions.openStrip(f.id)}
+        onCorrect={
+          investigation && sessionId !== null
+            ? () => stageCorrection(slug, sessionId, f.id)
+            : undefined
+        }
+        depth={depth}
+        onEdit={investigation ? (patch) => void actions.edit(f.id, patch) : undefined}
+        causeOptions={investigation ? causeOptions : undefined}
+        // The reject strip is investigation-only; a failed delete shows under any card.
+        footer={actions.footer(f, { strip: investigation })}
+      />
+    )
+  }
+
+  const section = (label: string, nodes: TreeNode<FindingRow>[]): React.JSX.Element => (
+    <div className="flex flex-col gap-1">
+      <span aria-hidden="true" className="text-[10px] tracking-wide text-faint uppercase">
+        {label}
+      </span>
+      <ul aria-label={label} className="flex flex-col gap-2">
+        {nodes.map((n) => renderCard(n.row, n.depth))}
+      </ul>
+    </div>
+  )
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       {/* `h-8 shrink-0`, and first in the rail: this row is the findings rail's chrome row, and
@@ -262,9 +281,22 @@ export function FindingsPane({
           opposite number, exactly as CaseWorkspace's chrome row stays outside its scroll box. */}
       <div className="flex h-8 shrink-0 items-center justify-between">
         <SectionLabel>
-          {modeFindings.length > 0 ? `Findings · ${modeFindings.length}` : 'Findings'}
+          {modeFindings.length > 0
+            ? `Findings · ${modeFindings.length}${tree && tree.pending > 0 ? ` · ${tree.pending} to review` : ''}`
+            : 'Findings'}
         </SectionLabel>
         <div className="flex items-center gap-1">
+          {tree && tree.pending > 0 && !review.walk && (
+            <button
+              type="button"
+              aria-label="Review pending findings"
+              title="Walk the pending findings: a accept · r reject · s skip · k back · esc done"
+              className="rounded-r1 border border-signal/50 bg-signal/10 px-1.5 py-0.5 text-[10.5px] text-ink transition-colors hover:bg-signal/20"
+              onClick={review.start}
+            >
+              Review
+            </button>
+          )}
           {modeFindings.length > 0 && (
             <>
               <button
@@ -315,7 +347,6 @@ export function FindingsPane({
         className={`flex min-h-0 flex-1 flex-col gap-2 rounded-r3 p-2.5 ${dynamic ? 'glass-panel' : 'surface-card'}`}
       >
         {clearError && <p className="text-xs text-danger">{clearError}</p>}
-        {deleteError && <p className="text-xs text-danger">{deleteError}</p>}
         {actionError && <p className="text-xs text-danger">{actionError}</p>}
         {/* A count suffix (the same "field · value" idiom as the " · sess N" stamp in
             FindingCard.tsx) makes the chip read as a control with its own state, not a copy of
@@ -340,48 +371,60 @@ export function FindingsPane({
             ))}
           </div>
         )}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {/* `showSkeleton` alone is not enough to gate the skeleton: `loaded` resets to false on
-              every `bump`, and `bump` fires for EVERY finding an agent emits during a run, not just
-              a case/session switch. If that refetch is slow enough to cross usePendingDisplay's
-              150ms delay, a skeleton-only guard would win ahead of `shown.length > 0` and replace
-              findings the user is reading with grey blocks — a refetch must never blank content
-              already on screen. `shown.length === 0` keeps the skeleton exclusive with the list,
-              same as ReposSection's `workspaces.length === 0` guard. */}
+        {review.walk && (
+          <div
+            data-testid="review-walk"
+            className="flex shrink-0 items-center gap-2 rounded-r1 border border-signal/35 bg-signal/10 px-2 py-1 font-mono text-[10.5px] text-ink"
+          >
+            Reviewing {review.walk.i + 1} of {review.walk.ids.length}
+            <span className="text-mute">· a accept · r reject · s skip · k back · esc done</span>
+          </div>
+        )}
+        {/* Focusable (not tabbable) so the walk's keys land here; keys from a card's own controls
+            bubble up to it too. */}
+        <div
+          ref={listRef}
+          tabIndex={-1}
+          onKeyDown={review.onKeyDown}
+          className="min-h-0 flex-1 overflow-y-auto outline-none"
+        >
+          {/* The skeleton is for the FIRST load of a slug only: `loaded` is store-owned and never
+              resets, and the store keeps the rows it already has across a `bump`-triggered refetch,
+              so a refetch cannot blank findings the user is reading. `shown.length === 0` is the
+              belt-and-braces half — it keeps the skeleton exclusive with the list, same as
+              ReposSection's `workspaces.length === 0` guard. */}
           {showSkeleton && shown.length === 0 ? (
             <SkeletonRows count={3} />
+          ) : tree ? (
+            modeFindings.length === 0 ? (
+              loaded ? (
+                <p className="text-xs text-mute">No findings yet.</p>
+              ) : null
+            ) : (
+              <div className="flex flex-col gap-2">
+                {tree.rootCause.length > 0 && section('ROOT CAUSE', tree.rootCause)}
+                {tree.unexplained.length > 0 && section('UNEXPLAINED', tree.unexplained)}
+                {tree.ruledOut.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <button
+                      type="button"
+                      aria-expanded={showRuledOut}
+                      className="self-start text-[10px] tracking-wide text-faint uppercase transition-colors hover:text-ink"
+                      onClick={() => setShowRuledOut((v) => !v)}
+                    >
+                      RULED OUT · {tree.ruledOut.length}
+                    </button>
+                    {showRuledOut && (
+                      <ul aria-label="RULED OUT" className="flex flex-col gap-2">
+                        {tree.ruledOut.map((f) => renderCard(f))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
           ) : shown.length > 0 ? (
-            <ul className="flex flex-col gap-2">
-              {shown.map((f) => (
-                <FindingCard
-                  key={f.id}
-                  finding={f}
-                  slug={slug}
-                  open={expandedId === f.id}
-                  selected={effectiveSelected.includes(f.id)}
-                  selectable={selectable.has(f.id)}
-                  sessionId={sessionId}
-                  actingId={actingId}
-                  worktreeHead={worktreeHead}
-                  repoNames={repoNames}
-                  onToggle={() => {
-                    if (f.body) setExpandedId(expandedId === f.id ? null : f.id)
-                  }}
-                  onSelect={() =>
-                    setSelected((prev) => {
-                      const next = new Set(prev)
-                      if (next.has(f.id)) next.delete(f.id)
-                      else next.add(f.id)
-                      return next
-                    })
-                  }
-                  onReview={(next) => void setReview(f.id, next)}
-                  onAction={(action) => void runAction(f.id, action)}
-                  onCite={onCite}
-                  onDelete={(id) => void onDelete(id)}
-                />
-              ))}
-            </ul>
+            <ul className="flex flex-col gap-2">{shown.map((f) => renderCard(f))}</ul>
           ) : loaded ? (
             <p className="text-xs text-mute">
               {modeFindings.length > 0 ? 'No findings match this filter.' : 'No findings yet.'}

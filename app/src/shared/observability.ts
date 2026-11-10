@@ -34,19 +34,31 @@ export interface MetricsQuery {
   since?: string // ISO lower-bound on created_at
 }
 
-export interface LangfuseConfig {
-  enabled: boolean
-  host: string
-  publicKey: string
-  captureContent: boolean
-}
-
 export type ReviewState = 'pending' | 'accepted' | 'rejected'
 
 /** Who set `reviewState`. NULL on rows written before retraction existed (and after a reset
  *  to `pending`). Nothing compares against the literal 'human' — a NULL actor simply takes
  *  the same path a human reject does at every display and prompt site. */
 export type ReviewActor = 'agent' | 'human'
+
+/** Why a HUMAN rejected a finding (spec 2026-10-25 §D1). Three tags on purpose — the owner will
+ *  not pick from five; `wrong` vs `not-useful` is the split the remedies need (evidence grounding
+ *  vs finding threshold). The agent's own reason lives in `review_reason`, never here. */
+export const FINDING_REJECT_TAGS = ['wrong', 'not-useful', 'other'] as const
+export type FindingRejectTag = (typeof FINDING_REJECT_TAGS)[number]
+export interface FindingRejectReason {
+  tag: FindingRejectTag
+  /** Optional one line; stored as its first non-blank line, ≤ 200 chars. */
+  note?: string
+}
+export const FINDING_REJECT_LABELS: Record<FindingRejectTag, string> = {
+  wrong: 'Wrong',
+  'not-useful': 'Not useful',
+  other: 'Other'
+}
+export function isFindingRejectTag(v: unknown): v is FindingRejectTag {
+  return typeof v === 'string' && (FINDING_REJECT_TAGS as readonly string[]).includes(v)
+}
 
 export type FindingRole = 'root-cause' | 'contributing' | 'symptom' | 'ruled-out' | 'duplicate'
 export const FINDING_ROLES: FindingRole[] = [
@@ -58,6 +70,34 @@ export const FINDING_ROLES: FindingRole[] = [
 ]
 export function isFindingRole(v: unknown): v is FindingRole {
   return typeof v === 'string' && (FINDING_ROLES as string[]).includes(v)
+}
+
+/** The agent's claim about evidence (spec 2026-10-26 §5.1): `hypothesis` is stated but
+ *  untested, `confirmed` is evidence-backed. The HUMAN axis is `reviewState`; the two compose on
+ *  the card. A NULL column — every row written before this existed — reads as `confirmed`, so
+ *  packs and drivers that never pass a status keep today's meaning (owner decision 7.2). */
+export const FINDING_STATUSES = ['hypothesis', 'confirmed'] as const
+export type FindingStatus = (typeof FINDING_STATUSES)[number]
+export function isFindingStatus(v: unknown): v is FindingStatus {
+  return typeof v === 'string' && (FINDING_STATUSES as readonly string[]).includes(v)
+}
+
+/** Who wrote `role`: the agent's tools, the human's card editor, or a confirmed RCA report
+ *  (`applyReportRoles`). NULL whenever `role` is NULL. Provenance is what keeps three writers
+ *  of one column from becoming the two-representations defect. */
+export type RoleSource = 'agent' | 'human' | 'rca'
+export function isRoleSource(v: unknown): v is RoleSource {
+  return v === 'agent' || v === 'human' || v === 'rca'
+}
+
+/** The role vocabulary as the user reads it — the card chip, the role select, the tree
+ *  headings. One table so a rename happens once. */
+export const FINDING_ROLE_LABELS: Record<FindingRole, string> = {
+  'root-cause': 'ROOT CAUSE',
+  contributing: 'contributing',
+  symptom: 'symptom',
+  'ruled-out': 'ruled out',
+  duplicate: 'duplicate'
 }
 
 export interface FindingRow {
@@ -92,12 +132,28 @@ export interface FindingRow {
   reviewReason: string | null
   /** Who rejected it. 'agent' means the agent withdrew its own finding. */
   reviewActor: ReviewActor | null
+  /** The human's reject tag (spec 2026-10-25). Null on every accepted, pending and
+   *  agent-retracted row, and on every human reject written before the column existed —
+   *  "unlabelled", never coerced to `other`. */
+  rejectTag: FindingRejectTag | null
+  /** The human's optional one-line note beside `rejectTag`. */
+  rejectNote: string | null
   /** Derived from the finding's session (sessions.mode), never stored on the row.
    *  A finding with no session reads as the default mode. */
   mode: ModeId
   /** RCA role assigned to this finding (root-cause / contributing / symptom / ruled-out /
    *  duplicate); null on findings that haven't been triaged into an RCA yet. */
   role: FindingRole | null
+  /** The agent's claim status (spec 2026-10-26 §5.1). Never null on a read: a NULL column is
+   *  `confirmed`. */
+  status: FindingStatus
+  /** Provenance of `role`; null when `role` is null. */
+  roleSource: RoleSource | null
+  /** The causal edge toward the root: this finding is caused by `causedBy`. Same case, no
+   *  cycles (enforced by `updateFinding`). */
+  causedBy: number | null
+  /** The newer finding that replaced this one (`append_finding(supersedes)`), if any. */
+  supersededBy: number | null
 }
 
 /** Outcome of the agent withdrawing its own finding (`retractFinding`). Lives here, beside

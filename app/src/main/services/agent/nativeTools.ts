@@ -22,7 +22,8 @@ import { caseDir } from '../paths'
 import { applyMemoryWrite, readTopic } from '../memory'
 import { MEMORY_SCOPES } from '../../../shared/memoryScope'
 import { writeProposal } from '../proposals'
-import { pinCasePhase, setCaseStatus, type CloseOptions } from '../caseService'
+import { getCase, pinCasePhase, setCaseStatus, type CloseOptions } from '../caseService'
+import { deriveCaseOutcome } from '../../../shared/caseOutcome'
 import { topicEnabled, defaultAgentAccess, type AgentAccess } from '../../../shared/agentAccess'
 import type { Detection } from '../packs/detection'
 import type { CapturePanelEvidence } from './capturePanel'
@@ -39,6 +40,7 @@ import {
   type ReviewSeverity
 } from '../../../shared/reviewLayers'
 import { firstCitation } from '../../../shared/citations'
+import { escapeFindingMarkers } from '../../../shared/findingRef'
 import {
   postReviewComment,
   prWorktreeHead,
@@ -50,7 +52,19 @@ import {
 import { DEFAULT_MODE } from '../../../shared/modes'
 import { fetchCheckLogs, ciFeedback } from './ciLogs'
 import { defaultGhRunner, type Runner } from '../github'
-import { listFindings, parseFindingBodies, retractFinding } from '../findings'
+import {
+  canSupersede,
+  confirmedRootCauseOf,
+  listFindings,
+  parseFindingBodies,
+  removeFindingBodies,
+  retractFinding,
+  supersedeFinding,
+  updateFinding,
+  type FindingPatch
+} from '../findings'
+import { renderFindingTree } from '../../../shared/findingTree'
+import { treeHeadings } from '../findingTreeHeadings'
 import { reviewTag } from '../../../shared/findingTag'
 import { sessionMode } from './sessionStore'
 import { readSessionEvents } from './mirror'
@@ -68,6 +82,15 @@ import { saveItemSuggestion } from '../routines/runItems'
 import type { TriageSuggestion } from '../../../shared/routines'
 import type { WatermarkTarget } from '../../../shared/watermark'
 import type { AttributionRow } from '../../../shared/attribution'
+import {
+  FINDING_ROLES,
+  FINDING_STATUSES,
+  isFindingRole,
+  isFindingStatus,
+  type FindingRole,
+  type FindingRow,
+  type FindingStatus
+} from '../../../shared/observability'
 import {
   runToolScript,
   PTC_FOREGROUND_MAX_CALLS,
@@ -112,6 +135,9 @@ export interface NativeToolDeps {
   /** Fired with the attribution rows a `retract_finding` call implicitly overrode (spec §4.7),
    *  so the vendor-neutral `asset.contribution` score can be re-emitted. Absent in tests. */
   emitAttributions?: (rows: AttributionRow[]) => void
+  /** Fired with the finding row after the agent's own `retract_finding` changed it, so the
+   *  outcome score and anything else that watches reviews sees agent retractions too. */
+  onFindingReviewed?: (row: FindingRow) => void
   /** Fired after workspace_checkout materializes/switches a case worktree, so the
    *  renderer can refresh repo chips + repo snippet caches without a case switch. */
   onWorktreeChanged?: (caseSlug: string) => void
@@ -220,7 +246,8 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   },
   'append_finding.ok': {
     title: 'append_finding — success',
-    text: 'finding appended'
+    text: 'finding appended as #{id}',
+    placeholders: ['id']
   },
   'update_case_status.invalid-status': {
     title: 'update_case_status — unknown status',
@@ -278,6 +305,44 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
     text: 'Unknown severity {severity}. Use one of: {expected}.',
     placeholders: ['severity', 'expected']
   },
+  'append_finding.bad-status': {
+    title: 'append_finding — unknown status',
+    text: 'Unknown status {status}. Use one of: {expected}.',
+    placeholders: ['status', 'expected']
+  },
+  'append_finding.bad-role': {
+    title: 'append_finding / update_finding — unknown role',
+    text: 'Unknown role {role}. Use one of: {expected}.',
+    placeholders: ['role', 'expected']
+  },
+  'append_finding.supersedes-accepted': {
+    title: 'append_finding — supersedes an accepted finding',
+    text: 'Finding {id} was ACCEPTED by a human reviewer and cannot be superseded. Nothing was recorded — if you believe it is wrong, say so in your reply and explain why; the human decides.',
+    placeholders: ['id']
+  },
+  'append_finding.already-superseded': {
+    title: 'append_finding — supersedes a finding that was already replaced',
+    text: 'Finding {id} was already superseded by #{by}. Supersede that one instead, or record yours as a new finding. Nothing was recorded.',
+    placeholders: ['id', 'by']
+  },
+  'append_finding.review-mode': {
+    title: 'append_finding — chain args in a review session',
+    text: 'status, role, caused_by and supersedes apply to investigation findings; this is a review session. Record the finding without them. Nothing was recorded.'
+  },
+  'finding.self-cause': {
+    title: 'finding chain — a finding cannot cause itself',
+    text: 'A finding cannot be caused by itself. Nothing was changed.'
+  },
+  'finding.cycle': {
+    title: 'finding chain — caused_by would make a cycle',
+    text: 'caused_by {id} would make a cycle in the chain: that finding is already caused by this one, directly or through others. Nothing was changed.',
+    placeholders: ['id']
+  },
+  'finding.second-root': {
+    title: 'finding chain — the case already has a confirmed root cause',
+    text: 'Finding {existing} is already the confirmed root cause of this case. If this one sharpens or corrects it, record it with supersedes: {existing}. If it is a second layer of the same failure, link the two with caused_by and give this one role contributing. Otherwise record it as status: hypothesis until the evidence decides. Nothing was changed.',
+    placeholders: ['existing']
+  },
   'read_findings.empty': {
     title: 'read_findings — no ids passed',
     text: 'Pass at least one finding id in finding_ids.'
@@ -306,6 +371,39 @@ export const TOOL_FEEDBACK: PromptTextSpecs = {
   'retract_finding.already-rejected': {
     title: 'retract_finding — a human already rejected this finding',
     text: 'This finding was already rejected by a human reviewer. Their reason stands and yours was not recorded — if you disagree with how it was rejected, say so in your reply.'
+  },
+  'update_finding.ok': {
+    title: 'update_finding — success',
+    text: 'finding #{id} updated',
+    placeholders: ['id']
+  },
+  'update_finding.ok-accepted': {
+    title: 'update_finding — success on a finding a human accepted',
+    text: 'finding #{id} updated — a human had accepted it; their accept stands and only the cause or evidence changed',
+    placeholders: ['id']
+  },
+  'update_finding.empty': {
+    title: 'update_finding — nothing to change',
+    text: 'Pass at least one of status, role, caused_by, append_markdown, replace_markdown. Nothing was changed.'
+  },
+  'update_finding.accepted-locked': {
+    title: 'update_finding — status/role of an accepted finding',
+    text: 'Finding {id} was ACCEPTED by a human reviewer: its status, role and body are theirs now. You may still set caused_by or append evidence with append_markdown; replace_markdown is refused. Nothing was changed — if you believe the finding is wrong, say so in your reply.',
+    placeholders: ['id']
+  },
+  'update_finding.both-bodies': {
+    title: 'update_finding — append and replace together',
+    text: 'Pass append_markdown OR replace_markdown, not both. Nothing was changed.'
+  },
+  'update_finding.rca-frozen': {
+    title: 'update_finding — role frozen by the confirmed RCA report',
+    text: 'The role of finding {id} was set by the confirmed RCA report and is not yours to change — raise it with the user. Nothing was changed.',
+    placeholders: ['id']
+  },
+  'update_finding.review-mode': {
+    title: 'update_finding — chain fields of a review finding',
+    text: 'status, role and caused_by apply to investigation findings; finding {id} belongs to this review session. You may still append evidence with append_markdown. Nothing was changed.',
+    placeholders: ['id']
   },
   'propose_case_triage.no-item': {
     title: 'propose_case_triage — not processing an item',
@@ -346,6 +444,11 @@ export function appendFinding(
     commentBody?: string
     /** PR head sha this finding was recorded against; computed by the async caller. */
     headSha?: string
+    /** Causal chain (spec 2026-10-26). Omitted = a legacy-shaped row (NULL = confirmed). */
+    status?: FindingStatus
+    role?: FindingRole
+    /** Id of the finding this one is caused by; the caller has scoped it to the case. */
+    causedBy?: number
   }
 ): { findingId: number; block: string } {
   // Validate BEFORE the insert: a rejected finding must leave no row and no findings.md block.
@@ -371,7 +474,29 @@ export function appendFinding(
       })
     )
   }
-  const title = input.title || 'Finding'
+  if (input.status !== undefined && !isFindingStatus(input.status)) {
+    const text = ctx.resolve
+      ? ctx.resolve('tool-feedback.append_finding.bad-status')
+      : TOOL_FEEDBACK['append_finding.bad-status'].text
+    throw new Error(
+      fillPrompt(text, {
+        status: JSON.stringify(input.status),
+        expected: FINDING_STATUSES.join('|')
+      })
+    )
+  }
+  if (input.role !== undefined && !isFindingRole(input.role)) {
+    const text = ctx.resolve
+      ? ctx.resolve('tool-feedback.append_finding.bad-role')
+      : TOOL_FEEDBACK['append_finding.bad-role'].text
+    throw new Error(
+      fillPrompt(text, { role: JSON.stringify(input.role), expected: FINDING_ROLES.join('|') })
+    )
+  }
+  // The title is the block's `## ` line and the row's summary: one line, its markers escaped,
+  // so a model-written title can neither split findings.md nor forge another block.
+  const title =
+    escapeFindingMarkers((input.title || 'Finding').replace(/\s+/g, ' ').trim()) || 'Finding'
   const dir = caseDir(ctx.argusHome, ctx.caseSlug)
   // Anchor parsed once, here. Plan 4 posts an inline PR comment against it and must not
   // re-parse prose at the moment it writes to a pull request.
@@ -380,8 +505,8 @@ export function appendFinding(
   // FindingsPane an exact row↔block join (see findings.ts parseFindingBodies).
   const res = ctx.db
     .prepare(
-      `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at, layer, severity, diff_path, diff_line, suggested_change, comment_body, head_sha)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO findings (case_id, session_id, turn_id, summary, review_state, created_at, layer, severity, diff_path, diff_line, suggested_change, comment_body, head_sha, status, role, role_source, caused_by)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       ctx.caseId,
@@ -395,10 +520,14 @@ export function appendFinding(
       anchor?.line ?? null,
       input.suggestedChange ?? null,
       input.commentBody ?? null,
-      input.headSha ?? null
+      input.headSha ?? null,
+      input.status ?? null,
+      input.role ?? null,
+      input.role ? 'agent' : null,
+      input.causedBy ?? null
     )
   const findingId = Number(res.lastInsertRowid)
-  const block = `\n<!-- finding:${findingId} -->\n## ${title}\n_${new Date().toISOString()} · session ${ctx.sessionId}_\n\n${input.markdown}\n`
+  const block = `\n<!-- finding:${findingId} -->\n## ${title}\n_${new Date().toISOString()} · session ${ctx.sessionId}_\n\n${escapeFindingMarkers(input.markdown)}\n`
   fs.appendFileSync(path.join(dir, 'findings.md'), block)
   return { findingId, block }
 }
@@ -436,6 +565,35 @@ export function argusToolHandlers(
     }
     const index = await ensureIndex(argusHome, res.abs)
     return { abs: res.abs, index }
+  }
+
+  const wdeps0 = { db, argusHome, resolve: deps.resolve }
+  /** Scope an id to this case AND this session's mode with ONE opaque error: an id from another
+   *  case, a missing id and an other-mode finding are indistinguishable from outside. Mode is
+   *  derived from the same source list_findings reads (listFindings' toRow) rather than a second
+   *  inline JOIN, so the read scoping and the write scoping can never drift apart. */
+  const assertVisibleFinding = (findingId: number): void => {
+    findingForCase(wdeps0, caseSlug, findingId)
+    const m = listFindings(db, argusHome, caseSlug).find((f) => f.id === findingId)?.mode
+    if ((m ?? DEFAULT_MODE) !== sessionMode(db, deps.sessionId))
+      throw new Error(wf(wdeps0, 'review_write.unknown-finding'))
+  }
+
+  /** The model-facing wording of a `canSupersede`/`supersedeFinding` refusal. */
+  const supersedeRefusal = (
+    oldId: number,
+    reason: 'unknown' | 'accepted' | 'already-superseded'
+  ): Error => {
+    if (reason === 'accepted')
+      return new Error(fb('append_finding.supersedes-accepted', { id: String(oldId) }))
+    if (reason === 'already-superseded') {
+      const by = db.prepare(`SELECT superseded_by AS v FROM findings WHERE id = ?`).get(oldId) as
+        { v: number | null } | undefined
+      return new Error(
+        fb('append_finding.already-superseded', { id: String(oldId), by: String(by?.v ?? '') })
+      )
+    }
+    return new Error(wf(wdeps0, 'review_write.unknown-finding'))
   }
 
   const h: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
@@ -577,8 +735,22 @@ export function argusToolHandlers(
       const limit = args.limit == null ? 5 : Number(args.limit)
       const hits = searchCaseSummaries(db, String(args.query ?? ''), { limit })
       if (hits.length === 0) return fb('search_case_history.empty')
+      // Spec 2026-10-26 §9.5: hits are case summaries, so the one chain fact a line can carry
+      // truthfully is whether a human accepted the case's root cause. At most `limit` extra
+      // reads; a hit whose case row is gone renders as before.
+      const outcomeSuffix = (slug: string): string => {
+        const c = getCase(db, slug)
+        if (!c) return ''
+        const outcome = deriveCaseOutcome(c, listFindings(db, argusHome, slug))
+        if (outcome === 'solved') return ' · root cause accepted'
+        if (outcome === 'solved-unconfirmed') return ' · root cause unconfirmed'
+        return ''
+      }
       return hits
-        .map((h) => `«${h.caseSlug}» [${h.resolution}] ${h.signature} — ${h.snippet}`)
+        .map(
+          (h) =>
+            `«${h.caseSlug}» [${h.resolution}${outcomeSuffix(h.caseSlug)}] ${h.signature} — ${h.snippet}`
+        )
         .join('\n')
     },
 
@@ -702,6 +874,10 @@ export function argusToolHandlers(
     },
 
     async append_finding(args) {
+      // The handler's only await comes FIRST, so every check below, the insert and the supersede
+      // run in one synchronous section — atomic on Node's single thread. A check that ran before
+      // an await could pass for two parallel calls (two confirmed roots), or approve a cause that
+      // is deleted before the insert.
       // Best-effort staleness stamp: any case with a materialized PR worktree gets the sha it
       // resolves to here, regardless of the session's mode — the renderer, not this call, is
       // what restricts pinning to review-mode findings (FindingsPane only passes headSha into
@@ -710,7 +886,38 @@ export function argusToolHandlers(
         { db, argusHome, git: deps.git, resolve: deps.resolve },
         caseSlug
       )
-      const { block } = appendFinding(
+      // The chain is an investigation concept: a review session records flat findings only, and
+      // is told so before any chain arg is parsed or checked. Nothing is written on this path.
+      if (
+        sessionMode(db, deps.sessionId) === 'review' &&
+        (args.status !== undefined ||
+          args.role !== undefined ||
+          args.caused_by !== undefined ||
+          args.supersedes !== undefined)
+      )
+        throw new Error(fb('append_finding.review-mode'))
+      const status = args.status === undefined ? undefined : (String(args.status) as FindingStatus)
+      const role = args.role === undefined ? undefined : (String(args.role) as FindingRole)
+      const causedBy = args.caused_by === undefined ? undefined : num(args.caused_by, 'caused_by')
+      const supersedes =
+        args.supersedes === undefined ? undefined : num(args.supersedes, 'supersedes')
+      // Every refusal below happens BEFORE the insert: a refused call leaves no row and no block.
+      // (status/role values themselves are validated inside appendFinding, also before it writes.)
+      if (causedBy !== undefined) assertVisibleFinding(causedBy)
+      if (supersedes !== undefined) {
+        assertVisibleFinding(supersedes)
+        if (causedBy === supersedes) throw new Error(fb('finding.self-cause'))
+        const pre = canSupersede(db, deps.caseId, supersedes)
+        if (!pre.ok) throw supersedeRefusal(supersedes, pre.reason)
+      }
+      if (role === 'root-cause' && (status ?? 'confirmed') === 'confirmed') {
+        // The finding this one supersedes is about to be retracted: a sharper replacement of the
+        // confirmed root is exactly what `supersedes` is for, so it does not count against it.
+        const existing = confirmedRootCauseOf(db, deps.caseId, supersedes)
+        if (existing !== null)
+          throw new Error(fb('finding.second-root', { existing: String(existing) }))
+      }
+      const { block, findingId } = appendFinding(
         {
           db,
           argusHome,
@@ -729,11 +936,45 @@ export function argusToolHandlers(
             ? {}
             : { suggestedChange: String(args.suggested_change) }),
           ...(args.comment_body === undefined ? {} : { commentBody: String(args.comment_body) }),
-          ...(headSha === null ? {} : { headSha })
+          ...(headSha === null ? {} : { headSha }),
+          ...(status === undefined ? {} : { status }),
+          ...(role === undefined ? {} : { role }),
+          ...(causedBy === undefined ? {} : { causedBy })
         }
       )
+      if (supersedes !== undefined) {
+        // supersedeFinding runs its own transaction, so none may be open here. If it fails after
+        // the pre-check (it rolls its own writes back), take the just-recorded finding back out
+        // too: a failed supersede must not leave a half-recorded replacement beside the original.
+        let res: ReturnType<typeof supersedeFinding>
+        try {
+          res = supersedeFinding(db, supersedes, findingId, {
+            onOverride: (row) => deps.emitAttributions?.([row]),
+            onRetracted: (row) => deps.onFindingReviewed?.(row)
+          })
+          if (!res.ok) throw supersedeRefusal(supersedes, res.reason)
+        } catch (err) {
+          try {
+            const mdPath = path.join(dir, 'findings.md')
+            const md = fs.readFileSync(mdPath, 'utf8')
+            fs.writeFileSync(
+              mdPath,
+              md.endsWith(block)
+                ? md.slice(0, md.length - block.length)
+                : removeFindingBodies(md, new Set([findingId]))
+            )
+          } catch (cleanupErr) {
+            console.error('[findings] supersede rollback: findings.md cleanup failed', cleanupErr)
+          }
+          db.prepare(`DELETE FROM findings WHERE id = ?`).run(findingId)
+          throw err
+        }
+        deps.emitFindingUpdated?.(supersedes)
+      }
       deps.emitFinding(block)
-      return fb('append_finding.ok')
+      // The id is what the chat transcript's inline finding card resolves the row by
+      // (shared/findingRef.ts) — an override of this text must keep `#{id}` for that to work.
+      return fb('append_finding.ok', { id: String(findingId) })
     },
 
     async read_findings(args) {
@@ -774,14 +1015,22 @@ export function argusToolHandlers(
       const mode = sessionMode(db, deps.sessionId)
       const rows = listFindings(db, argusHome, caseSlug).filter((f) => f.mode === mode)
       if (rows.length === 0) return fb('list_findings.none')
-      return rows
-        .map((f) => {
-          const flavor =
-            f.severity && f.layer ? `${f.severity}/${f.layer}` : (f.severity ?? f.layer)
-          const anchor = f.diffPath ? `${f.diffPath}:${f.diffLine}` : null
-          return [`#${f.id}`, reviewTag(f), flavor, anchor, f.summary].filter(Boolean).join(' · ')
-        })
-        .join('\n')
+      // Review findings have no chain: the flat line, in listFindings' order as before.
+      if (mode === 'review') {
+        return rows
+          .map((f) => {
+            const flavor =
+              f.severity && f.layer ? `${f.severity}/${f.layer}` : (f.severity ?? f.layer)
+            const anchor = f.diffPath ? `${f.diffPath}:${f.diffLine}` : null
+            // A review finding has no chain: no status prefix on its line (decision 1).
+            const tag = reviewTag({ ...f, status: null })
+            return [`#${f.id}`, tag, flavor, anchor, f.summary].filter(Boolean).join(' · ')
+          })
+          .join('\n')
+      }
+      // The same tree the rail shows and the same text the headless readers get
+      // (shared/findingTree): one picture for every reader.
+      return renderFindingTree(rows, { headings: treeHeadings(deps.resolve) })
     },
 
     async retract_finding(args) {
@@ -790,31 +1039,18 @@ export function argusToolHandlers(
       // Validate BEFORE the ownership lookup and before any write: a reasonless retraction is
       // exactly the unexplained state change this tool exists to replace.
       if (!reason) throw new Error(fb('retract_finding.empty-reason'))
-      const wdeps = { db, argusHome, resolve: deps.resolve }
-      // Scopes the id to this case and throws the same opaque unknown-finding error
-      // read_findings throws — an id from another case must not be distinguishable from one
-      // that does not exist.
-      findingForCase(wdeps, caseSlug, findingId)
-      // Mode-scope the WRITE the same way list_findings scopes the READ: a review-mode
-      // session must not be able to retract a finding it could never see through
-      // list_findings, and vice versa. Same opaque error as a cross-case id, so the two
-      // are indistinguishable from the outside. Derived from the same source list_findings
-      // reads (listFindings' toRow) rather than a second inline JOIN, so the read scoping
-      // and the write scoping can never drift apart.
-      const findingMode = listFindings(db, argusHome, caseSlug).find(
-        (f) => f.id === findingId
-      )?.mode
-      if ((findingMode ?? DEFAULT_MODE) !== sessionMode(db, deps.sessionId)) {
-        throw new Error(wf(wdeps, 'review_write.unknown-finding'))
-      }
+      // Scopes the id to this case AND this session's mode: a review-mode session must not be
+      // able to retract a finding it could never see through list_findings, and vice versa.
+      assertVisibleFinding(findingId)
       const res = retractFinding(db, findingId, reason, {
-        onOverride: (row) => deps.emitAttributions?.([row])
+        onOverride: (row) => deps.emitAttributions?.([row]),
+        onRetracted: (row) => deps.onFindingReviewed?.(row)
       })
       if (!res.ok) {
         throw new Error(
           res.reason === 'accepted'
             ? fb('retract_finding.accepted', { id: String(findingId) })
-            : wf(wdeps, 'review_write.unknown-finding')
+            : wf(wdeps0, 'review_write.unknown-finding')
         )
       }
       // A finding a human already rejected is left exactly as it is (retractFinding's
@@ -825,6 +1061,79 @@ export function argusToolHandlers(
       if (!res.changed) return fb('retract_finding.already-rejected')
       deps.emitFindingUpdated?.(findingId)
       return fb('retract_finding.ok')
+    },
+
+    async update_finding(args) {
+      const findingId = num(args.finding_id, 'finding_id')
+      // Same scoping as retract_finding: this case AND this session's mode, one opaque error.
+      assertVisibleFinding(findingId)
+      const wasAccepted = db
+        .prepare('SELECT review_state AS s FROM findings WHERE id = ?')
+        .get(findingId) as { s: string } | undefined
+      const patch: FindingPatch = {}
+      if (args.status !== undefined) {
+        if (!isFindingStatus(args.status))
+          throw new Error(
+            fb('append_finding.bad-status', {
+              status: JSON.stringify(args.status),
+              expected: FINDING_STATUSES.join('|')
+            })
+          )
+        patch.status = args.status
+      }
+      if (args.role !== undefined) {
+        if (args.role !== null && !isFindingRole(args.role))
+          throw new Error(
+            fb('append_finding.bad-role', {
+              role: JSON.stringify(args.role),
+              expected: FINDING_ROLES.join('|')
+            })
+          )
+        patch.role = args.role
+      }
+      if (args.caused_by !== undefined) {
+        if (args.caused_by === null) patch.causedBy = null
+        else {
+          const c = num(args.caused_by, 'caused_by')
+          if (c !== findingId) assertVisibleFinding(c) // self-cause is updateFinding's own refusal
+          patch.causedBy = c
+        }
+      }
+      if (args.append_markdown !== undefined) patch.appendMarkdown = String(args.append_markdown)
+      if (args.replace_markdown !== undefined) patch.replaceMarkdown = String(args.replace_markdown)
+      const res = updateFinding(db, argusHome, findingId, patch, { actor: 'agent' })
+      if (!res.ok) {
+        switch (res.reason) {
+          case 'empty':
+            throw new Error(fb('update_finding.empty'))
+          case 'accepted-locked':
+            throw new Error(fb('update_finding.accepted-locked', { id: String(findingId) }))
+          case 'rca-frozen':
+            throw new Error(fb('update_finding.rca-frozen', { id: String(findingId) }))
+          case 'review-mode':
+            throw new Error(fb('update_finding.review-mode', { id: String(findingId) }))
+          case 'both-bodies':
+            throw new Error(fb('update_finding.both-bodies'))
+          case 'self-cause':
+            throw new Error(fb('finding.self-cause'))
+          case 'cycle':
+            throw new Error(fb('finding.cycle', { id: String(patch.causedBy) }))
+          case 'second-root':
+            throw new Error(fb('finding.second-root', { existing: String(res.existingRoot) }))
+          default:
+            // 'unknown' and 'bad-cause': the same opaque wording as an id this session can't see.
+            throw new Error(wf(wdeps0, 'review_write.unknown-finding'))
+        }
+      }
+      deps.emitFindingUpdated?.(findingId)
+      // `#{id}` is what the chat transcript's inline card resolves the row by (shared/findingRef)
+      // — an override of this text must keep it for that to work.
+      return fb(
+        wasAccepted?.s === 'accepted' ? 'update_finding.ok-accepted' : 'update_finding.ok',
+        {
+          id: String(findingId)
+        }
+      )
     },
 
     async post_review_comment(args) {
@@ -1162,14 +1471,18 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'append_finding',
     description:
-      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor — suggested_change when you know the concrete fix (what the user's Apply action will implement), and comment_body: the finding rewritten for the PR author in your reviewer's voice, a few sentences, publishable as-is. comment_body must NOT restate the citation (the posted comment is already anchored at that line) and must not reference other findings or internal ids — it is posted verbatim when the user presses Post comment. Before recording, call list_findings: if this finding contradicts or supersedes one that is already recorded, retract that one with retract_finding rather than appending a second, corrected finding beside it.",
+      "Append a structured finding to findings.md. Include [relPath:line] citations for every evidence claim. In review mode also pass layer and severity — the first citation becomes the finding's diff anchor — suggested_change when you know the concrete fix (what the user's Apply action will implement), and comment_body: the finding rewritten for the PR author in your reviewer's voice, a few sentences, publishable as-is. comment_body must NOT restate the citation (the posted comment is already anchored at that line) and must not reference other findings or internal ids — it is posted verbatim when the user presses Post comment. Before recording, call list_findings. If this finding replaces or sharpens one already recorded, pass supersedes: <its id> — the old one is retracted as superseded and its children move to this one. Retract a recorded finding with retract_finding only when it is wrong and nothing replaces it. Pass status: hypothesis for a claim you have stated but not yet tested (default confirmed = evidence-backed); role (symptom | contributing | root-cause | ruled-out | duplicate) for its place in the causal chain; caused_by: the id of the finding this one is CAUSED BY (pointing toward the root cause). status, role, caused_by and supersedes apply to investigation sessions only — a review session records findings without them. Only one confirmed root-cause finding may exist per case.",
     schema: {
       title: z.string(),
       markdown: z.string(),
       layer: z.enum(REVIEW_LAYER_ORDER as [string, ...string[]]).optional(),
       severity: z.enum(SEVERITIES as unknown as [string, ...string[]]).optional(),
       suggested_change: z.string().optional(),
-      comment_body: z.string().optional()
+      comment_body: z.string().optional(),
+      status: z.enum(FINDING_STATUSES).optional(),
+      role: z.enum(FINDING_ROLES as [FindingRole, ...FindingRole[]]).optional(),
+      caused_by: z.number().optional(),
+      supersedes: z.number().optional()
     }
   },
   {
@@ -1181,14 +1494,30 @@ export const NATIVE_TOOL_SPECS: readonly NativeToolSpec[] = [
   {
     name: 'list_findings',
     description:
-      'List the findings already recorded on this case: id, review state, severity/layer, diff anchor and title, one per line. Call this BEFORE recording a new finding, so you can see whether you are about to contradict or duplicate something you already recorded. Bodies are not included — read those with read_findings.',
+      'List the findings already recorded on this case as the causal chain — ROOT CAUSE trees (each ↳ line is caused by the nearest less-indented finding line above it) and UNEXPLAINED findings with no recorded cause, each line with id, status, review state, role and title; then RULED OUT, each line with id, status, review tag (a superseded line shows superseded by #N instead of status and review state), role and title (review sessions: id, review state, severity/layer, diff anchor and title). Call this BEFORE recording a new finding, so you can see whether you are about to contradict or duplicate something you already recorded. Bodies are not included — read those with read_findings.',
     schema: {}
   },
   {
     name: 'retract_finding',
     description:
-      'Withdraw a finding you recorded that has turned out to be wrong. Pass the finding_id from list_findings and a one-line reason saying what was wrong about it. The finding is marked rejected and stops counting as a conclusion, while the reason is kept as the record of what was ruled out and how. Use this instead of recording a second, corrected finding beside the wrong one. A finding a human has ACCEPTED cannot be retracted — if you believe an accepted finding is wrong, say so in your reply instead.',
+      'Withdraw a finding you recorded that has turned out to be wrong. Pass the finding_id from list_findings and a one-line reason saying what was wrong about it. The finding is marked rejected and stops counting as a conclusion, while the reason is kept as the record of what was ruled out and how. Retract only when the finding is wrong and nothing replaces it: a corrected or sharper claim is recorded with append_finding and supersedes: <its id>, which retracts the old one for you. A finding a human has ACCEPTED cannot be retracted — if you believe an accepted finding is wrong, say so in your reply instead.',
     schema: { finding_id: z.number(), reason: z.string().min(1) }
+  },
+  {
+    name: 'update_finding',
+    description:
+      'Change a finding you recorded instead of recording a second one beside it: promote a hypothesis with status: confirmed once the evidence confirms it (or demote with status: hypothesis), set role (symptom | contributing | root-cause | ruled-out | duplicate; null clears), set caused_by to the id of the finding that CAUSES this one (null detaches), or append_markdown to add a dated Update section with new evidence and citations. Use replace_markdown instead when the claim stands but the body is wrong in a detail — a bad citation path or a wrong number: it replaces the whole body under the heading, so pass the complete corrected body. A changed claim is a new finding with supersedes, never a replace. Pass only what changes. A finding a human ACCEPTED keeps its status and role (you may still add a cause or append evidence; its body cannot be replaced); a role set by a confirmed RCA report is not yours to change — raise it with the user. status, role and caused_by apply to investigation sessions only; on a review finding only append_markdown is accepted. Only one confirmed root-cause finding may exist per case.',
+    schema: {
+      finding_id: z.number(),
+      status: z.enum(FINDING_STATUSES).optional(),
+      role: z
+        .enum(FINDING_ROLES as [FindingRole, ...FindingRole[]])
+        .nullable()
+        .optional(),
+      caused_by: z.number().nullable().optional(),
+      append_markdown: z.string().optional(),
+      replace_markdown: z.string().optional()
+    }
   },
   {
     name: 'post_review_comment',

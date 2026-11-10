@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../db'
 import { createCase } from '../caseService'
-import { writeProposal, acceptProposal } from '../proposals'
+import { writeProposal, acceptProposal, isEditedAccept } from '../proposals'
 import { getCaseSummary } from '../distill/summaries'
 
 let home: string
@@ -51,5 +51,14 @@ describe('accept routing for distill types', () => {
     expect(() => acceptProposal(home, file)).toThrow(/requires db/i)
     acceptProposal(home, file, { db })
     expect(getCaseSummary(db, 'case-a')).toMatchObject({ signature: 'sig', resolution: 'solved' })
+  })
+})
+
+describe('isEditedAccept', () => {
+  it('isEditedAccept: whitespace-only or round-tripped text is not an edit', () => {
+    expect(isEditedAccept('draft', undefined)).toBe(false)
+    expect(isEditedAccept('draft', '   ')).toBe(false)
+    expect(isEditedAccept('draft\n', 'draft')).toBe(false)
+    expect(isEditedAccept('draft', 'draft changed')).toBe(true)
   })
 })

@@ -9,7 +9,7 @@ vi.mock('@langfuse/client', () => ({
 }))
 
 import { setLangfuseTracerProvider } from '@langfuse/tracing'
-import { createLangfuseTracing } from '../langfuseTracing'
+import { createLangfuseTracing } from '../tracing'
 
 const cfg = { host: 'https://example.test', publicKey: 'pk', secretKey: 'sk' }
 

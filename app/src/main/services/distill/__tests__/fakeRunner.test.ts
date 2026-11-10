@@ -14,23 +14,17 @@ import {
   type FakeCaseStages,
   type FakeStage
 } from '../fakeRunner'
-import {
-  buildDossierPrompt,
-  DOSSIER_LITE_CONTRACT,
-  DOSSIER_SECTIONS,
-  DOSSIER_CONTRACT
-} from '../v3/dossier'
+import { buildDossierPrompt, DOSSIER_LITE_CONTRACT, DOSSIER_CONTRACT } from '../v3/dossier'
 import { buildSummaryPrompt, SUMMARY_CONTRACT } from '../v3/summary'
 import { buildCandidatesPrompt, CANDIDATES_CONTRACT } from '../v3/candidates'
 import { buildMaterializePrompt, MATERIALIZE_CONTRACT } from '../v3/materialize'
-import {
-  buildAttributionPrompt,
-  ATTRIBUTION_CONTRACT,
-  ATTRIBUTION_SECTIONS
-} from '../v3/attribution'
+import { buildAttributionPrompt, ATTRIBUTION_CONTRACT } from '../v3/attribution'
+import { liteResolve } from '../v3/attributionOnly'
 import { buildCaseDistillPrompt } from '../contract'
 import { CASE_DISTILL_CONTRACT } from '../caseDistillContract'
 import { DIGEST_PROMPT } from '../rejectDigest'
+import { buildCaseRcaPrompt, RCA_CONTRACT } from '../../rca/contract'
+import { DEFAULT_RCA_TEMPLATE } from '../../../../shared/rcaTemplate'
 import type { CaseDistillInput } from '../../../../shared/distill'
 import type { Dossier, KnowledgeCandidate } from '../../../../shared/distillV3'
 
@@ -87,24 +81,34 @@ const CANDIDATE = {
   confidence: 0.9
 } as unknown as KnowledgeCandidate
 
-// The lite resolver is private to attributionOnly.ts; this is its same fallback.
-const liteResolve = (id: string): string => {
-  if (id === 'headless.case-distill.dossier.contract') return DOSSIER_LITE_CONTRACT
-  const m = /^headless\.case-distill\.(dossier|attribution)\.section\.(.+)$/.exec(id)
-  const spec = m ? (m[1] === 'dossier' ? DOSSIER_SECTIONS : ATTRIBUTION_SECTIONS)[m[2]] : undefined
-  if (!spec) throw new Error(`unknown prompt id ${id}`)
-  return spec.text
-}
-
 const PROMPTS = {
   dossier: buildDossierPrompt(INPUT),
-  dossierLite: buildDossierPrompt(INPUT, liteResolve),
+  dossierLite: buildDossierPrompt(INPUT, liteResolve()),
   summary: buildSummaryPrompt(INPUT, DOSSIER),
   candidates: buildCandidatesPrompt(INPUT, DOSSIER),
   attribution: buildAttributionPrompt(INPUT, DOSSIER),
   materialize: buildMaterializePrompt(INPUT, DOSSIER, CANDIDATE),
   v2: buildCaseDistillPrompt(INPUT),
-  rejectDigest: DIGEST_PROMPT + '\n\nrejects: 3'
+  rejectDigest: DIGEST_PROMPT + '\n\nrejects: 3',
+  rca: buildCaseRcaPrompt(
+    {
+      caseMeta: {
+        slug: 'fx-a',
+        title: 'A',
+        jiraKey: null,
+        resolution: null,
+        tags: [],
+        createdAt: 'x'
+      },
+      findings: [],
+      evidence: [],
+      jiraTicketMarkdown: null,
+      jiraCommentsMarkdown: null,
+      transcripts: [],
+      priorDraft: null
+    },
+    DEFAULT_RCA_TEMPLATE
+  )
 } satisfies Record<FakeStage, string>
 
 const caseOf = (stages: FakeCaseStages): { cases: Map<string, FakeCaseStages> } => ({
@@ -123,7 +127,7 @@ afterEach(() => {
 })
 
 describe('stageOf / slugOf', () => {
-  it('recognises all eight stages from the real prompt builders, and nothing else', () => {
+  it('recognises all nine stages from the real prompt builders, and nothing else', () => {
     for (const [stage, prompt] of Object.entries(PROMPTS))
       expect(stageOf(prompt), stage).toBe(stage)
     expect(stageOf('hello')).toBeNull()
@@ -147,7 +151,8 @@ describe('stageOf / slugOf', () => {
       MATERIALIZE_CONTRACT,
       ATTRIBUTION_CONTRACT,
       CASE_DISTILL_CONTRACT,
-      DIGEST_PROMPT
+      DIGEST_PROMPT,
+      RCA_CONTRACT
     ]
     const heads = contracts.map((c) => /^[\s\S]*?\.(?=\s|$)/.exec(c)?.[0] ?? '')
     expect(heads.every((h) => h.length > 0)).toBe(true)
@@ -248,6 +253,11 @@ describe('createFakeRunners({ cases })', () => {
     )
     expect((await own.agent(PROMPTS.dossierLite, agentOpts)).text).toBe('LITE')
     expect((await own.agent(PROMPTS.dossier, agentOpts)).text).toBe('FULL')
+  })
+
+  it('serves the rca stage one-shot from the case fixture', async () => {
+    const r = createFakeRunners(caseOf({ rca: { text: 'DRAFT' } }))
+    expect((await r.oneShot(PROMPTS.rca)).text).toBe('DRAFT')
   })
 
   it('rejects with an AbortError when the signal is already aborted', async () => {

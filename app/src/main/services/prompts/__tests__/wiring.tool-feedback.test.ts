@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { TOOL_FEEDBACK } from '../../agent/nativeTools'
+import { FINDING_TREE_HEADINGS, treeHeadings } from '../../findingTreeHeadings'
 import { PROMPT_ENTRIES, entryById } from '../registry'
 import { fillPrompt } from '../fill'
 import { applyMemoryWrite, MEMORY_FEEDBACK } from '../../memory'
@@ -12,6 +13,30 @@ import { classifyToolCall, RISK_DENY_REASONS, type RiskContext } from '../../age
 const stub = (id: string): string => `<<${id}>>`
 
 describe('tool-feedback registry entries', () => {
+  it('registers the three tree headings under their original ids from findingTreeHeadings.ts', () => {
+    for (const key of [
+      'list_findings.root-cause',
+      'list_findings.unexplained',
+      'list_findings.ruled-out'
+    ]) {
+      const e = entryById(`tool-feedback.${key}`)
+      expect(e?.source).toBe('app/src/main/services/findingTreeHeadings.ts')
+      expect(e?.default()).toBe(FINDING_TREE_HEADINGS[key].text)
+      // The tree is printed for the agent AND for the headless distill / RCA prompts.
+      expect(e?.reaches).toBe('all')
+    }
+    expect(TOOL_FEEDBACK['list_findings.root-cause']).toBeUndefined()
+  })
+
+  it('resolves every tree heading through the resolver, so an override reaches the tree', () => {
+    expect(treeHeadings(stub)).toEqual({
+      rootCause: '<<tool-feedback.list_findings.root-cause>>',
+      unexplained: '<<tool-feedback.list_findings.unexplained>>',
+      ruledOut: '<<tool-feedback.list_findings.ruled-out>>'
+    })
+    expect(treeHeadings().rootCause).toBe(FINDING_TREE_HEADINGS['list_findings.root-cause'].text)
+  })
+
   it('registers one entry per TOOL_FEEDBACK key', () => {
     const ids = PROMPT_ENTRIES.filter(
       (e) => e.category === 'tool-feedback' && e.source.endsWith('nativeTools.ts')
@@ -35,7 +60,8 @@ describe('tool-feedback registry entries', () => {
       'from',
       'total'
     ])
-    expect(entryById('tool-feedback.append_finding.ok')?.placeholders).toBeUndefined()
+    expect(entryById('tool-feedback.append_finding.ok')?.placeholders).toEqual(['id'])
+    expect(entryById('tool-feedback.search_case_history.empty')?.placeholders).toBeUndefined()
   })
 
   it('every declared placeholder appears in its own default text', () => {

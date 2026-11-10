@@ -4,6 +4,7 @@ import type { HeadlessAgentResult, HeadlessResult, HeadlessUsage } from '../agen
 import type { HeadlessAgentRunnerFn } from './caseDistiller'
 import { CASE_DISTILL_CONTRACT } from './caseDistillContract'
 import { DIGEST_PROMPT } from './rejectDigest'
+import { RCA_CONTRACT } from '../rca/contract'
 import { ATTRIBUTION_CONTRACT } from './v3/attribution'
 import { CANDIDATES_CONTRACT } from './v3/candidates'
 import { DOSSIER_CONTRACT, DOSSIER_LITE_CONTRACT } from './v3/dossier'
@@ -12,9 +13,9 @@ import type { PipelineRunners } from './v3/pipeline'
 import { SUMMARY_CONTRACT } from './v3/summary'
 
 /**
- * A fake for the two headless runners the distillation pipeline calls (spec §4.1): it recognises
- * which stage a prompt belongs to and which case it is about, then answers from canned per-case
- * fixtures, so the whole pipeline runs without the Claude SDK. Electron-free on purpose — it only
+ * A fake for the two headless runners the distillation pipeline and the RCA drafter call (spec
+ * §4.1): it recognises which stage a prompt belongs to and which case it is about, then answers
+ * from canned per-case fixtures, so the whole pipeline runs without the Claude SDK. Electron-free on purpose — it only
  * touches `node:fs`/`node:path`, so tests and the dev-tools seam in main/index.ts share it.
  *
  * Stage recognition is derived from the real contract constants, never retyped: a prompt starts
@@ -31,6 +32,7 @@ export type FakeStage =
   | 'materialize'
   | 'v2'
   | 'rejectDigest'
+  | 'rca'
 export interface FakeStageSpec {
   text?: string
   throw?: string
@@ -85,7 +87,8 @@ const STAGE_HEADS: [FakeStage, string][] = [
   ['attribution', firstSentence(ATTRIBUTION_CONTRACT)],
   ['materialize', firstSentence(MATERIALIZE_CONTRACT)],
   ['v2', firstSentence(CASE_DISTILL_CONTRACT)],
-  ['rejectDigest', firstSentence(DIGEST_PROMPT)]
+  ['rejectDigest', firstSentence(DIGEST_PROMPT)],
+  ['rca', firstSentence(RCA_CONTRACT)]
 ]
 
 export function stageOf(prompt: string): FakeStage | null {

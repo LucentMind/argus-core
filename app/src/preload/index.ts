@@ -118,9 +118,11 @@ import type {
   GlobalMetrics,
   MetricsSummary,
   FindingRow,
+  FindingRole,
   RetractResult,
   ReviewState,
-  UsageStatsPayload
+  UsageStatsPayload,
+  FindingRejectReason
 } from '../shared/observability'
 import type {
   PacksListPayload,
@@ -1166,8 +1168,16 @@ const argus = {
   },
   findings: {
     list: (slug: string): Promise<FindingRow[]> => invoke(IPC.findingsList, slug),
-    review: (id: number, state: ReviewState): Promise<FindingRow | null> =>
-      invoke(IPC.findingsReview, id, state),
+    review: (
+      id: number,
+      state: ReviewState,
+      reason?: FindingRejectReason
+    ): Promise<FindingRow | null> => invoke(IPC.findingsReview, id, state, reason),
+    /** The human's chain edit (role and/or cause). Throws with a one-line reason on a refusal. */
+    update: (
+      id: number,
+      patch: { role?: FindingRole | null; causedBy?: number | null }
+    ): Promise<FindingRow | null> => invoke(IPC.findingsUpdate, id, patch),
     clear: (caseSlug: string, mode?: ModeId): Promise<{ cleared: number }> =>
       invoke(IPC.findingsClear, caseSlug, mode),
     delete: (id: number): Promise<{ deleted: true }> => invoke(IPC.findingsDelete, id)

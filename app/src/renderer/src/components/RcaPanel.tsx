@@ -553,6 +553,33 @@ export function RcaPanel({
           )
         ) : job.state === 'done' && draft ? (
           <>
+            {(() => {
+              const a = payload.anchoring
+              if (!a) return null
+              const u = a.unanchored
+              const statements = u.rootCause + u.contributing + u.symptoms + u.ruledOut
+              if (statements === 0 && a.unused.length === 0) return null
+              const parts: string[] = []
+              if (statements > 0)
+                parts.push(
+                  `${statements} statement${statements === 1 ? '' : 's'} without a finding`
+                )
+              if (a.unused.length > 0)
+                parts.push(`${a.unused.length} finding${a.unused.length === 1 ? '' : 's'} not used`)
+              return (
+                <p
+                  data-testid="rca-anchoring"
+                  title={
+                    a.unused.length > 0
+                      ? `Findings not named by the draft: ${a.unused.map((id) => `#${id}`).join(', ')}`
+                      : undefined
+                  }
+                  className="text-[11px] text-mute"
+                >
+                  {parts.join(' · ')}
+                </p>
+              )
+            })()}
             {/* — Claims — */}
             <div className="flex flex-col gap-3">
               {SECTIONS.map(({ role, label }) => {

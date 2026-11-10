@@ -39,7 +39,8 @@ import {
   migrateBypassDefault,
   migrateFavoritesRanking,
   migrateDefaultRepoToList,
-  migrateRelatedSearchSwitches
+  migrateRelatedSearchSwitches,
+  migrateObservabilityProvider
 } from './services/settingsMigrations'
 import { devToolsEnabled } from './services/prompts/gate'
 import { readDevToolsUnlocked, writeDevToolsUnlocked } from './services/devToolsUnlock'
@@ -122,10 +123,18 @@ import {
   deleteProposal,
   rejectProposal,
   setProposalsChangedNotifier,
-  proposalCounts
+  proposalCounts,
+  isEditedAccept
 } from './services/proposals'
 import { identity } from './services/authorship'
-import type { RejectReason } from '../shared/proposals'
+import type { ProposalRecord, RejectReason } from '../shared/proposals'
+import {
+  jobIntents,
+  distillJobSeed,
+  proposalScoreIntent,
+  proposalOutcomeOf
+} from './services/observability/distillTelemetry'
+import { seedFor } from './services/observability/intent'
 import type {
   MemoryTopicsPayload,
   SkillsPayload,
@@ -196,6 +205,7 @@ import { TextDocSearchHub, type TextDocSearchOpts } from './services/textdocSear
 import type { TextDocSource } from '../shared/textdoc'
 import { searchMessages, searchAllMessages } from './services/chatSearch'
 import { AgentService } from './services/agent/registry'
+import { ReviewDeltaQueue } from './services/agent/reviewDelta'
 import { ownerKeyOf } from './services/agent/session'
 import { buildReferenceIndex } from './services/agent/referenceIndex'
 import { flattenPanelCommands } from './services/agent/panelCommands'
@@ -339,24 +349,36 @@ import {
   type UnifiedSearchResult
 } from '../shared/types'
 import { globalMetrics, caseMetrics } from './services/observability/metrics'
-import { LangfuseExporter } from './services/observability/langfuse'
-import { LangfuseSink } from './services/observability/langfuseSink'
-import { createLangfuseTracing } from './services/observability/langfuseTracing'
-import { probeLangfuseCredentials } from './services/observability/langfuseProbe'
+import { ObservationExporter } from './services/observability/exporter'
+import type { ObservationSink } from './services/observability/sink'
+import {
+  buildObservationExporter,
+  checkObservabilityProvider
+} from './services/observability/buildExporter'
+import { OBSERVABILITY_PROVIDERS } from './services/observability/providers'
+import {
+  OBSERVABILITY_PROVIDER_IDS,
+  isObservabilitySecret,
+  type ObservabilityProviderId
+} from '../shared/observabilityProviders'
 import { usageStats, ensureTrackingStarted } from './services/observability/usage'
 import {
   listFindings,
   reviewFinding,
   clearFindings,
   deleteFinding,
-  retractFinding
+  retractFinding,
+  updateFinding,
+  parseFindingRejectReason
 } from './services/findings'
-import type { MetricsQuery, RetractResult, ReviewState } from '../shared/observability'
+import { parseHumanFindingPatch, describeUpdateRefusal } from '../shared/findingPatch'
+import type { FindingRow, MetricsQuery, RetractResult, ReviewState } from '../shared/observability'
 import {
   DistillQueue,
   reconcileAndEnqueue,
   needsDistillRun,
-  routeCaseClose
+  routeCaseClose,
+  type JobDbRow
 } from './services/distill/queue'
 import { runAttributionOnly } from './services/distill/v3/attributionOnly'
 import { assembleDistillInput, buildReferencesIndex } from './services/distill/input'
@@ -431,7 +453,7 @@ import type { RoutinesPayload, RoutineTemplate } from '../shared/routines'
 
 let agentService: AgentService | null = null
 let providerStatusService: ProviderStatusService | null = null
-let langfuseExporter: LangfuseExporter | null = null
+let observationExporter: ObservationExporter | null = null
 let mainWindow: BrowserWindow | null = null
 let editorWindowService: EditorWindowService | null = null
 // Module-scope for the same reason as draftStore below: registerIpc() constructs it, but
@@ -838,6 +860,10 @@ function registerIpc(): void {
   // into the master `relatedSearchOnOpen` plus `relatedIncludeLocalCases`.
   migrateRelatedSearchSwitches(settingsService)
 
+  // One-time upgrade: fold the flat `observability.langfuse` block into
+  // `observability.providers.langfuse`.
+  migrateObservabilityProvider(settingsService)
+
   // Capture declared user env BEFORE anything mutates process.env, then let the
   // service export resolved values / prepend pathDirs for spawned children.
   const capturedBinaryEnv = Object.fromEntries(
@@ -920,24 +946,46 @@ function registerIpc(): void {
     token: (id) => secretStore.resolve(corpusTokenSecret(id)) ?? undefined
   })
 
-  // — observability: Langfuse exporter (off by default; needs enabled+host+publicKey+secret) —
+  // — observability: provider adapters (all off by default; each needs its own required fields) —
+  // The install id is created lazily (an unconfigured install costs no disk write at boot); it is
+  // declared here so both the exporter factory and the attribution/export paths below share it.
+  let installId: string | null = null
+  let observabilityRows: { id: ObservabilityProviderId; label: string }[] = []
+  let observabilityErrors: Partial<Record<ObservabilityProviderId, string>> = {}
+  let observabilitySinks: Partial<Record<ObservabilityProviderId, ObservationSink>> = {}
   const buildExporter = (): void => {
-    const s = settingsService.get().observability?.langfuse
-    if (!s?.enabled || !s.host || !s.publicKey) {
-      langfuseExporter = null
-      return
+    try {
+      const s = settingsService.get()
+      const anyEnabled = OBSERVABILITY_PROVIDER_IDS.some(
+        (id) => (s.observability?.providers?.[id] as { enabled?: boolean } | undefined)?.enabled
+      )
+      if (anyEnabled) installId ??= readOrCreateInstanceId(argusHome)
+      const built = buildObservationExporter(s, (n) => secretStore.resolve(n), {
+        installId: installId ?? '',
+        appVersion: app.getVersion()
+      })
+      observationExporter = built.exporter
+      observabilityRows = built.rows
+      observabilityErrors = built.errors
+      observabilitySinks = built.sinks
+    } catch (err) {
+      // Never break boot or the settings subscriber over observability: run without export.
+      console.error('[observability] exporter not built', err)
+      observationExporter = null
+      observabilityRows = []
+      observabilityErrors = {}
+      observabilitySinks = {}
     }
-    const secretKey = secretStore.resolve('observability/langfuse/secret-key')
-    if (!secretKey) {
-      langfuseExporter = null
-      return
-    }
-    langfuseExporter = new LangfuseExporter(
-      new LangfuseSink(createLangfuseTracing({ host: s.host, publicKey: s.publicKey, secretKey })),
-      { captureContent: s.captureContent }
-    )
   }
   buildExporter()
+  /** Shut the live exporter down and build a fresh one from current settings + secrets. Sinks read
+   *  their config and secrets once, at construction, so every input change must come through here:
+   *  the settings subscriber and the observability secret handlers both call it. */
+  const rebuildExporter = (): void => {
+    const old = observationExporter
+    void old?.shutdown()
+    buildExporter()
+  }
 
   const connectorRegistry = new ConnectorRegistry(argusHome)
   // Late-bound: diagnostics was constructed above, before this registry existed.
@@ -1134,11 +1182,10 @@ function registerIpc(): void {
       }))
   })
   // Vendor-neutral attribution emission (spec §4.9): verdict rows → `asset.contribution` scores
-  // on the case's latest session trace. Resolved lazily so an unconfigured Langfuse costs no disk
-  // write at boot; never throws — it is called from the queue, the reject IPC and a tool handler.
-  let installId: string | null = null
+  // on the case's latest session trace. Resolved lazily so an install with no enabled provider
+  // pays no disk write at boot; never throws — it is called from the queue, the reject IPC and a tool handler.
   function emitAttributions(rows: AttributionRow[]): void {
-    if (!langfuseExporter || rows.length === 0) return
+    if (!observationExporter || rows.length === 0) return
     try {
       installId ??= readOrCreateInstanceId(argusHome)
       const appVersion = app.getVersion()
@@ -1150,13 +1197,107 @@ function registerIpc(): void {
           console.debug(`[attribution] no session for case ${slug}; not emitting`)
           continue
         }
-        langfuseExporter.scoreAttributions(
+        observationExporter.scoreAttributions(
           sessionId,
           group.map((r) => toAttributionEvent(r, { installId: installId!, appVersion }))
         )
       }
     } catch (err) {
       console.error('[attribution] emission failed', err)
+    }
+  }
+  /** The case slug a finding row belongs to (FindingRow carries caseId only). */
+  function caseSlugById(caseId: number): string | undefined {
+    return (
+      db.prepare(`SELECT slug FROM cases WHERE id = ?`).get(caseId) as { slug: string } | undefined
+    )?.slug
+  }
+  function onFindingReviewed(row: FindingRow): void {
+    observationExporter?.scoreFinding(row, { caseSlug: caseSlugById(row.caseId) })
+  }
+  // Human reviews the agent has not been told about yet; each session drains its own mode's
+  // share into its next driver send (spec 2026-10-26 §5.3).
+  const reviewDelta = new ReviewDeltaQueue()
+  // Reused by the queue dep and the distill telemetry: the distill provider's model, per call
+  // (it can change between jobs).
+  const judgeModel = (): string => {
+    const r = resolveDistillProvider(settingsService.get())
+    return r.ok ? (r.model ?? 'default') : 'unconfigured'
+  }
+  // One trace per finished distill job (spec 2026-10-24 distillation-health). Resolved lazily
+  // like emitAttributions; never throws — it is called from the queue's terminal transition.
+  function emitDistillJob(row: JobDbRow): void {
+    if (!observationExporter) return
+    try {
+      installId ??= readOrCreateInstanceId(argusHome)
+      observationExporter.traceDistillJob(
+        jobIntents(row, {
+          installId,
+          appVersion: app.getVersion(),
+          judgeModel,
+          captureContent: observationExporter.opts.captureContent
+        })
+      )
+    } catch (err) {
+      console.error('[distill] telemetry emission failed', err)
+    }
+  }
+  // Proposal decisions as `proposal.outcome` scores. Attachment: a `job:`-stamped proposal whose
+  // row still exists FOR THE SAME CASE -> that job's trace; otherwise the case's latest session;
+  // none -> dropped. The job seed is per attempt (`distillJobSeed(id, finished_at)`), derived
+  // here from the row exactly as `jobIntents` derives it: a proposal only ever belongs to the
+  // row's latest attempt (a failed run stages nothing and a done job cannot be retried).
+  // Never throws — it is called from the proposal IPC handlers after the archive has landed.
+  function emitProposalOutcome(
+    p: ProposalRecord,
+    decision: 'accept' | 'reject',
+    opts: { edited?: boolean; reason?: RejectReason }
+  ): void {
+    if (!observationExporter) return
+    try {
+      installId ??= readOrCreateInstanceId(argusHome)
+      const jobId = p.jobId != null ? Number(p.jobId) : NaN
+      const jobRow = Number.isInteger(jobId)
+        ? (db.prepare(`SELECT finished_at, case_slug FROM distill_jobs WHERE id = ?`).get(jobId) as
+            { finished_at: string | null; case_slug: string } | undefined)
+        : undefined
+      // A row with this id for ANOTHER case (DB recreated while the proposals dir survived) is
+      // not the producing job: fall back to the session path rather than score an unrelated trace.
+      const jobExists = jobRow !== undefined && jobRow.case_slug === p.caseSlug
+      let seed: string
+      if (jobExists) seed = distillJobSeed(jobId, jobRow.finished_at)
+      else {
+        const sessionId = lastSessionIdForCase(db, p.caseSlug)
+        if (sessionId === null) {
+          console.debug(`[proposals] no job or session for ${p.file}; outcome not emitted`)
+          return
+        }
+        seed = seedFor(installId, sessionId)
+      }
+      const note = opts.reason?.note
+        ?.split(/\r\n|\r|\n/)
+        .find((l) => l.trim())
+        ?.trim()
+        .slice(0, 200)
+      observationExporter.scoreProposal(
+        proposalScoreIntent(
+          {
+            file: p.file,
+            date: p.date,
+            type: p.type,
+            target: p.target,
+            caseSlug: p.caseSlug,
+            jobId: jobExists ? jobId : null,
+            outcome: proposalOutcomeOf(opts.edited === true, opts.reason, decision),
+            ...(opts.reason ? { rejectReason: opts.reason.tag } : {}),
+            ...(note ? { rejectNote: note } : {})
+          },
+          seed,
+          { installId, appVersion: app.getVersion() }
+        )
+      )
+    } catch (err) {
+      console.error('[proposals] outcome emission failed', err)
     }
   }
   const distillQueue = new DistillQueue({
@@ -1210,14 +1351,14 @@ function registerIpc(): void {
         { onProgress }
       ),
     // Read per write: the distill provider/model can change between jobs.
-    judgeModel: () => {
-      const r = resolveDistillProvider(settingsService.get())
-      return r.ok ? (r.model ?? 'default') : 'unconfigured'
-    },
-    onAttributions: emitAttributions
+    judgeModel,
+    onAttributions: emitAttributions,
+    onJobFinished: emitDistillJob
   })
   distillQueue.recoverOnBoot()
   const onCaseClosed = (rec: CaseRecord, opts: CloseOptions): void => {
+    // Spec 2026-10-26 §5.3: unsent review notes are dropped when the case closes.
+    reviewDelta.clear(rec.id)
     try {
       // The four-row checkbox table lives in routeCaseClose (queue.ts). The case branch goes
       // through reconcileAndEnqueue: an in-flight job for this case (started while it was open)
@@ -1358,9 +1499,7 @@ function registerIpc(): void {
     authCache.invalidate()
     // Editing a provider's config (CLI path, credentials) invalidates its probe too.
     providerStatusService?.onSettingsChanged()
-    const old = langfuseExporter
-    void old?.shutdown()
-    buildExporter()
+    rebuildExporter()
     broadcast(IPC.settingsChanged, settingsService.payload())
   })
 
@@ -2046,7 +2185,7 @@ function registerIpc(): void {
           { sessionId: e.sessionId, effectivePermissionMode: e.payload.effectivePermissionMode }
         )
       }
-      langfuseExporter?.handle(e)
+      observationExporter?.handle(e)
       broadcast(IPC.agentEventChannel, e)
     },
     agentAccess: () => agentAccessStore.get(),
@@ -2069,6 +2208,8 @@ function registerIpc(): void {
     panelCommandDecls: () => flattenPanelCommands(packRegistry.windowDecls()),
     onCaseClosed,
     emitAttributions,
+    onFindingReviewed,
+    reviewDelta,
     onWorktreeChanged: (slug) => broadcast(IPC.workspacesChanged, slug),
     defectCorpus,
     processLabels: defaultProcessLabels,
@@ -2802,19 +2943,58 @@ function registerIpc(): void {
     })
   )
   ipcMain.handle(IPC.findingsList, (_e, caseSlug: string) => listFindings(db, argusHome, caseSlug))
-  ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState) => {
-    const row = reviewFinding(db, id, state)
-    langfuseExporter?.scoreFinding(row)
+  ipcMain.handle(IPC.findingsReview, (_e, id: number, state: ReviewState, reason?: unknown) => {
+    // IPC arguments are untrusted: validate BEFORE the write so a malformed reason leaves the
+    // finding in its previous state (spec 2026-10-25 §4.3). parseFindingRejectReason throws.
+    if (!Number.isInteger(id)) throw new Error('findings:review: id must be an integer')
+    const parsed = parseFindingRejectReason(reason)
+    const row = reviewFinding(db, id, state, parsed, {
+      onOverride: (r) => emitAttributions([r])
+    })
+    if (row) {
+      // The review is already committed: a throwing hook must not turn it into an IPC failure.
+      try {
+        onFindingReviewed(row)
+        reviewDelta.note(row)
+      } catch (err) {
+        console.error('[findings] post-review hooks failed', err)
+      }
+    }
     return row
+  })
+  ipcMain.handle(IPC.findingsUpdate, (_e, id: number, patch: unknown) => {
+    // Untrusted args: validate BEFORE the write; parseHumanFindingPatch throws on any key but
+    // role / causedBy (status is the agent's claim — no human editor). A refusal from
+    // updateFinding is a one-line card message, never a stack.
+    if (!Number.isInteger(id)) throw new Error('findings:update: id must be an integer')
+    const parsed = parseHumanFindingPatch(patch)
+    const res = updateFinding(db, argusHome, id, parsed, { actor: 'human' })
+    if (!res.ok) throw new Error(describeUpdateRefusal(res.reason, res.existingRoot))
+    // Spec §5.3: a human chain edit reaches the agent like a review does.
+    try {
+      reviewDelta.note(res.row, 'edit')
+    } catch (err) {
+      console.error('[findings] post-update hooks failed', err)
+    }
+    return res.row
   })
   ipcMain.handle(IPC.findingsClear, (_e, caseSlug: string, mode?: ModeId) => {
     assertSlug(caseSlug)
     // IPC args are untrusted: an unknown mode must not silently no-op or clear everything.
     if (mode !== undefined && mode !== 'investigation' && mode !== 'review')
       throw new Error(`Invalid mode: ${JSON.stringify(mode)}`)
-    return clearFindings(db, argusHome, caseSlug, mode)
+    const kase = getCase(db, caseSlug)
+    const res = clearFindings(db, argusHome, caseSlug, mode)
+    if (kase) reviewDelta.clear(kase.id, mode)
+    return res
   })
-  ipcMain.handle(IPC.findingsDelete, (_e, id: number) => deleteFinding(db, argusHome, id))
+  ipcMain.handle(IPC.findingsDelete, (_e, id: number) => {
+    const owner = db.prepare('SELECT case_id FROM findings WHERE id = ?').get(id) as
+      { case_id: number } | undefined
+    const res = deleteFinding(db, argusHome, id)
+    if (owner) reviewDelta.forget(owner.case_id, id)
+    return res
+  })
 
   // — workspaces —
   ipcMain.handle(IPC.workspacesPick, async () => {
@@ -3720,12 +3900,20 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.proposalsAccept,
     async (_e, file: string, editedContent?: string, editedFiles?: Record<string, string>) => {
+      // Resolve identity FIRST, then read the record and accept with no await in between: the
+      // record the score describes is then the one acceptProposal's own listProposals sees in the
+      // same tick (an await between the two would let a re-distill rewrite the file under us).
+      // The score is emitted only after the accept succeeded (a throw from acceptProposal
+      // propagates and nothing is emitted).
+      const who = await identity()
+      const p = listProposals(argusHome).find((x) => x.file === file)
       const accepted = acceptProposal(argusHome, file, {
         db,
         editedContent,
         editedFiles,
-        identity: await identity()
+        identity: who
       })
+      if (p) emitProposalOutcome(p, 'accept', { edited: isEditedAccept(p.content, editedContent) })
       // A reference-edit proposal WRITES a reference — it is how an agent's durable knowledge
       // gets into the library — but this handler never signalled it, so both the Library list and
       // INDEX.md stayed as they were until something else happened to fire.
@@ -3748,6 +3936,7 @@ function registerIpc(): void {
       } catch (err) {
         console.error('[attribution] proposal-reject override failed', err)
       }
+      emitProposalOutcome(p, 'reject', { reason })
     }
     return { proposals: listProposals(argusHome) }
   })
@@ -3936,7 +4125,10 @@ function registerIpc(): void {
     assertDevTools(devTools)
     if (!Number.isInteger(id) || typeof reason !== 'string' || !reason.trim())
       throw new Error('dev-findings:retract: id must be an integer and reason a non-empty string')
-    return retractFinding(db, id, reason, { onOverride: (row) => emitAttributions([row]) })
+    return retractFinding(db, id, reason, {
+      onOverride: (row) => emitAttributions([row]),
+      onRetracted: onFindingReviewed
+    })
   })
 
   // — settings —
@@ -4038,10 +4230,14 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.secretsSet, (_e, name: string, value: string) => {
     secretStore.set(name, value) // throws when safeStorage is unavailable → renderer surfaces the message
+    // A sink reads its secret once, at construction: without a rebuild, a header/key saved after
+    // the provider was enabled would not reach the exporter until restart.
+    if (isObservabilitySecret(name)) rebuildExporter()
   })
   ipcMain.handle(IPC.secretsHas, (_e, name: string) => secretStore.has(name))
   ipcMain.handle(IPC.secretsDelete, (_e, name: string) => {
     secretStore.delete(name)
+    if (isObservabilitySecret(name)) rebuildExporter()
   })
 
   // — health —
@@ -4089,18 +4285,18 @@ function registerIpc(): void {
         return { ok: false, detail: (err as Error).message }
       }
     },
-    langfuseConfigured: () => {
-      const s = settingsService.get().observability?.langfuse
-      return Boolean(s?.enabled && s.host && s.publicKey)
-    },
-    langfuseCheck: async () => {
-      const s = settingsService.get().observability?.langfuse
-      return probeLangfuseCredentials({
-        host: s?.host ?? '',
-        publicKey: s?.publicKey ?? '',
-        secretKey: secretStore.resolve('observability/langfuse/secret-key') ?? ''
-      })
-    }
+    observabilityProviders: () => observabilityRows,
+    observabilityCheck: (id) =>
+      // Build error → "not configured: missing <field>" → probe (+ latched export error).
+      checkObservabilityProvider(
+        OBSERVABILITY_PROVIDERS[id],
+        (settingsService.get().observability?.providers?.[id] ?? {}) as Record<string, unknown>,
+        (n) => secretStore.resolve(n),
+        {
+          buildError: observabilityErrors[id],
+          lastError: () => observabilitySinks[id]?.lastError?.()
+        }
+      )
   })
 
   ipcMain.handle(IPC.healthList, () => healthService.rows())
@@ -4557,7 +4753,7 @@ app.on('before-quit', (event) => {
   // shutdown() (not flush()) — it also calls provider.shutdown(), which was never
   // reached on the quit path before. Race it against a hard timeout: a quit hang
   // is worse than losing telemetry, so a hung network call must never block quit.
-  const shutdown = langfuseExporter?.shutdown() ?? Promise.resolve()
+  const shutdown = observationExporter?.shutdown() ?? Promise.resolve()
   const timeout = new Promise<void>((resolve) => {
     const t = setTimeout(resolve, 3000)
     t.unref?.()

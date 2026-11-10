@@ -8,7 +8,7 @@ import { createCase, setCaseStatus } from '../../caseService'
 import { writeProposal, rejectProposal, acceptProposal } from '../../proposals'
 import { assembleDistillInput, buildReferencesIndex, USER_MSG_CLAMP } from '../input'
 import { sharedReferencesDir } from '../../skillsDir'
-import { artifactsDir, proposalsArchiveDir } from '../../paths'
+import { artifactsDir, caseDir, proposalsArchiveDir } from '../../paths'
 import type { RcaDraft } from '../../../../shared/rca'
 
 let home: string
@@ -115,7 +115,13 @@ describe('assembleDistillInput', () => {
         reviewState: 'accepted',
         reviewReason: null,
         reviewActor: null,
+        rejectTag: null,
+        rejectNote: null,
         role: null,
+        status: 'confirmed',
+        roleSource: null,
+        causedBy: null,
+        supersededBy: null,
         body: expect.stringContaining('Clock resync.')
       }
     ])
@@ -130,6 +136,54 @@ describe('assembleDistillInput', () => {
     expect(input.alreadyCaptured.proposals).toEqual([
       { type: 'reference-edit', target: 'dlt-cmds', title: 'Cmds', state: 'rejected' }
     ])
+  })
+
+  it('projects the human reject tag and note into the snapshot', () => {
+    const caseId = (db.prepare(`SELECT id FROM cases WHERE slug='case-a'`).get() as { id: number })
+      .id
+    const id = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, summary, review_state, created_at, review_actor, reject_tag, reject_note)
+           VALUES (?, NULL, 'Tagged', 'rejected', 'x', 'human', 'wrong', 'old build')`
+        )
+        .run(caseId).lastInsertRowid
+    )
+    const child = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, summary, review_state, created_at, status, role, role_source, caused_by)
+           VALUES (?, NULL, 'Linked', 'pending', 'x', 'hypothesis', 'symptom', 'agent', ?)`
+        )
+        .run(caseId, id).lastInsertRowid
+    )
+    const old = Number(
+      db
+        .prepare(
+          `INSERT INTO findings (case_id, session_id, summary, review_state, created_at, review_actor, review_reason, superseded_by)
+           VALUES (?, NULL, 'Replaced', 'rejected', 'x', 'agent', 'superseded by 1', ?)`
+        )
+        .run(caseId, id).lastInsertRowid
+    )
+    fs.appendFileSync(
+      path.join(caseDir(home, 'case-a'), 'findings.md'),
+      `\n<!-- finding:${old} -->\n## Replaced\n_x_\n\nold body text\n`
+    )
+    const input = assembleDistillInput(db, home, 'case-a')
+    expect(input.findings.find((f) => f.id === id)).toMatchObject({
+      rejectTag: 'wrong',
+      rejectNote: 'old build'
+    })
+    expect(input.findings.find((f) => f.id === child)).toMatchObject({
+      status: 'hypothesis',
+      roleSource: 'agent',
+      causedBy: id,
+      supersededBy: null
+    })
+    expect(input.findings.find((f) => f.id === old)).toMatchObject({
+      supersededBy: id,
+      body: ''
+    })
   })
 
   it('lists a human-authored pending proposal as already captured, but never a job-stamped one', () => {

@@ -193,6 +193,23 @@ one it produced before. The operator's manual is `tools/distill-eval/README.md`.
 The file contains raw case data and nothing is redacted, because replay needs the real input.
 Treat it like the case itself.
 
+Every finished job attempt is also one trace at the configured observability provider(s)
+(`argus-distill-job-<id>@<finished_at>`; a retry re-runs the same row and is a new trace): a root
+with the attempt's outcome and cost, one generation per stage, and drop counters. Every accept /
+edit / reject in the inbox lands as a `proposal.outcome` score on the trace of the job that
+produced the proposal, or on the case's latest session for a human-authored proposal. Error
+strings on these traces are always cut at their first quote, since parser errors can quote the
+model's output. Field analytics over many
+installs (failure rate by stage, cost per pipeline version, acceptance by reject reason) is done at
+the backend; see [observability.md](observability.md) for the exact names and what `captureContent`
+gates.
+
+Findings carry the same kind of label: a human reject tags the finding `wrong`, `not-useful` or
+`other` with an optional one-line note, the agent's own retractions carry their reason, and every
+distill snapshot projects both (`rejectTag` / `rejectNote`, `reviewReason` / `reviewActor`) so the
+eval export can separate a false claim from true-but-noise. A snapshot is frozen at distill time;
+a label added later lives in the `findings` table, not in that snapshot.
+
 ## 1.7 Which pipeline should I pick
 
 **v2 is the default and it is the honest recommendation today.** v3 is built, tested and live-
@@ -378,11 +395,13 @@ open case (a Distill / Re-distill from the case menu) the stage records
   least once; its tooltip carries the domains and the last-applied date.
 - **Distillation runs** (dev): the run detail gains an attribution node, and an attribution-only
   job is labelled `attribution only` in the runs rail.
-- **Langfuse**: one `asset.contribution` score per verdict, with OTel GenAI-shaped metadata
+- **Langfuse** (and any other enabled observability provider; see [observability.md](observability.md) for where scores go): one `asset.contribution` score per verdict, with OTel GenAI-shaped metadata
   (asset, domain, outcome, judge model, prompt hash). Silent rows are not scored. Each score's id
-  is deterministic — the first 32 hex of `sha256(install | case | kind | name)` — so an override
-  or a redistill re-emits the *same* score (Langfuse upserts it) instead of adding a second one;
-  re-applying an unchanged override emits nothing.
+  is deterministic — the first 32 hex of `sha256(install | case | kind | name)` — and identical
+  across providers, so an override or a redistill re-emits a score with the *same* id. Langfuse
+  upserts it instead of adding a second one; an OTLP backend receives a **new**
+  `evaluation asset.contribution` span on every re-emit, so OTLP consumers must deduplicate on
+  `argus.score.id` (latest wins). Re-applying an unchanged override emits nothing.
 - **Prompts (dev)**: the same events export as vendor-neutral NDJSON.
 
 **Implicit overrides.** Two human actions correct the judge without any new UI. **Retracting a

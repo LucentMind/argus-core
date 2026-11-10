@@ -248,6 +248,7 @@ export const IPC = {
   usageStats: 'usage:stats',
   findingsList: 'findings:list',
   findingsReview: 'findings:review',
+  findingsUpdate: 'findings:update',
   casesDelete: 'cases:delete',
   casesArchive: 'cases:archive',
   casesRestore: 'cases:restore',

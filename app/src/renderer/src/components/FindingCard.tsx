@@ -9,6 +9,12 @@ import {
 } from 'lucide-react'
 import { REVIEW_LAYERS } from '../../../shared/reviewLayers'
 import type { ReviewSeverity } from '../../../shared/reviewLayers'
+import {
+  FINDING_REJECT_LABELS,
+  FINDING_ROLE_LABELS,
+  FINDING_ROLES
+} from '../../../shared/observability'
+import { REWIND_REVIEW_REASON } from '../../../shared/branching'
 import type { FindingRole, FindingRow } from '../../../shared/observability'
 import type { CiteTarget } from '../lib/citations'
 import { MessageView } from './MessageView'
@@ -44,16 +50,25 @@ const SEVERITY_RAIL: Record<ReviewSeverity, string> = {
   minor: 'bg-mute'
 }
 
-/** Report-written role (spec §2), passive display only — applyReportRoles is the sole writer.
- *  root-cause is the one role worth calling out at a glance, so it alone gets the accent
- *  treatment; everything else is a plain dim chip, same vocabulary as the `commented`/`pushed`
- *  chips below. */
-const ROLE_LABEL: Record<FindingRole, string> = {
-  'root-cause': 'ROOT CAUSE',
-  contributing: 'contributing',
-  symptom: 'symptom',
-  duplicate: 'duplicate',
-  'ruled-out': 'ruled out'
+/** `caused by #4 · Install rejected`, with `(inactive)` when the cause is no longer active; just
+ *  `#4` when the options carry no such row (a cause from a row the store has not loaded). */
+function causeLabel(
+  id: number,
+  options: readonly { id: number; summary: string; inactive?: boolean }[]
+): string {
+  const o = options.find((x) => x.id === id)
+  if (!o) return `caused by #${id}`
+  return `caused by #${id} · ${o.summary}${o.inactive ? ' (inactive)' : ''}`
+}
+
+/** The select's option text for a stored cause that is no longer active; `#6 (inactive)` when the
+ *  options carry no such row. */
+function inactiveCauseLabel(
+  id: number,
+  options: readonly { id: number; summary: string }[]
+): string {
+  const summary = options.find((o) => o.id === id)?.summary
+  return `#${id} ${summary ? `· ${summary} ` : ''}(inactive)`
 }
 
 /** One finding in the sidebar list. Presentational: every mutation goes back up through a
@@ -73,7 +88,14 @@ export function FindingCard({
   onReview,
   onAction,
   onCite,
-  onDelete
+  onDelete,
+  onWhy,
+  onCorrect,
+  footer,
+  depth = 0,
+  onEdit,
+  causeOptions = [],
+  note
 }: {
   finding: FindingRow
   slug: string
@@ -90,15 +112,36 @@ export function FindingCard({
   onAction: (action: 'comment' | 'apply') => void
   onCite: (cite: CiteTarget) => void
   onDelete: (id: number) => void
+  /** Opens the reject-reason strip for this card (investigation mode only). */
+  onWhy?: () => void
+  /** Stage a correction into the composer (investigation, not rejected). */
+  onCorrect?: () => void
+  /** Rendered as the card's last child — the reject strip when this card is being labelled. */
+  footer?: React.ReactNode
+  /** Tree depth in the rail's chain index; 14px per level. */
+  depth?: number
+  /** Human chain edit (investigation only). Absent → no editors. */
+  onEdit?: (patch: { role?: FindingRole | null; causedBy?: number | null }) => void
+  /** Candidates for the cause picker: the case's active investigation findings (self is
+   *  filtered here). */
+  causeOptions?: readonly { id: number; summary: string; inactive?: boolean }[]
+  /** One muted line in the meta row — the inline card's "changed after your accept". */
+  note?: string
 }): React.JSX.Element {
   const accepted = f.reviewState === 'accepted'
   const rejected = f.reviewState === 'rejected'
   const [actFocus, setActFocus] = useState(false)
+  // The agent's evidence claim (spec 2026-10-26 §5.1). Investigation only: a review card
+  // renders as before.
+  const hypothesis = f.mode === 'investigation' && f.status === 'hypothesis'
   return (
     <li
+      data-finding-id={f.id}
+      data-status={f.mode === 'investigation' ? f.status : undefined}
+      style={f.mode === 'investigation' && depth > 0 ? { marginLeft: depth * 14 } : undefined}
       className={`group/f relative rounded-r2 border bg-panel ${
         accepted ? 'border-review/35' : rejected ? 'border-danger/35' : 'border-hair'
-      }`}
+      } ${hypothesis ? 'border-dashed' : ''}`}
     >
       {f.severity && (
         <span
@@ -122,17 +165,35 @@ export function FindingCard({
         >
           {f.summary}
         </button>
+        {hypothesis && (
+          <span
+            data-testid="status-chip"
+            title="Hypothesis — stated by the agent, not yet evidence-backed"
+            className="mt-0.5 shrink-0 rounded-r1 border border-dashed border-hair2 px-1 text-[10px] whitespace-nowrap text-mute"
+          >
+            ? hypothesis
+          </span>
+        )}
         {f.role && (
           <span
+            title={f.roleSource ? `set by ${f.roleSource}` : undefined}
             className={`mt-0.5 shrink-0 rounded-r1 border px-1 text-[10px] whitespace-nowrap ${
               f.role === 'root-cause' ? 'border-signal/35 text-signal' : 'border-hair2 text-mute'
             }`}
           >
-            {ROLE_LABEL[f.role]}
+            {FINDING_ROLE_LABELS[f.role]}
           </span>
         )}
       </div>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pr-2 pb-1.5 pl-3">
+        {note && (
+          <span
+            data-testid="finding-note"
+            className="min-w-0 text-[10px] leading-snug text-mute italic"
+          >
+            {note}
+          </span>
+        )}
         {rejected && f.reviewActor === 'agent' && (
           <>
             <span className="shrink-0 rounded-r1 border border-danger/35 px-1 text-[10px] whitespace-nowrap text-mute">
@@ -142,6 +203,46 @@ export function FindingCard({
               <span className="min-w-0 text-[10px] leading-snug text-mute">{f.reviewReason}</span>
             )}
           </>
+        )}
+        {/* The human's label (spec 2026-10-25 §4.4), in the slot the agent chip uses — the two are
+            exclusive on the actor. A tagged reject shows the label and the note; an untagged one
+            offers a ghost `why?`. Either click reopens the strip, so a label can be added or changed
+            later without re-rejecting. Investigation only, and never on a rewound finding (not a judgement): review cards have Post/Apply, not thumbs. */}
+        {rejected &&
+          f.reviewActor !== 'agent' &&
+          f.mode === 'investigation' &&
+          f.reviewReason !== REWIND_REVIEW_REASON &&
+          (f.rejectTag ? (
+            <>
+              <button
+                type="button"
+                aria-label="Change reject reason"
+                className="shrink-0 rounded-r1 border border-danger/35 px-1 text-[10px] whitespace-nowrap text-mute hover:text-ink"
+                onClick={onWhy}
+              >
+                {FINDING_REJECT_LABELS[f.rejectTag]}
+              </button>
+              {f.rejectNote && (
+                <span className="min-w-0 text-[10px] leading-snug text-mute">{f.rejectNote}</span>
+              )}
+            </>
+          ) : (
+            <button
+              type="button"
+              aria-label="Add reject reason"
+              className="shrink-0 rounded-r1 px-1 text-[10px] text-faint hover:text-ink"
+              onClick={onWhy}
+            >
+              why?
+            </button>
+          ))}
+        {f.mode === 'investigation' && f.causedBy !== null && (
+          <span
+            data-testid="caused-by-chip"
+            className="min-w-0 truncate font-mono text-[10px] text-mute"
+          >
+            {causeLabel(f.causedBy, causeOptions)}
+          </span>
         )}
         {selectable && (
           <input
@@ -245,6 +346,16 @@ export function FindingCard({
               </>
             ) : (
               <>
+                {onCorrect && !rejected && (
+                  <button
+                    aria-label="Correct this finding"
+                    title="Tell the agent what is wrong — opens the chat with this finding's handle"
+                    className="inline-flex h-6 items-center justify-center rounded-r2 border border-hair2 px-1 text-[10px] text-mute transition-colors hover:text-ink"
+                    onClick={onCorrect}
+                  >
+                    Correct
+                  </button>
+                )}
                 <button
                   aria-label="Mark finding good"
                   aria-pressed={accepted}
@@ -301,6 +412,62 @@ export function FindingCard({
           />
         </div>
       )}
+      {open && f.mode === 'investigation' && onEdit && (
+        <div
+          data-testid="chain-editors"
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-hair px-3 py-1.5 text-[10.5px] text-mute"
+        >
+          <label className="flex items-center gap-1">
+            role
+            <select
+              aria-label="Role"
+              value={f.role ?? ''}
+              onChange={(e) =>
+                onEdit({ role: e.target.value === '' ? null : (e.target.value as FindingRole) })
+              }
+              className="rounded-r1 border border-hair bg-transparent px-1 py-0.5 text-[10.5px] text-ink"
+            >
+              <option value="">none</option>
+              {FINDING_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {FINDING_ROLE_LABELS[r]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1">
+            caused by
+            <select
+              aria-label="Caused by"
+              value={f.causedBy ?? ''}
+              onChange={(e) =>
+                onEdit({ causedBy: e.target.value === '' ? null : Number(e.target.value) })
+              }
+              className="max-w-48 rounded-r1 border border-hair bg-transparent px-1 py-0.5 text-[10.5px] text-ink"
+            >
+              <option value="">none</option>
+              {causeOptions
+                .filter((o) => o.id !== f.id && !o.inactive)
+                .map((o) => (
+                  <option key={o.id} value={o.id}>
+                    #{o.id} {o.summary}
+                  </option>
+                ))}
+              {/* The stored cause is always an option, even when it is no longer selectable (a
+                  rejected / ruled-out / duplicate / superseded row): a controlled select with no
+                  matching option shows "none" while the chip says otherwise, and picking "none"
+                  would fire no change event, so the dead cause could never be cleared. */}
+              {f.causedBy !== null &&
+                !causeOptions.some((o) => o.id === f.causedBy && !o.inactive) && (
+                  <option key={f.causedBy} value={f.causedBy}>
+                    {inactiveCauseLabel(f.causedBy, causeOptions)}
+                  </option>
+                )}
+            </select>
+          </label>
+        </div>
+      )}
+      {footer}
     </li>
   )
 }

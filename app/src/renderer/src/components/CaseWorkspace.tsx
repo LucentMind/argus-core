@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { PanelLeft, PanelRight } from 'lucide-react'
 import { IconBtn, SectionLabel } from './ui'
 import { SearchBar } from './SearchBar'
@@ -6,6 +6,7 @@ import { CaseFiles } from './CaseFiles'
 import { ChatPane } from './ChatPane'
 import { ReviewRunButton } from './ReviewRunButton'
 import { FindingsPane } from './FindingsPane'
+import { FindingsDocument } from './FindingsDocument'
 import { RcaPanel } from './RcaPanel'
 import { JiraSection } from './JiraSection'
 import { ReposSection } from './ReposSection'
@@ -18,13 +19,15 @@ import { PanelTabStrip } from './PanelTabStrip'
 import { PanelDock } from './PanelDock'
 import { agentStore, wireAgentStore } from '../lib/agentStore'
 import { uiStore, CHAT_MIN_WIDTH, FINDINGS_MIN_WIDTH, EVIDENCE_MIN_WIDTH } from '../lib/uiStore'
-import { panelsStore, wirePanelsStore, CHAT_TAB } from '../lib/panelsStore'
+import { panelsStore, wirePanelsStore, CHAT_TAB, FINDINGS_TAB } from '../lib/panelsStore'
 import { wireExternalAppsStore } from '../lib/externalAppsStore'
 import { notice } from '../lib/noticeStore'
 import { reposStore } from '../lib/reposStore'
+import { findingsStore, wireFindingsStore } from '../lib/findingsStore'
 import { sessionsStore } from '../lib/sessionsStore'
 import { useAmbientAnchors } from '../lib/ambientAnchors'
 import { panelKeyStr } from '../../../shared/panels'
+import { buildFindingTree } from '../../../shared/findingTree'
 import type { ChatJumpTarget, FileNode, UnifiedHit } from '../../../shared/types'
 import { classifyCitePath, toRepoNameSet, type CiteTarget } from '../lib/citations'
 import type { ModeId } from '../../../shared/modes'
@@ -102,6 +105,18 @@ export function CaseWorkspace({
     (cb) => panelsStore.subscribe(cb),
     () => panelsStore.get()
   )
+  const findingRows = useSyncExternalStore(
+    (cb) => findingsStore.subscribe(cb),
+    () => findingsStore.get(slug).rows
+  )
+  const findingsPending = useMemo(
+    () => buildFindingTree(findingRows.filter((f) => f.mode === 'investigation')).pending,
+    [findingRows]
+  )
+  // Review mode has no chain, so it has no Findings tab; if it was the active tab, Chat takes over.
+  useEffect(() => {
+    panelsStore.setFindingsAvailable(activeMode === 'investigation')
+  }, [activeMode])
   const dockHost = useRef<HTMLDivElement | null>(null)
   const mainEl = useRef<HTMLElement | null>(null)
   const drag = useRef<{
@@ -197,6 +212,7 @@ export function CaseWorkspace({
 
   useEffect(() => {
     wireAgentStore()
+    wireFindingsStore()
     // guard against a fast A→B slug switch applying A's late-resolving result
     // after B's effect has already taken over
     let stale = false
@@ -265,6 +281,7 @@ export function CaseWorkspace({
 
   useEffect(() => {
     void reposStore.load(slug)
+    void findingsStore.load(slug)
   }, [slug])
 
   async function openInPanel(evidenceId: number, packId: string, windowId: string): Promise<void> {
@@ -788,6 +805,7 @@ export function CaseWorkspace({
             onSwitchSession={handleSwitchSession}
             onJumpToTurn={handleJumpToTurn}
             onOpenFind={() => setFindOpen(true)}
+            findingsTab={activeMode === 'investigation' ? { pending: findingsPending } : null}
             action={
               activeMode === 'review' ? (
                 <ReviewRunButton slug={slug} sessionId={sessionId} onError={handleModeError} />
@@ -829,10 +847,21 @@ export function CaseWorkspace({
                   />
                 )}
               </div>
+              <div
+                className={`flex h-full min-h-0 flex-col ${panels.activeTab === FINDINGS_TAB ? '' : 'hidden'}`}
+              >
+                {panels.activeTab === FINDINGS_TAB && (
+                  <FindingsDocument
+                    slug={slug}
+                    sessionId={sessionId}
+                    onCite={(c) => void handleCite(c)}
+                  />
+                )}
+              </div>
               {/* The active docked panel's native view is painted over this host by PanelDock. */}
               <div
                 ref={dockHost}
-                className={`absolute inset-0 ${panels.activeTab === CHAT_TAB ? 'hidden' : ''}`}
+                className={`absolute inset-0 ${panels.activeTab === CHAT_TAB || panels.activeTab === FINDINGS_TAB ? 'hidden' : ''}`}
               />
               <PanelDock hostRef={dockHost} />
             </div>
@@ -904,8 +933,8 @@ export function CaseWorkspace({
                   by mode client-side, so this keys on `slug` alone, not `${slug}:${activeMode}`
                   (unlike CaseFiles above) — keying on mode would discard a good fetch on every
                   mode toggle. The remount is what guarantees no cross-case findings leak now
-                  that a rejected fetch no longer clears state (see FindingsPane's list().catch
-                  comment): without it, this would stay a single long-lived instance across case
+                  that a rejected fetch no longer clears state (see findingsStore.load's
+                  keep-rows-on-failure rule): without it, this would stay a single long-lived instance across case
                   switches, and a failed fetch for the new case would leave the old case's
                   findings on screen under the new slug. The remount also resets the per-case
                   expandedId/selected/layerFilter state. */}

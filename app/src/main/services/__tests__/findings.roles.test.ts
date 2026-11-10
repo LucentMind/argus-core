@@ -43,6 +43,13 @@ describe('applyReportRoles', () => {
     expect(roleOf(id1)).toBe('root-cause')
     expect(roleOf(id2)).toBe('contributing')
     expect(roleOf(id3)).toBeNull() // absent from set → cleared
+    expect(
+      (
+        db.prepare(`SELECT role_source FROM findings WHERE id = ?`).get(id1) as {
+          role_source: string | null
+        }
+      ).role_source
+    ).toBe('rca') // the report is this role's provenance
 
     expect(() =>
       applyReportRoles(db, caseA, [

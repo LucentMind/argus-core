@@ -6,7 +6,11 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDb } from '../../db'
 import { createCase } from '../../caseService'
 import { writeAttributions } from '../attributions'
-import { overrideFromRetraction, overrideFromProposalReject } from '../overrides'
+import {
+  overrideFromRetraction,
+  overrideFromProposalReject,
+  overrideFromFindingReject
+} from '../overrides'
 
 let home: string
 let db: DatabaseSync
@@ -158,5 +162,23 @@ describe('overrideFromProposalReject', () => {
         { tag: 'wrong' }
       )
     ).toBeNull()
+  })
+})
+
+describe('overrideFromFindingReject', () => {
+  it('flips the named asset to misled with source finding-reject', () => {
+    const row = overrideFromFindingReject(db, 1, 'the diag skill misled me')
+    expect(row).toMatchObject({
+      assetName: 'diag',
+      overrideVerdict: 'misled',
+      overrideSource: 'finding-reject'
+    })
+  })
+  it('returns null when the note names no asset of the case', () => {
+    expect(overrideFromFindingReject(db, 1, 'nothing here')).toBeNull()
+  })
+  it('is idempotent: the same override twice returns null the second time', () => {
+    expect(overrideFromFindingReject(db, 1, 'diag')).not.toBeNull()
+    expect(overrideFromFindingReject(db, 1, 'diag')).toBeNull()
   })
 })

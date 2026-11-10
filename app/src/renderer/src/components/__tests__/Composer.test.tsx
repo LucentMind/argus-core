@@ -1546,6 +1546,13 @@ describe('Composer prefill', () => {
   const box = (): HTMLTextAreaElement =>
     screen.getByPlaceholderText<HTMLTextAreaElement>('Message the analyst — / for skills')
 
+  it('focuses the textarea when a prefill lands', () => {
+    const view = render(<Composer disabled={false} onSend={vi.fn()} />)
+    expect(document.activeElement).not.toBe(screen.getByPlaceholderText(/message the analyst/i))
+    view.rerender(<Composer disabled={false} onSend={vi.fn()} prefill="Finding #7: " />)
+    expect(document.activeElement).toBe(screen.getByPlaceholderText(/message the analyst/i))
+  })
+
   it('appends a newly staged draft to text the user already typed', () => {
     const view = render(<Composer disabled={false} onSend={vi.fn()} />)
     fireEvent.change(box(), { target: { value: 'I think this is the same regression —' } })

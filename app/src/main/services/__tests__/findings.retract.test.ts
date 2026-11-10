@@ -215,4 +215,14 @@ describe('reviewFinding', () => {
     expect(row?.reviewActor).toBe('human')
     expect(row?.reviewReason).toBe('agent reason')
   })
+
+  it('fires onRetracted only when the row changed', () => {
+    const fired: number[] = []
+    const id = seed('pending')
+    retractFinding(db, id, 'wrong file', { onRetracted: (r) => fired.push(r.id) })
+    expect(fired).toEqual([id])
+    const humanRejected = seed('rejected', 'human', 'no')
+    retractFinding(db, humanRejected, 'again', { onRetracted: (r) => fired.push(r.id) })
+    expect(fired).toEqual([id])
+  })
 })

@@ -272,8 +272,8 @@ describe('placeholder validation', () => {
 
   it('still accepts an empty override on an entry with no placeholders', () => {
     const store = new PromptStore({ devTools: true, argusHome: tmpHome() })
-    store.setOverride('tool-feedback.append_finding.ok', '')
-    expect(store.resolve('tool-feedback.append_finding.ok')).toBe('')
+    store.setOverride('tool-feedback.search_case_history.empty', '')
+    expect(store.resolve('tool-feedback.search_case_history.empty')).toBe('')
   })
 
   it('drops an on-disk override that violates the placeholder contract', () => {

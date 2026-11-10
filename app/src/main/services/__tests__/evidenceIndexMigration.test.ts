@@ -341,15 +341,15 @@ describe('evidence index migration', () => {
     probing = false
     probeTimes.push(performance.now())
 
-    const gaps = probeTimes.slice(1).map((t, i) => t - probeTimes[i])
-    const maxGap = Math.max(...gaps)
-    // Generous bound for a loaded CI box: a single unbroken synchronous block moving ~5MB
-    // of legacy content through SQLite comfortably exceeds this on the hardware the 340ms/
-    // row and 3s/artifact numbers in the file header comment were measured on.
-    expect(maxGap).toBeLessThan(1000)
-    // Robustness net against wall-clock flakiness: the probe must have actually fired
-    // several times DURING the migration (not just once before and once after), proving
-    // multiple real yields happened, independent of how long each gap measured.
+    // Structural, not wall-clock: the probe can only fire while the migration is suspended at an
+    // `await`, and `probing` is cleared in the microtask right after the migration resolves —
+    // BEFORE any pending setImmediate runs. Against the old per-row-savepoint code (no await
+    // inside the row) the probe therefore never fires at all: probeTimes is exactly [before,
+    // after] (length 2). With the 1MB yield cadence over ~5MB it fires once per yield (~5).
+    // Both timing bounds tried before this were CI-flaky on GitHub's Windows runner: an absolute
+    // 1000ms max-gap saw a 1312ms block, and a relative max-gap < 0.6×total saw 252ms of 318ms —
+    // the work per yield is not evenly sized, so no gap ratio is machine-independent. The yield
+    // COUNT is.
     expect(probeTimes.length).toBeGreaterThanOrEqual(5)
   })
 })

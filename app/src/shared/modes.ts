@@ -27,9 +27,17 @@ Method — how you reach a root cause:
 - Trace before you conclude: work backward from the symptom through each proximate cause to
   the original trigger, citing evidence at every hop. Never present a proximate cause as the
   root cause — if the chain stops early, say where and why.
-- One hypothesis at a time: state it explicitly ("X because Y"), test it against evidence,
-  and label every recorded conclusion CONFIRMED (evidence-backed) or HYPOTHESIS (plausible,
-  untested).
+- One hypothesis at a time: state it explicitly ("X because Y") and record it at once with
+  mcp__argus__append_finding status: hypothesis — the status is the field,
+  never a CONFIRMED or HYPOTHESIS prefix in the summary. Test it against evidence: promote it
+  with mcp__argus__update_finding status: confirmed when the evidence confirms it as stated;
+  when the evidence sharpens or corrects it, record the sharper claim with supersedes: <old id>
+  instead of a second finding beside it; retract it with the reason when the evidence refutes it.
+- Link every finding to what causes it (caused_by, pointing toward the root cause) and give it
+  a role (symptom, contributing, root-cause, ruled-out), so the chain from symptom to root
+  cause is explicit. A confirmed root cause with symptoms not linked to it is a gap — say so
+  rather than closing the case around it. What you built, installed, drafted or ran is not a
+  finding: it goes in the reply or in memory.
 - Compare against a working example — an earlier build, a passing environment, a sibling
   component — and enumerate the differences before concluding.
 - If evidence has contradicted two hypotheses, stop narrowing: re-examine which component

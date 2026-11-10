@@ -1,4 +1,4 @@
-import type { BranchArgs, RewindFilesPreview } from '../../driver'
+import type { BranchArgs, ProviderTurn, RewindFilesPreview } from '../../driver'
 import type { CreateQueryFn, QueryHandle } from './index'
 import { AsyncQueue } from '../../asyncQueue'
 
@@ -6,11 +6,15 @@ export type ForkFn = (
   sessionId: string,
   opts: { upToMessageId: string; dir: string }
 ) => Promise<{ sessionId: string }>
-/** The SDK's `getSessionMessages`: user/assistant messages in chronological order. */
-export type MessagesFn = (
-  sessionId: string,
-  opts: { dir: string }
-) => Promise<{ type: string; uuid: string }[]>
+/** The SDK's `getSessionMessages`: user/assistant messages in chronological order. Only the
+ *  fields this module reads; `message.content` is the API's string-or-blocks shape. */
+export interface TranscriptMessage {
+  type: string
+  uuid: string
+  message?: { content?: unknown }
+  parent_tool_use_id?: string | null
+}
+export type MessagesFn = (sessionId: string, opts: { dir: string }) => Promise<TranscriptMessage[]>
 
 export interface ClaudeBranchDeps {
   createQuery: CreateQueryFn
@@ -23,11 +27,49 @@ export interface ClaudeBranchDeps {
 export const NO_TURN_AFTER_ANCHOR = 'no turn after the anchor'
 export const ANCHOR_NOT_IN_TRANSCRIPT = 'anchor not found in the provider transcript'
 
-/** The three `AgentDriver` branching methods, spread into the driver by `index.ts`. */
+/** The four `AgentDriver` branching methods, spread into the driver by `index.ts`. */
 export interface ClaudeBranching {
   forkAt(a: BranchArgs): Promise<string>
   previewRewind(a: BranchArgs): Promise<RewindFilesPreview>
   rewindTo(a: BranchArgs): Promise<string>
+  listTurns(a: Pick<BranchArgs, 'cursor' | 'caseDir'>): Promise<ProviderTurn[]>
+}
+
+const textOf = (m: TranscriptMessage): string => {
+  const c = m.message?.content
+  if (typeof c === 'string') return c
+  if (!Array.isArray(c)) return ''
+  return (c as { type?: string; text?: string }[])
+    .filter((b) => b?.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('\n')
+}
+
+/** A user message that STARTS a turn. The other `user` messages in the transcript are
+ *  `tool_result` carriers — the only kind the SDK stream ever shows (EVIDENCE.md, Q1). */
+const isPrompt = (m: TranscriptMessage): boolean =>
+  m.type === 'user' &&
+  !m.parent_tool_use_id &&
+  !(
+    Array.isArray(m.message?.content) &&
+    (m.message.content as { type?: string }[]).some((b) => b?.type === 'tool_result')
+  )
+
+/**
+ * The transcript's turns: each prompt, and the LAST top-level assistant message before the next
+ * one — the same uuid the stream capture records (index.ts, `lastAssistantUuid`), and the same
+ * sub-agent gate. Validated against stream-observed anchors and across 45 real forks
+ * (`scripts/spike-claude-branch/derive-transcript.mjs`, 2026-10-23); a fork remaps every uuid
+ * but keeps the prefix, so re-deriving on the fork's own transcript stays correct.
+ */
+export function transcriptTurns(msgs: TranscriptMessage[]): ProviderTurn[] {
+  const turns: ProviderTurn[] = []
+  for (const m of msgs) {
+    if (isPrompt(m)) turns.push({ text: textOf(m), anchor: null })
+    else if (m.type === 'assistant' && !m.parent_tool_use_id && turns.length)
+      turns[turns.length - 1].anchor = m.uuid
+  }
+  return turns
 }
 
 /**
@@ -129,6 +171,9 @@ export function createClaudeBranching(deps: ClaudeBranchDeps): ClaudeBranching {
     },
     async previewRewind(a: BranchArgs): Promise<RewindFilesPreview> {
       return rewindFiles(a, false)
+    },
+    async listTurns(a): Promise<ProviderTurn[]> {
+      return transcriptTurns(await deps.messages(a.cursor, { dir: a.caseDir }))
     },
     async rewindTo(a: BranchArgs): Promise<string> {
       // Fork FIRST (see the doc comment above): a stray fork is harmless if the rewind

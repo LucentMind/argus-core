@@ -269,15 +269,15 @@ export function runDriverContractSuite(
       expect(() => makeDriver().createSession(ctx)).not.toThrow()
     })
 
-    // 11. Branching capability ⇔ method presence. `native` MUST have all three methods;
+    // 11. Branching capability ⇔ method presence. `native` MUST have all four methods;
     //     `digest` MUST have none (the harness treats absence as "null cursor").
-    it('declared branching capability matches forkAt/rewindTo/previewRewind presence', () => {
+    it('declared branching capability matches forkAt/rewindTo/previewRewind/listTurns presence', () => {
       const d = makeDriver()
-      const has = ['forkAt', 'rewindTo', 'previewRewind'].map(
+      const has = ['forkAt', 'rewindTo', 'previewRewind', 'listTurns'].map(
         (m) => typeof (d as unknown as Record<string, unknown>)[m] === 'function'
       )
-      if (d.capabilities.branching === 'native') expect(has).toEqual([true, true, true])
-      else expect(has).toEqual([false, false, false])
+      if (d.capabilities.branching === 'native') expect(has).toEqual([true, true, true, true])
+      else expect(has).toEqual([false, false, false, false])
       expect(DRIVERS[d.kind].capabilities.branching).toBe(d.capabilities.branching)
     })
   })

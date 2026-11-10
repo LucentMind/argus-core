@@ -18,15 +18,16 @@
  *    jsdom suite feeds them (memory `argus-jsdom-runtime-blind-spots`).
  *  - The archive round-trip puts the rewound tail and the fork lineage back with REMAPPED ids.
  *
- * ── Order matters ────────────────────────────────────────────────────────────────────────────
+ * ── Stored vs derived anchors ────────────────────────────────────────────────────────────────
  *
- * The fork is taken BEFORE the parent's rewind, deliberately. A native rewind swaps the
- * session's cursor for a fork of it, and the SDK remaps every message uuid across a fork
- * (deviation V2), so `sessionBranch` now forgets the surviving turns' anchors — which means a
- * fork taken AFTER a rewind is legitimately a digest fork and would prove nothing about the
- * native path. Both orders are exercised: §3-§5 fork natively and then rewind that fork at an
- * INHERITED turn (the digest path, spec §9.5 bullet 3), §7 rewinds the parent natively, and §9
- * re-runs the exact call that used to die on a stale anchor.
+ * The fork is taken BEFORE the parent's rewind, so §2 slices at an anchor the STREAM recorded.
+ * Everything after it branches at a turn whose stored anchor is NULL — a fork's inherited turn
+ * (V2), or a turn that survived a native rewind (V14), whose uuids the SDK remapped — and so
+ * exercises the anchor `sessionBranch.branchAnchor` DERIVES from the current cursor's
+ * transcript (2026-10-23). Until then each of those was a digest branch: §3b forks a fork, §4
+ * rewinds a fork at an inherited turn, §6b rewinds the parent a SECOND time, and §7 forks again
+ * at a turn that predates both rewinds (the exact call that used to die on a stale anchor). All
+ * four must now be native, and §4, §6b and §7 each re-ask the probe to show the context held.
  *
  * ── The run ──────────────────────────────────────────────────────────────────────────────────
  *
@@ -71,11 +72,13 @@ const DB = path.join(HOME, 'argus.db')
 const NOTE = path.join(HOME, 'cases', SLUG, 'note.txt')
 
 /** The three seeding prompts. Turn 2 overwrites turn 1's file; turn 3 touches nothing, so the
- *  rewound tail is two turns of which only one wrote a file. */
+ *  rewound tail is two turns of which only one wrote a file. The Write tool is named because
+ *  the SDK's file checkpoints track only its own edit tools, never Bash: on 2026-10-23 the model
+ *  chose `echo > note.txt`, nothing was checkpointed, and the §5 restore had nothing to restore. */
 const P1 =
-  'Create a file named note.txt in the current directory whose entire contents are the single line v1. Then reply with exactly: done'
+  'Use the Write tool (not Bash) to create a file named note.txt in the current directory whose entire contents are the single line v1. Then reply with exactly: done'
 const P2 =
-  'Overwrite note.txt in the current directory so its entire contents are the single line v2. Then reply with exactly: done'
+  'Use the Write tool (not Bash) to overwrite note.txt in the current directory so its entire contents are the single line v2. Then reply with exactly: done'
 const P3 = 'Reply with exactly: ok. Do not use any tools.'
 /** Asked wherever turn 1's context is supposed to have survived. Answerable only from it. */
 const PROBE = 'What did I ask you in my first message? One line.'
@@ -303,6 +306,14 @@ const main = async () => {
     sessions = await conn.evalJs(`window.argus.sessions.list(${JSON.stringify(SLUG)})`)
   }
   const SID = sessions[0].id
+  // GATE_MODEL pins the chat to a model the SDK's BUNDLED CLI can run. A fresh home seeds the
+  // newest default, which can be ahead of that CLI — then every turn is an API 400, and the run
+  // below would be assertions about error stubs (found 2026-10-23: 2.1.263 vs claude-opus-5-5).
+  if (process.env.GATE_MODEL) {
+    await conn.evalJs(
+      `window.argus.sessions.setModel(${SID}, ${JSON.stringify(sessions[0].instanceId)}, ${JSON.stringify(process.env.GATE_MODEL)})`
+    )
+  }
 
   // Open the case BEFORE sending, so the transcript builds off the live event stream rather
   // than a replay — which is what the renderer assertions below are actually about.
@@ -310,7 +321,15 @@ const main = async () => {
 
   let rows = turnsOf(SID)
   if (rows.length === 0) {
-    await sendTurn(SID, P1, 'turn 1 (write v1)')
+    const first = await sendTurn(SID, P1, 'turn 1 (write v1)')
+    if (first.status !== 'success') {
+      console.error(
+        `SETUP FAIL: turn 1 ended '${first.status}': ${assistantText(SID, first.id).slice(0, 300)}\n` +
+          'Every check below would describe an error stub. Fix the model/CLI (GATE_MODEL=…) and ' +
+          'rerun against a FRESH home.'
+      )
+      process.exit(2)
+    }
     await sendTurn(SID, P2, 'turn 2 (overwrite v2)')
     await sendTurn(SID, P3, 'turn 3 (no tools)')
     rows = turnsOf(SID)
@@ -414,28 +433,26 @@ const main = async () => {
     forkProbeText.slice(0, 200)
   )
 
-  // ── 3b. fork AT a turn with no provider anchor — the digest branch, and the wording ──────
+  // ── 3b. fork AT an inherited turn (no stored anchor) — native via the derived anchor ─────
   //
-  // I3 (whole-branch review). The fork's inherited turn carries `provider_anchor_id = NULL`
-  // (V2), so main takes the digest path even though the driver, the session's instance and the
-  // fork's own cursor are all native. The renderer used to derive both the confirm sentence and
-  // the permanent divider from `capabilitiesFor(settings, instanceId).branching` — the DRIVER's
-  // capability, 'native' here — so both stated the opposite of what happened, and nothing in
-  // jsdom could see it: the branching is a fixture value in every renderer test.
+  // The fork's inherited turn carries `provider_anchor_id = NULL` (V2), so the anchor is
+  // derived from the fork's own transcript. I3 (whole-branch review) still applies: the
+  // confirm sentence and the permanent divider must state what main actually did, and both are
+  // checked against the row, not against the driver's capability.
   //
-  // Free: the digest path calls no driver method. The grandchild is deleted again below,
-  // because §8 asserts the case restores to exactly the two chats it archived.
+  // Free: `forkSession` is a transcript copy, no model call. The grandchild is deleted again
+  // below, because §8 asserts the case restores to exactly the two chats it archived.
   const beforeG = new Set(
     (await conn.evalJs(`window.argus.sessions.list(${JSON.stringify(SLUG)})`)).map((s) => s.id)
   )
   await pickTurnAction(0, 'Fork from here')
   await waitFor(
-    'the digest fork confirm dialog',
+    'the grandchild fork confirm dialog',
     async () => (await dialogLabel()) === 'Fork from here?',
     30000
   )
   const gAsk = await dialogText()
-  if (!(await clickText('Fork'))) throw new Error('Fork button not in the digest fork dialog')
+  if (!(await clickText('Fork'))) throw new Error('Fork button not in the grandchild fork dialog')
   const gSummary = await waitFor(
     'the grandchild fork to appear',
     async () => {
@@ -453,17 +470,19 @@ const main = async () => {
     30000
   )
   check(
-    'forking at a turn with no provider anchor promises, and then shows, the digest branch',
-    gAsk.includes('receives a summary of the history up to this point') &&
-      gText.includes('a summary of the history carried over') &&
-      !gText.includes('full context carried over') &&
-      gSummary.forkedFrom?.branching === 'digest' &&
-      sessionRow(gSummary.id)?.forked_branching === 'digest',
+    'forking a fork at an inherited turn promises, shows and records the NATIVE branch',
+    gAsk.includes('keeps its full context up to this point') &&
+      gText.includes('full context carried over') &&
+      !gText.includes('a summary of the history carried over') &&
+      gSummary.forkedFrom?.branching === 'native' &&
+      sessionRow(gSummary.id)?.forked_branching === 'native' &&
+      typeof sessionRow(gSummary.id)?.driver_cursor === 'string' &&
+      sessionRow(gSummary.id)?.driver_cursor !== sessionRow(FID)?.driver_cursor,
     {
       confirm: gAsk.split('\n')[1],
       divider: gText.split('\n').find((l) => l.includes('Forked from chat')),
       summary: gSummary.forkedFrom,
-      row: sessionRow(gSummary.id)?.forked_branching
+      row: sessionRow(gSummary.id)
     }
   )
   // Back to the parent (the only row NOT ending in "(fork)" — unambiguous while two forks
@@ -474,20 +493,23 @@ const main = async () => {
   await switchTo(true)
   await waitFor('the fork transcript again', async () => (await turnActionCount()) === 2, 30000)
 
-  // ── 4. rewind the FORK at an inherited turn — the digest path (spec §9.5 bullet 3) ───────
+  // ── 4. rewind the FORK at an inherited turn — native via the derived anchor ──────────────
   //
-  // An inherited turn has no provider anchor (V2), so `nativeBranching` is false even though
-  // the driver and the cursor are both native. Only a live run can show this: in every unit
-  // test the anchor is whatever the fixture wrote.
+  // Formerly the digest path (spec §9.5 bullet 3): an inherited turn has no stored anchor (V2).
+  // Only a live run shows the derived one is real: in every unit test the transcript is a
+  // fixture. Whether files can be restored on a fork depends on the SDK's checkpoints for it,
+  // so the dialog may say either native wording — but never the digest's.
+  const forkCursorBefore = sessionRow(FID)?.driver_cursor
   await pickTurnAction(0, 'Rewind to here')
-  await waitFor('the fork rewind confirm dialog', async () => (await dialogLabel()) !== null, 60000)
+  await waitFor('the fork rewind confirm dialog', async () => (await dialogLabel()) !== null, 90000)
   const forkRewindAsk = await dialogText()
   console.error(`--- fork rewind confirm ---\n${forkRewindAsk}\n---------------------------`)
   check(
-    'rewinding at an inherited turn is offered as the digest path, not a file restore',
-    forkRewindAsk.includes('files are not restored on this provider') &&
-      !forkRewindAsk.includes('Files restored'),
-    forkRewindAsk.split('\n').slice(0, 4)
+    'rewinding at an inherited turn is offered natively, not as the digest path',
+    !forkRewindAsk.includes('files are not restored on this provider') &&
+      (forkRewindAsk.includes('Files restored') ||
+        forkRewindAsk.includes('Files cannot be restored')),
+    forkRewindAsk.split('\n').slice(0, 6)
   )
   if (!(await clickText('Rewind'))) throw new Error('Rewind button not in the fork dialog')
   await waitFor(
@@ -497,15 +519,25 @@ const main = async () => {
   )
   const forkAfter = sessionRow(FID)
   check(
-    'the digest rewind drops the provider cursor and remembers the old one',
-    forkAfter.driver_cursor === null && typeof forkAfter.pre_rewind_cursor === 'string',
+    'the native rewind swaps in a new provider cursor and remembers the old one',
+    typeof forkAfter.driver_cursor === 'string' &&
+      forkAfter.driver_cursor !== forkCursorBefore &&
+      forkAfter.pre_rewind_cursor === forkCursorBefore,
     forkAfter
   )
-  const forkReplay = await sendTurn(FID, PROBE, 'probe (fork, after digest rewind)')
+  const forkListed = (
+    await conn.evalJs(`window.argus.sessions.list(${JSON.stringify(SLUG)})`)
+  ).find((s) => s.id === FID)
+  check(
+    'the rewound fork shows no "summary" banner (historyOrphaned false)',
+    forkListed?.historyOrphaned === false,
+    forkListed?.historyOrphaned
+  )
+  const forkReplay = await sendTurn(FID, PROBE, 'probe (fork, after native rewind)')
   const forkReplayText = assistantText(FID, forkReplay.id)
   console.error(`fork replay reply: ${forkReplayText}`)
   check(
-    'after a digest rewind the fork still answers from the inherited turn (history digest replay)',
+    'after the rewind the fork still answers from the inherited turn (resumed, not replayed)',
     knowsTurn1(forkReplayText),
     forkReplayText.slice(0, 200)
   )
@@ -591,11 +623,51 @@ const main = async () => {
     probe.provider_anchor_id
   )
 
+  // ── 6b. rewind the parent a SECOND time, at the same turn ───────────────────────────────
+  //
+  // T1 survived the first rewind, so its stored anchor was forgotten (V14) and the probe turn
+  // above lives on the forked cursor. Rewinding to T1 again discards that probe — natively,
+  // with T1's anchor found in the CURRENT cursor's transcript.
+  const parentCursorBefore = sessionRow(SID)?.driver_cursor
+  await waitFor('the parent transcript', async () => (await turnActionCount()) === 2, 30000)
+  await pickTurnAction(0, 'Rewind to here')
+  const label2 = await waitFor('the second rewind confirm dialog', () => dialogLabel(), 90000)
+  const confirm2 = await dialogText()
+  console.error(`--- second rewind confirm ---\n${confirm2}\n-----------------------------`)
+  check(
+    'the second rewind is offered natively ("Rewind 1 turn?", not the digest wording)',
+    label2 === 'Rewind 1 turn?' && !confirm2.includes('files are not restored on this provider'),
+    { label: label2, body: confirm2.split('\n').slice(0, 6) }
+  )
+  if (!(await clickText('Rewind'))) throw new Error('Rewind button not in the second dialog')
+  await waitFor(
+    'the second rewind to land',
+    () => turnsOf(SID).filter((t) => t.status === 'rewound').length === 3,
+    120000
+  )
+  const parentAfter2 = sessionRow(SID)
+  check(
+    'the second rewind swaps in yet another provider cursor',
+    typeof parentAfter2.driver_cursor === 'string' &&
+      parentAfter2.driver_cursor !== parentCursorBefore &&
+      parentAfter2.pre_rewind_cursor === parentCursorBefore,
+    parentAfter2
+  )
+  const probe2 = await sendTurn(SID, PROBE, 'probe (after second rewind)')
+  const probe2Text = assistantText(SID, probe2.id)
+  console.error(`second probe reply: ${probe2Text}`)
+  check(
+    'after the second rewind the session still answers from turn 1',
+    knowsTurn1(probe2Text),
+    probe2Text.slice(0, 200)
+  )
+
   // ── 7. the regression this gate found: branching again after a rewind ────────────────────
   //
-  // Before the fix this exact call threw `Message <anchor> not found in session <new cursor>`.
-  // Re-run it, then drop the throwaway chat so the archive assertions below stay about the two
-  // chats the rest of this gate is describing.
+  // Before the stale-anchor fix this exact call threw `Message <anchor> not found in session
+  // <new cursor>`; after it, it degraded to digest. Now it must be a native fork that still
+  // knows turn 1. Then drop the throwaway chat so the archive assertions below stay about the
+  // two chats the rest of this gate is describing.
   let extra = null
   try {
     extra = await conn.evalJs(
@@ -605,11 +677,21 @@ const main = async () => {
     extra = { error: String(err && err.message ? err.message : err) }
   }
   check(
-    'forking again at a turn that predates the rewind succeeds (degraded to digest, not broken)',
-    typeof extra?.id === 'number' && sessionRow(extra.id)?.driver_cursor === null,
-    extra?.id ? { id: extra.id, cursor: sessionRow(extra.id)?.driver_cursor } : extra
+    'forking again at a turn that predates both rewinds is NATIVE',
+    typeof extra?.id === 'number' &&
+      typeof sessionRow(extra.id)?.driver_cursor === 'string' &&
+      sessionRow(extra.id)?.forked_branching === 'native',
+    extra?.id ? sessionRow(extra.id) : extra
   )
   if (typeof extra?.id === 'number') {
+    const extraProbe = await sendTurn(extra.id, PROBE, 'probe (fork after rewinds)')
+    const extraText = assistantText(extra.id, extraProbe.id)
+    console.error(`fork-after-rewinds probe reply: ${extraText}`)
+    check(
+      'the fork taken after both rewinds answers from turn 1',
+      knowsTurn1(extraText),
+      extraText.slice(0, 200)
+    )
     await conn.evalJs(`window.argus.sessions.delete(${JSON.stringify(SLUG)}, ${extra.id})`)
   }
 
@@ -652,9 +734,10 @@ const main = async () => {
   // session counter that restarts at 1 every warm-up (deviation V1), so it does not identify a
   // turn even within one session. A pointer that survived remapping is the whole claim anyway.
   const rAnchor = rTurns.find((t) => t.id === (rRewound[0]?.rewound_to_turn_id ?? -1)) ?? null
+  // Three: the two from §5 plus the probe the §6b rewind discarded — all pointing at T1.
   check(
     'the rewound tail survives the round-trip with rewound_to_turn_id remapped',
-    rRewound.length === 2 &&
+    rRewound.length === 3 &&
       rAnchor != null &&
       rAnchor.status === 'success' &&
       rRewound.every((t) => t.rewound_to_turn_id === rAnchor.id && t.rewound_at),
@@ -691,12 +774,13 @@ const main = async () => {
     'the restored transcript to render',
     async () => {
       const t = await body()
-      return t.includes('Rewound 2 turns') ? t : null
+      // §5's two turns and §6b's probe all point at T1, so they render as ONE divider.
+      return t.includes('Rewound 3 turns') ? t : null
     },
     30000
   ).catch(() => null)
   check(
-    'the restored transcript still shows the "Rewound 2 turns" divider',
+    'the restored transcript shows both rewinds at T1 as one "Rewound 3 turns" divider',
     Boolean(restoredText),
     restoredText ? 'present' : await body()
   )

@@ -14,7 +14,9 @@ const SCANNED = [
   'app/src/main/services/agent/skillIndex.ts',
   'app/src/main/services/agent/referenceIndex.ts',
   'app/src/main/services/agent/session.ts',
+  'app/src/main/services/agent/reviewDelta.ts',
   'app/src/main/services/agent/nativeTools.ts',
+  'app/src/main/services/findingTreeHeadings.ts',
   'app/src/main/services/agent/risk.ts',
   'app/src/main/services/memory.ts',
   'app/src/main/services/panels/draftMessages.ts',
@@ -40,6 +42,7 @@ const SCANNED = [
 /** Files whose tool RETURNS and THROWS also reach the model, not just their long prose. */
 const RETURN_SCANNED = [
   'app/src/main/services/agent/nativeTools.ts',
+  'app/src/main/services/findingTreeHeadings.ts',
   // Not a tool, but the same class: everything this file returns is prefixed to a driver send
   // and read by the model. Its preamble is the untrusted-content boundary for imported
   // transcripts — the most security-load-bearing string the history-replay feature has — and it
@@ -86,8 +89,16 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
     why: 'One read_lines row as "<line number><tab><text>" — same payload shape as the grep_lines hit above, produced by the other reader.'
   },
   {
-    text: '«${h.caseSlug}» [${h.resolution}] ${h.signature} — ${h.snippet}',
+    text: '«${h.caseSlug}» [${h.resolution}${outcomeSuffix(h.caseSlug)}] ${h.signature} — ${h.snippet}',
     why: 'One search_case_history row: slug, resolution, signature and snippet read straight out of the summaries table with punctuation between them. Every word is stored data.'
+  },
+  {
+    text: 'root cause accepted',
+    why: 'search_case_history outcome suffix: two fixed labels for the derived CaseOutcome values solved / solved-unconfirmed (shared/caseOutcome.ts), data classification not instruction — same class as the row they decorate.'
+  },
+  {
+    text: 'root cause unconfirmed',
+    why: 'See "root cause accepted".'
   },
   {
     text: 'status → ${status}',
@@ -99,7 +110,7 @@ const NOT_PROMPTS: { text: string; why: string }[] = [
   },
   {
     text: 'memory/${topic}.md updated',
-    why: 'Reports what a write did and is dominated by runtime data (topic, byte count, whether an index entry was added) — reword it and there is nothing left to say. Contrast tool-feedback.append_finding.ok, which IS registered: "finding appended" is a fixed sentence with no interpolation, so wording is the whole of it and worth being able to change.'
+    why: 'Reports what a write did and is dominated by runtime data (topic, byte count, whether an index entry was added) — reword it and there is nothing left to say. Contrast tool-feedback.append_finding.ok, which IS registered: "finding appended as #{id}" is a sentence whose wording is the whole of it (the id is the only runtime datum), so wording is worth being able to change.'
   },
   {
     text: 'is not available in this session',
@@ -344,7 +355,7 @@ const registeredShapes = new Set(registered.map(placeholderShape))
 
 /**
  * An entry's default IS this returned literal. Equality, not containment: the return pass admits
- * literals from 10 characters up, and several registered defaults are short ('finding appended'),
+ * literals from 10 characters up, and several registered defaults are short ('finding appended as #{id}'),
  * so `isRegistered`'s 60-character-prefix containment would wave through any returned string that
  * merely embeds one — e.g. `finding appended — now re-read every file and start over`, which is
  * exactly the class this pass exists to catch.

@@ -73,7 +73,7 @@ export function seedDistill(ctx) {
     ],
     [
       4,
-      'NAV-212-route-flicker',
+      'GW-212-retry-after-skew',
       'queued',
       snapshot(2, 0, 1),
       null,
@@ -113,12 +113,12 @@ export function seedDistill(ctx) {
       ctx.at(ctx.T.PRIOR_CLOSED)
     ],
     [
-      'NAV-305-tile-cache',
-      'route calculation timeout on cold boot only, with an empty tile cache',
-      'First route request after a cold boot timed out after 30s; never reproduced on a warm cache.',
-      'Tile cache warm-up races the first route request; the route path waits on a cache that is still populating.',
-      'Gate the first route request on cache-ready, and compare first-request against cache-ready timestamps when triaging.',
-      ['tile', 'cache', 'cold-boot', 'timeout', 'route', 'warm-up'],
+      'GW-305-cache-cold-boot',
+      'upstream timeout on cold boot only, with an empty schema cache',
+      'First request after a cold boot timed out after 30s; never reproduced on a warm cache.',
+      'Schema cache warm-up races the first request; the request path waits on a cache that is still populating.',
+      'Gate the first request on cache-ready, and compare first-request against cache-ready timestamps when triaging.',
+      ['schema', 'cache', 'cold-boot', 'timeout', 'warm-up'],
       'solved',
       ctx.at(ctx.T.PRIOR_CLOSED - 20)
     ]

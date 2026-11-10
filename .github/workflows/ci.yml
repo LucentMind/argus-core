@@ -105,3 +105,11 @@ jobs:
       - name: Fake-runner attribution gate
         run: npm run gate:attribution-fake
         timeout-minutes: 15
+
+      # Same fake-runner boot, with the OTLP observability provider pointed at a local OTLP/JSON
+      # receiver (scripts/lib/otlpReceiver.mjs): the health probe, a fixture close's
+      # `asset.contribution` evaluation spans and their attributes, and a disabled provider
+      # exporting nothing. Credential-free; ~30 s locally.
+      - name: OTLP observability gate
+        run: npm run gate:observability-otlp
+        timeout-minutes: 10

@@ -6,8 +6,8 @@ import {
   startObservation
 } from '@langfuse/tracing'
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions'
-import { createLangfuseTracing } from '../langfuseTracing'
-import { synthSpanId } from '../langfuseSink'
+import { createLangfuseTracing } from '../tracing'
+import { synthSpanId } from '../sink'
 
 /**
  * Regression coverage for the rebuild-ordering bug: a settings-change rebuild calls
@@ -16,7 +16,7 @@ import { synthSpanId } from '../langfuseSink'
  * yields — the new instance installs itself as the module-global tracer provider
  * before the old shutdown resumes and reaches `setLangfuseTracerProvider(null)`.
  * Clearing unconditionally there wipes out the live (new) provider, silently
- * disabling telemetry for the rest of the session. See langfuseTracing.ts's
+ * disabling telemetry for the rest of the session. See providers/langfuse/tracing.ts's
  * shutdown() for the identity guard this test protects.
  */
 

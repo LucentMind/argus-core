@@ -241,8 +241,16 @@ export function assembleDistillInput(
         reviewState: f.reviewState,
         reviewReason: f.reviewReason,
         reviewActor: f.reviewActor,
+        rejectTag: f.rejectTag,
+        rejectNote: f.rejectNote,
         role: f.role,
-        body: f.body ?? ''
+        status: f.status,
+        roleSource: f.roleSource,
+        causedBy: f.causedBy,
+        supersededBy: f.supersededBy,
+        // A superseded finding is folded into its successor (spec 2026-10-26 §9.3): its line
+        // stays in the prompt, its body does not.
+        body: f.supersededBy != null ? '' : (f.body ?? '')
       })),
     evidence: listEvidence(db, slug).map((e) => ({
       relPath: e.relPath,
