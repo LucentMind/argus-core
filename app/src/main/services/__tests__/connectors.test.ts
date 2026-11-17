@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { ConnectorRegistry } from '../connectors'
 import { mcpServersPath } from '../paths'
-import { FS_WATCH_TIMEOUT } from './fsWatchBudget'
+import { FS_WATCH_TIMEOUT, armFsWatch } from './fsWatchBudget'
 
 let tmp: string, argusHome: string, reg: ConnectorRegistry
 
@@ -87,6 +87,20 @@ describe('ConnectorRegistry', () => {
     reg.patch({ a: { kind: 'stdio', config: {} } }) // ensures file + dir exist
     let notified = false
     reg.subscribe(() => (notified = true))
+    // macOS arms fs.watch asynchronously, so a write right after it can be lost outright (seen
+    // failing under full-suite load, 2026-11-17). Poke until the watcher demonstrably fires;
+    // each poke carries distinct content so the store sees a real change.
+    let n = 0
+    await armFsWatch(
+      () =>
+        fs.writeFileSync(
+          mcpServersPath(argusHome),
+          JSON.stringify({ a: { kind: 'stdio', config: { poke: n++ } } }),
+          'utf8'
+        ),
+      () => notified
+    )
+    notified = false
     fs.writeFileSync(
       mcpServersPath(argusHome),
       JSON.stringify({ a: { kind: 'stdio', config: {}, enabled: false } }),

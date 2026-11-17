@@ -51,9 +51,10 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * The returned poke count is the diagnostic: a run that needed more than one poke says so in the
  * log, so CI reports whether the first event was lost rather than leaving it inferred.
  *
- * NOTE: `caseWatch.test.ts`, `connectors.test.ts` and `fileStore.test.ts` have the same
- * write-immediately-after-watch shape and so the same latent race. They have not been observed
- * failing, so they are deliberately left alone — this helper is here for them when they are.
+ * NOTE: `caseWatch.test.ts` and `fileStore.test.ts` have the same write-immediately-after-watch
+ * shape and so the same latent race. They have not been observed failing, so they are
+ * deliberately left alone — this helper is here for them when they are. (`connectors.test.ts`
+ * was, and now uses it.)
  *
  * @param poke   Touch the watched tree. Called repeatedly, so point it at a throwaway path rather
  *               than the file the test is actually about.

@@ -77,6 +77,10 @@ describe('termSlugSets', () => {
     // declaration is still there) and pushes the failure into `stmt.all()`
     // inside the per-term loop, which is the actual case the removed catch
     // used to swallow.
+    // Node 24's node:sqlite turns SQLITE_DBCONFIG_DEFENSIVE on by default, which forbids writing
+    // to (or dropping) a virtual table's shadow tables. Off for this deliberate corruption only;
+    // `enableDefensive` does not exist on Node 22 (where defensive is already off).
+    ;(db as DatabaseSync & { enableDefensive?: (on: boolean) => void }).enableDefensive?.(false)
     db.exec('DROP TABLE case_summaries_fts_data')
     expect(() => termSlugSets(db, ['reset'])).toThrow()
   })

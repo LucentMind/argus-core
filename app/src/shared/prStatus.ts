@@ -139,12 +139,7 @@ export function rollupOf(checks: PrCheck[]): PrRollup {
  * CI green", which cannot express a merge, a conflict, or a draft — those live on `state`,
  * `mergeable` and `isDraft`, and were invisible on the card while it received only the rollup.
  */
-export type PrFace =
-  | 'merged'
-  | 'closed'
-  | 'conflict'
-  | 'draft'
-  | PrRollup
+export type PrFace = 'merged' | 'closed' | 'conflict' | 'draft' | PrRollup
 
 /**
  * Precedence: merged → closed → conflict → draft → CI verdict.
