@@ -109,6 +109,10 @@ export const IPC = {
   connectorsTest: 'connectors:test',
   connectorsOauth: 'connectors:oauth',
   connectorsOauthCode: 'connectors:oauth-code',
+  /** renderer → main: which settings the org policy manages (values only, never a secret). */
+  policyGet: 'policy:get',
+  /** main → renderer broadcast: the policy file changed; carries the new `PolicyPayload`. */
+  policyChanged: 'policy:changed',
   secretsSet: 'secrets:set',
   secretsHas: 'secrets:has',
   secretsDelete: 'secrets:delete',

@@ -199,6 +199,13 @@ describe('SettingsService', () => {
       protocol: 'http/protobuf',
       captureContent: false
     })
+    expect(s.observability.providers.datadog).toEqual({
+      enabled: false,
+      site: 'datadoghq.com',
+      mlApp: '',
+      env: '',
+      captureContent: false
+    })
     expect(s.observability.dashboard.hiddenCards).toEqual([])
     expect(s.migrations.observabilityProvider).toBe('')
   })
@@ -218,6 +225,7 @@ describe('SettingsService', () => {
       protocol: 'http/json'
     })
     expect(parsed.observability.providers.langfuse.enabled).toBe(false)
+    expect(parsed.observability.providers.datadog.site).toBe('datadoghq.com') // defaults fill in
     expect((parsed.observability as Record<string, unknown>).langfuse).toMatchObject({
       host: 'https://lf'
     })

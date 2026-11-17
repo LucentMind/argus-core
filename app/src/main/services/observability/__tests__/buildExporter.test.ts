@@ -105,12 +105,12 @@ describe('buildObservationExporter', () => {
 
   it('unknown keys under providers are ignored with one warning', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const s = withProviders({ datadog: { enabled: true }, honeycomb: { enabled: true } })
+    const s = withProviders({ dynatrace: { enabled: true }, honeycomb: { enabled: true } })
     const r = build(s, () => null, ctx)
     expect(r.exporter).toBeNull()
     expect(r.enabled).toEqual([])
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(String(warn.mock.calls[0][0])).toContain('datadog')
+    expect(String(warn.mock.calls[0][0])).toContain('dynatrace')
     expect(String(warn.mock.calls[0][0])).toContain('honeycomb')
   })
 

@@ -25,6 +25,7 @@ import type {
 } from '../shared/types'
 import type { AgentEvent } from '../shared/agent-events'
 import type { SettingsPayload, PermissionMode } from '../shared/settings'
+import type { PolicyPayload } from '../shared/policy'
 import type { RunOptionSelection, ModelOptionInfo } from '../shared/runOptions'
 import type { ConnectorsPayload } from '../shared/connectors'
 import type { HealthCheckResult } from '../shared/health'
@@ -1045,6 +1046,14 @@ const argus = {
       const listener = (_e: unknown, p: ConnectorsPayload): void => cb(p)
       ipcRenderer.on(IPC.connectorsChanged, listener)
       return () => ipcRenderer.removeListener(IPC.connectorsChanged, listener)
+    }
+  },
+  policy: {
+    get: (): Promise<PolicyPayload> => invoke(IPC.policyGet),
+    onChanged: (cb: (p: PolicyPayload) => void): (() => void) => {
+      const listener = (_e: unknown, p: PolicyPayload): void => cb(p)
+      ipcRenderer.on(IPC.policyChanged, listener)
+      return () => ipcRenderer.removeListener(IPC.policyChanged, listener)
     }
   },
   secrets: {

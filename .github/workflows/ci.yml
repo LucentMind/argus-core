@@ -113,3 +113,11 @@ jobs:
       - name: OTLP observability gate
         run: npm run gate:observability-otlp
         timeout-minutes: 10
+
+      # The Datadog provider enabled ONLY by an org policy file (ARGUS_POLICY_FILE) whose
+      # intakeUrl points at a local fake LLM Obs intake (scripts/lib/datadogReceiver.mjs): the
+      # locked Settings section, main refusing locked writes, the validate probe, evaluations and
+      # spans on the wire, key rotation without a restart, and removal back to off.
+      - name: Datadog observability gate
+        run: npm run gate:observability-datadog
+        timeout-minutes: 10

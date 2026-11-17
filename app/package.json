@@ -25,6 +25,7 @@
     "smoke:ptc-packaged": "node scripts/smoke-ptc-packaged.mjs",
     "gate:attribution-fake": "node scripts/cdp-attribution-fake.mjs",
     "gate:observability-otlp": "node scripts/cdp-observability-otlp.mjs",
+    "gate:observability-datadog": "node scripts/cdp-observability-datadog.mjs",
     "build:sidecar": "node scripts/build-resource-monitor.mjs",
     "build:win": "npm run build:sidecar && npm run build && electron-builder --win",
     "build:mac": "npm run build:sidecar && npm run build && electron-builder --mac",

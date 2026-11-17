@@ -184,9 +184,7 @@ describe('routine scope', () => {
 
   it('caps maxItemsPerRun in the SCHEMA, not only in the form', () => {
     // config/routines.json is hand-editable and each item buys an unattended agent turn.
-    expect(() =>
-      routineSchema.parse({ ...base, maxItemsPerRun: MAX_ITEMS_PER_RUN + 1 })
-    ).toThrow()
+    expect(() => routineSchema.parse({ ...base, maxItemsPerRun: MAX_ITEMS_PER_RUN + 1 })).toThrow()
     expect(routineSchema.parse({ ...base, maxItemsPerRun: MAX_ITEMS_PER_RUN }).maxItemsPerRun).toBe(
       MAX_ITEMS_PER_RUN
     )
