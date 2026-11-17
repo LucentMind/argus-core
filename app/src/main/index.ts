@@ -357,6 +357,16 @@ import {
 } from './services/observability/buildExporter'
 import { OBSERVABILITY_PROVIDERS } from './services/observability/providers'
 import {
+  PolicyService,
+  applyPolicy,
+  policyFirstResolver,
+  policyWantsUser,
+  lockedSettingsViolation,
+  lockedSecretViolation
+} from './services/policy'
+import { policyPayload } from '../shared/policy'
+import type { AppSettings } from '../shared/settings'
+import {
   OBSERVABILITY_PROVIDER_IDS,
   isObservabilitySecret,
   type ObservabilityProviderId
@@ -946,6 +956,34 @@ function registerIpc(): void {
     token: (id) => secretStore.resolve(corpusTokenSecret(id)) ?? undefined
   })
 
+  // — org policy: machine-level, read-only, re-read on change (services/policy.ts) —
+  const policyService = new PolicyService()
+  for (const e of policyService.get().errors) console.warn(`[policy] ${e}`)
+  /** The policy-supplied secret first, then the user's encrypted store. */
+  const resolveSecret = policyFirstResolver(
+    () => policyService.get(),
+    (n) => secretStore.resolve(n)
+  )
+  /** The `gh` login, fetched only when a policy asks to identify the user (`identifyUser`). */
+  let policyUserLogin: string | null = null
+  let policyUserLoginPending = false
+  /** User settings with the policy blocks laid over them: what observability actually runs on. */
+  const effectiveSettings = (): AppSettings => {
+    const state = policyService.get()
+    if (policyWantsUser(state) && policyUserLogin === null && !policyUserLoginPending) {
+      policyUserLoginPending = true
+      defaultGhRunner('gh', ['api', 'user', '--jq', '.login'], { timeoutMs: GH_TIMEOUT_MS })
+        .then((login) => {
+          policyUserLogin = login.trim() || null
+          if (policyUserLogin) rebuildExporter()
+        })
+        .catch((err: unknown) =>
+          console.warn('[policy] identifyUser: gh login unavailable', (err as Error).message)
+        )
+    }
+    return applyPolicy(settingsService.get(), state, { userLogin: policyUserLogin })
+  }
+
   // — observability: provider adapters (all off by default; each needs its own required fields) —
   // The install id is created lazily (an unconfigured install costs no disk write at boot); it is
   // declared here so both the exporter factory and the attribution/export paths below share it.
@@ -955,12 +993,12 @@ function registerIpc(): void {
   let observabilitySinks: Partial<Record<ObservabilityProviderId, ObservationSink>> = {}
   const buildExporter = (): void => {
     try {
-      const s = settingsService.get()
+      const s = effectiveSettings()
       const anyEnabled = OBSERVABILITY_PROVIDER_IDS.some(
         (id) => (s.observability?.providers?.[id] as { enabled?: boolean } | undefined)?.enabled
       )
       if (anyEnabled) installId ??= readOrCreateInstanceId(argusHome)
-      const built = buildObservationExporter(s, (n) => secretStore.resolve(n), {
+      const built = buildObservationExporter(s, resolveSecret, {
         installId: installId ?? '',
         appVersion: app.getVersion()
       })
@@ -986,6 +1024,12 @@ function registerIpc(): void {
     void old?.shutdown()
     buildExporter()
   }
+  // IT rotates the key / changes the block / removes the file: rebuild and tell the renderer.
+  policyService.onChange(() => {
+    for (const e of policyService.get().errors) console.warn(`[policy] ${e}`)
+    rebuildExporter()
+    broadcast(IPC.policyChanged, policyPayload(policyService.get()))
+  })
 
   const connectorRegistry = new ConnectorRegistry(argusHome)
   // Late-bound: diagnostics was constructed above, before this registry existed.
@@ -4134,6 +4178,9 @@ function registerIpc(): void {
   // — settings —
   ipcMain.handle(IPC.settingsGet, () => settingsService.payload())
   ipcMain.handle(IPC.settingsPatch, (_e, p: unknown) => {
+    // A locked (org policy) key is refused here too, not only disabled in the UI.
+    const locked = lockedSettingsViolation(p, policyService.get())
+    if (locked) throw new Error(locked)
     settingsService.patch(p)
     return settingsService.payload()
   })
@@ -4228,7 +4275,10 @@ function registerIpc(): void {
     if (!isOpenableUrl(url)) return
     void shell.openExternal(url)
   })
+  ipcMain.handle(IPC.policyGet, () => policyPayload(policyService.get()))
   ipcMain.handle(IPC.secretsSet, (_e, name: string, value: string) => {
+    const locked = lockedSecretViolation(name, policyService.get())
+    if (locked) throw new Error(locked)
     secretStore.set(name, value) // throws when safeStorage is unavailable → renderer surfaces the message
     // A sink reads its secret once, at construction: without a rebuild, a header/key saved after
     // the provider was enabled would not reach the exporter until restart.
@@ -4236,6 +4286,8 @@ function registerIpc(): void {
   })
   ipcMain.handle(IPC.secretsHas, (_e, name: string) => secretStore.has(name))
   ipcMain.handle(IPC.secretsDelete, (_e, name: string) => {
+    const locked = lockedSecretViolation(name, policyService.get())
+    if (locked) throw new Error(locked)
     secretStore.delete(name)
     if (isObservabilitySecret(name)) rebuildExporter()
   })
@@ -4285,13 +4337,14 @@ function registerIpc(): void {
         return { ok: false, detail: (err as Error).message }
       }
     },
+    policy: () => policyService.get(),
     observabilityProviders: () => observabilityRows,
     observabilityCheck: (id) =>
       // Build error → "not configured: missing <field>" → probe (+ latched export error).
       checkObservabilityProvider(
         OBSERVABILITY_PROVIDERS[id],
-        (settingsService.get().observability?.providers?.[id] ?? {}) as Record<string, unknown>,
-        (n) => secretStore.resolve(n),
+        (effectiveSettings().observability?.providers?.[id] ?? {}) as Record<string, unknown>,
+        resolveSecret,
         {
           buildError: observabilityErrors[id],
           lastError: () => observabilitySinks[id]?.lastError?.()

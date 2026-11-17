@@ -8,7 +8,7 @@ import { uiStore } from '../../lib/uiStore'
 // card, and `--bg-over` is tuned for the wash, not a near-white card fill — it read as no fill
 // at all there. `--well` is the on-card counterpart.
 export const FIELD =
-  'h-7 rounded-r2 border border-hair bg-well px-2 text-xs text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none'
+  'h-7 rounded-r2 border border-hair bg-well px-2 text-xs text-ink placeholder:text-mute transition-colors focus:border-hair2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60'
 
 /** Multi-line counterpart of {@link FIELD}. `FIELD`'s `h-7` is single-line-only, so a
  *  textarea that reused it would collapse; this keeps the same border/bg/focus tokens but
@@ -385,10 +385,13 @@ export function SettingRow({
 export function Switch({
   checked,
   onChange,
+  disabled,
   'aria-label': ariaLabel
 }: {
   checked: boolean
   onChange: (v: boolean) => void
+  /** Read-only, e.g. a value an org policy manages. */
+  disabled?: boolean
   'aria-label': string
 }): React.JSX.Element {
   return (
@@ -397,7 +400,8 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       aria-label={ariaLabel}
-      className={`h-5 w-9 rounded-full border transition-colors ${
+      disabled={disabled}
+      className={`h-5 w-9 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
         checked ? 'border-signal/40 bg-signal/30' : 'border-hair2 bg-hair'
       }`}
       onClick={() => onChange(!checked)}

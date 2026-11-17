@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { HealthService, type HealthDeps } from '../health'
 import type { HealthCheckResult } from '../../../shared/health'
+import { EMPTY_POLICY, parsePolicy, type PolicyState } from '../../../shared/policy'
 
 let tmp: string
 
@@ -45,6 +46,44 @@ async function runAll(d: HealthDeps, ids: string[] | null = null): Promise<Healt
 }
 
 describe('HealthService', () => {
+  describe('policy row', () => {
+    const state = (data: unknown, present = true): PolicyState => {
+      const { policy, errors } = parsePolicy(data)
+      return { path: '/p/policy.json', present, policy, errors }
+    }
+
+    it('absent policy file → no row', () => {
+      const d = deps({
+        policy: () => ({ path: '/p', present: false, policy: EMPTY_POLICY, errors: [] })
+      })
+      expect(new HealthService(d).rows().map((r) => r.id)).not.toContain('policy')
+    })
+
+    it('valid policy → ok row naming what it manages', async () => {
+      const d = deps({
+        policy: () => state({ observability: { providers: { datadog: { apiKey: 'k' } } } })
+      })
+      const [r] = await runAll(d, ['policy'])
+      expect(r).toMatchObject({
+        id: 'policy',
+        label: 'Organization policy',
+        ok: true,
+        detail: '/p/policy.json · manages datadog'
+      })
+      expect(JSON.stringify(r)).not.toContain('"k"')
+    })
+
+    it('invalid policy → failing row with the parse error, never a throw', async () => {
+      const d = deps({
+        policy: () => state({ observability: { providers: { datadog: { site: 'x' } } } })
+      })
+      const [r] = await runAll(d, ['policy'])
+      expect(r.ok).toBe(false)
+      expect(r.detail).toMatch(/datadog.*site/)
+      expect(r.fixHint).toMatch(/IT administrator/)
+    })
+  })
+
   it('rows: one row per registry binary, then static checks, then per-connector', () => {
     const rows = new HealthService(deps()).rows()
     expect(rows.map((r) => r.id)).toEqual([

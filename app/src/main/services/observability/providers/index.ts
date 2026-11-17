@@ -2,6 +2,7 @@ import type { ObservabilityProviderId } from '../../../../shared/observabilityPr
 import type { ObservabilityProvider } from './types'
 import { langfuseProvider } from './langfuse'
 import { otlpProvider } from './otlp'
+import { datadogProvider } from './datadog'
 
 export type { ObservabilityProvider, SecretResolver } from './types'
 
@@ -9,5 +10,6 @@ export type { ObservabilityProvider, SecretResolver } from './types'
  *  adapter is registered here. */
 export const OBSERVABILITY_PROVIDERS: Record<ObservabilityProviderId, ObservabilityProvider> = {
   langfuse: langfuseProvider,
-  otlp: otlpProvider
+  otlp: otlpProvider,
+  datadog: datadogProvider
 }

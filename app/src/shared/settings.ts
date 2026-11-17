@@ -2,6 +2,7 @@ import { z } from './zodConfig'
 import { defectCorpusSchema } from './defectCorpus'
 import { DEFAULT_RCA_TEMPLATE, type RcaTemplate } from './rcaTemplate'
 import { UPDATE_CHANNELS } from './updates'
+import { DATADOG_SITES } from './observabilityProviders'
 
 export const PERMISSION_MODES = [
   'default',
@@ -277,9 +278,20 @@ const otlpProviderSchema = z.looseObject({
   protocol: z.enum(['http/protobuf', 'http/json']).default('http/protobuf'),
   captureContent: z.boolean().default(false)
 })
+const datadogProviderSchema = z.looseObject({
+  enabled: z.boolean().default(false),
+  site: z.enum(DATADOG_SITES).default(DATADOG_SITES[0]),
+  /** Blank means `DEFAULT_DATADOG_ML_APP`; validated by the adapter, not here (a bad value must
+   *  surface on the health row, not reset the whole settings file to defaults). */
+  mlApp: z.string().default(''),
+  /** Optional; becomes the `env:<value>` tag. */
+  env: z.string().default(''),
+  captureContent: z.boolean().default(false)
+})
 const observabilityProvidersSchema = z.looseObject({
   langfuse: langfuseProviderSchema.default(() => langfuseProviderSchema.parse({})),
-  otlp: otlpProviderSchema.default(() => otlpProviderSchema.parse({}))
+  otlp: otlpProviderSchema.default(() => otlpProviderSchema.parse({})),
+  datadog: datadogProviderSchema.default(() => datadogProviderSchema.parse({}))
 })
 export type ObservabilityProvidersSettings = z.infer<typeof observabilityProvidersSchema>
 

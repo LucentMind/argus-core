@@ -12,6 +12,7 @@ import { settingsStore } from '../../lib/settingsStore'
 import { alert } from '../../lib/confirmStore'
 import type { SettingsPayload } from '../../../../shared/settings'
 import type { HealthCheckResult } from '../../../../shared/health'
+import type { PolicyPayload } from '../../../../shared/policy'
 import {
   OBSERVABILITY_PROVIDER_IDS,
   PROVIDER_DESCRIPTORS,
@@ -53,10 +54,12 @@ export const DASHBOARD_CARDS = [
 function SecretInput({
   placeholder,
   onCommit,
+  disabled,
   'aria-label': ariaLabel
 }: {
   placeholder: string
   onCommit: (plaintext: string) => void
+  disabled?: boolean
   'aria-label': string
 }): React.JSX.Element {
   const [draft, setDraft] = useState('')
@@ -70,6 +73,7 @@ function SecretInput({
       aria-label={ariaLabel}
       className={FIELD}
       placeholder={placeholder}
+      disabled={disabled}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
@@ -85,6 +89,20 @@ function SecretInput({
 }
 
 type ProviderCfg = Record<string, unknown> & { enabled: boolean; captureContent: boolean }
+type ManagedProvider = NonNullable<PolicyPayload['observability'][ObservabilityProviderId]>
+
+/** What a managed provider sends, in one line, so the user knows what the policy turned on. */
+function managedSummary(label: string, m: ManagedProvider, cfg: ProviderCfg): string {
+  if (m.error)
+    return `Your organization's policy for ${label} is invalid, so it is switched off. Ask your IT administrator to fix it.`
+  if (!cfg.enabled) return `Your organization's policy keeps ${label} switched off on this machine.`
+  const what = cfg.captureContent
+    ? 'traces, token usage, cost and scores, including prompts, responses and tool output'
+    : 'traces, token usage, cost and scores (no prompts, responses or tool output)'
+  const where = typeof cfg.site === 'string' && !m.customIntake ? ` (${cfg.site})` : ''
+  const who = m.identifyUser ? ', tagged with your GitHub login' : ''
+  return `Your organization's policy sends ${what} to ${label}${where}${who}. These settings cannot be changed here.`
+}
 
 /** How long Test connection waits for its health row before reporting "no response". */
 const TEST_TIMEOUT_MS = 10_000
@@ -96,12 +114,18 @@ const TEST_TIMEOUT_MS = 10_000
  */
 function ProviderSection({
   id,
-  cfg
+  cfg: userCfg,
+  managed
 }: {
   id: ObservabilityProviderId
   cfg: ProviderCfg
+  /** Present when an org policy manages this provider: its fields render read-only. */
+  managed?: ManagedProvider
 }): React.JSX.Element {
   const d = PROVIDER_DESCRIPTORS[id]
+  // The policy's values win, exactly as main merges them for the exporter.
+  const cfg: ProviderCfg = managed ? { ...userCfg, ...managed.values } : userCfg
+  const locked = (key: string): boolean => managed?.managed.includes(key) ?? false
   const [secretSet, setSecretSet] = useState<Record<string, boolean>>({})
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<HealthCheckResult | null>(null)
@@ -167,22 +191,52 @@ function ProviderSection({
   const exportError = testResult?.ok === true && testResult.detail.includes('last export error')
 
   return (
-    <SettingsSection title={d.label}>
+    <SettingsSection
+      title={d.label}
+      action={
+        managed ? (
+          <Chip tone={managed.error ? 'danger' : 'signal'} aria-label={`${d.label} is managed`}>
+            Managed by your organization
+          </Chip>
+        ) : undefined
+      }
+    >
+      {managed && (
+        <SettingRow
+          label="Organization policy"
+          description={
+            <span data-testid={`policy-summary-${id}`}>
+              {managedSummary(d.label, managed, cfg)}
+            </span>
+          }
+        >
+          {null}
+        </SettingRow>
+      )}
       <SettingRow label={`Enable ${d.label}`} description={d.description}>
         <Switch
           checked={cfg.enabled}
+          disabled={locked('enabled')}
           onChange={(v) => patch({ enabled: v })}
           aria-label={`Enable ${d.label}`}
         />
       </SettingRow>
       {d.fields.map((f) => {
         const label = `${d.label} ${f.label}`
+        const isLocked = locked(f.key)
         if (f.kind === 'secret')
           return (
-            <SettingRow key={f.key} label={f.label} isDefault={!secretSet[f.key]}>
+            <SettingRow key={f.key} label={f.label} isDefault={isLocked || !secretSet[f.key]}>
               <SecretInput
                 aria-label={label}
-                placeholder={secretSet[f.key] ? '•••• (set)' : (f.placeholder ?? '')}
+                disabled={isLocked}
+                placeholder={
+                  isLocked
+                    ? '•••• (managed)'
+                    : secretSet[f.key]
+                      ? '•••• (set)'
+                      : (f.placeholder ?? '')
+                }
                 onCommit={(v) => commitSecret(f.key, v)}
               />
             </SettingRow>
@@ -190,9 +244,14 @@ function ProviderSection({
         if (f.kind === 'select') {
           const options = f.options ?? []
           return (
-            <SettingRow key={f.key} label={f.label} isDefault={cfg[f.key] === options[0]}>
+            <SettingRow
+              key={f.key}
+              label={f.label}
+              isDefault={isLocked || cfg[f.key] === options[0]}
+            >
               <SelectField
                 aria-label={label}
+                disabled={isLocked}
                 value={String(cfg[f.key] ?? options[0] ?? '')}
                 options={options}
                 onChange={(v) => patch({ [f.key]: v })}
@@ -201,9 +260,10 @@ function ProviderSection({
           )
         }
         return (
-          <SettingRow key={f.key} label={f.label} isDefault={cfg[f.key] === ''}>
+          <SettingRow key={f.key} label={f.label} isDefault={isLocked || cfg[f.key] === ''}>
             <DraftInput
               aria-label={label}
+              disabled={isLocked}
               className={`${FIELD} w-72${f.mono ? ' font-mono' : ''}`}
               placeholder={f.placeholder}
               value={String(cfg[f.key] ?? '')}
@@ -218,6 +278,7 @@ function ProviderSection({
       >
         <Switch
           checked={cfg.captureContent}
+          disabled={locked('captureContent')}
           onChange={(v) => patch({ captureContent: v })}
           aria-label={`Capture content · ${d.label}`}
         />
@@ -259,6 +320,21 @@ export function ObservabilitySettings({
   onOpenDashboard?: () => void
 }): React.JSX.Element {
   const { providers, dashboard } = payload.settings.observability
+  const [policy, setPolicy] = useState<PolicyPayload | null>(null)
+
+  useEffect(() => {
+    const api = window.argus.policy
+    if (!api) return
+    let mounted = true
+    void api.get().then((p) => {
+      if (mounted) setPolicy(p)
+    })
+    const off = api.onChanged((p) => setPolicy(p))
+    return () => {
+      mounted = false
+      off()
+    }
+  }, [])
 
   function toggleCard(id: string, hidden: boolean): void {
     const next = hidden
@@ -279,7 +355,12 @@ export function ObservabilitySettings({
       </SettingsSection>
 
       {OBSERVABILITY_PROVIDER_IDS.map((id) => (
-        <ProviderSection key={id} id={id} cfg={providers[id] as ProviderCfg} />
+        <ProviderSection
+          key={id}
+          id={id}
+          cfg={providers[id] as ProviderCfg}
+          managed={policy?.observability[id]}
+        />
       ))}
 
       <SettingsSection title="Dashboard cards">

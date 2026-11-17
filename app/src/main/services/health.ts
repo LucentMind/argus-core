@@ -6,6 +6,7 @@ import type { AuthStatus } from '../../shared/types'
 import type { DiscoveredTool } from '../../shared/connectors'
 import type { HealthCheckResult, HealthRow } from '../../shared/health'
 import type { ObservabilityProviderId } from '../../shared/observabilityProviders'
+import type { PolicyState } from '../../shared/policy'
 
 const execFileAsync = promisify(execFile)
 
@@ -24,6 +25,9 @@ export interface HealthDeps {
   atlassianCheck: () => Promise<{ ok: boolean; detail: string }>
   refsyncConfigured: () => boolean
   confluenceCheck: () => Promise<{ ok: boolean; detail: string }>
+  /** The org policy (services/policy.ts). A present file gets a `policy` row; optional so test
+   *  fixtures that predate it keep compiling. */
+  policy?: () => PolicyState
   /** Enabled observability providers (complete or not): one health row each (id 'observability:<id>'). */
   observabilityProviders: () => Array<{ id: ObservabilityProviderId; label: string }>
   observabilityCheck: (id: ObservabilityProviderId) => Promise<{ ok: boolean; detail: string }>
@@ -45,6 +49,9 @@ export class HealthService {
         .binaries()
         .map((b) => ({ id: `bin:${b.id}`, label: b.label, category: 'tools' as const })),
       ...STATIC_ROWS,
+      ...(this.deps.policy?.().present
+        ? [{ id: 'policy', label: 'Organization policy', category: 'general' as const }]
+        : []),
       ...(this.deps.atlassianConfigured()
         ? [
             {
@@ -114,6 +121,25 @@ export class HealthService {
         }
       }
       if (row.id === 'data-root') return this.checkDataRoot(row)
+      if (row.id === 'policy') {
+        const p = this.deps.policy?.()
+        if (!p) return { ...row, ok: false, detail: 'no policy service' }
+        const managed = Object.keys(p.policy.observability.providers)
+        return p.errors.length === 0
+          ? {
+              ...row,
+              ok: true,
+              detail: managed.length
+                ? `${p.path} · manages ${managed.join(', ')}`
+                : `${p.path} · manages nothing`
+            }
+          : {
+              ...row,
+              ok: false,
+              detail: p.errors.join(' | '),
+              fixHint: `Ask your IT administrator to fix ${p.path}. Invalid blocks stay switched off.`
+            }
+      }
       if (row.id === 'atlassian-rest') {
         const r = await this.deps.atlassianCheck()
         return {
